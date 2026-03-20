@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Travel Package Demo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Travel Booking UI (Demo)</h1>
+      <span>Create and cancel package bookings against the Docker backend.</span>
+    </div>
+    <span>Booking API: http://localhost:5101</span>
+  </header>
+
+  <main>
+    <div class="col">
+      <section class="card">
+        <div class="card-header">
+          <h2>Create Booking</h2>
+          <span class="pill">Step 1 &ndash; Book</span>
+        </div>
+
+        <form id="createForm" class="form-grid">
+          <label>
+            Customer ID
+            <input type="number" id="customerID" value="1" required />
+          </label>
+
+          <label>
+            Flight ID
+            <input type="text" id="flightID" value="SQ001" required />
+          </label>
+
+          <label>
+            Hotel ID
+            <input type="number" id="hotelID" value="1" required />
+          </label>
+
+          <label>
+            Room Type
+            <select id="hotelRoomType">
+              <option value="STD">Standard (Room only)</option>
+              <option value="DLX">Deluxe (with breakfast)</option>
+            </select>
+          </label>
+
+          <label>
+            Departure Date &amp; Time
+            <input type="datetime-local" id="departureTime" value="2026-05-01T10:00" required />
+          </label>
+
+          <label>
+            Total Package Price (Flight + Hotel)
+            <input type="number" id="totalPrice" value="1200" required />
+          </label>
+
+          <label>
+            Discount code (optional)
+            <input type="text" id="discountCode" placeholder="SILVER10 / GOLD15 / PLAT20" />
+          </label>
+
+          <label>
+            Coins to offset payment (in cents)
+            <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
+          </label>
+
+          <div class="muted">
+            Computed paid amount will be sent as <code>totalPrice</code>.
+            <div>Final paid total: <span id="computedTotalPrice">-</span></div>
+          </div>
+
+          <label>
+            Currency
+            <input type="text" id="currency" value="SGD" required />
+          </label>
+
+          <label>
+            Fare Type
+            <select id="fareType">
+              <option value="Saver">Saver</option>
+              <option value="Standard">Standard</option>
+              <option value="Flexi" selected>Flexi</option>
+            </select>
+          </label>
+
+          <label class="form-grid-1col">
+            Hotel extras
+            <span class="inline-checkbox">
+              <input type="checkbox" id="hotelIncludesBreakfast" />
+              <span>Add breakfast package</span>
+            </span>
+          </label>
+
+          <div class="form-grid-1col">
+            <button type="submit" id="createBtn">
+              <span>➕</span>
+              <span>Create Booking</span>
+            </button>
+            <div class="muted">
+              Calls <code>POST /booking</code>. In the real app, OutSystems would calculate tier discounts/coins
+              and send the final payload here.
+            </div>
+          </div>
+        </form>
+
+        <div id="createError" class="alert"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>Cancel Booking</h2>
+          <span class="pill">Step 2 &ndash; Cancel</span>
+        </div>
+
+        <form id="cancelForm" class="form-grid-1col">
+          <label>
+            Booking ID
+            <input type="number" id="cancelBookingID" required />
+          </label>
+          <button type="submit" class="secondary" id="cancelBtn">
+            <span>↩</span>
+            <span>Compute Refund</span>
+          </button>
+          <div class="muted">
+            Calls <code>POST /booking/cancel/{id}</code>. Shows refund percentage/amount and payment info.
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card">
+        <div class="card-header">
+          <h2>Live Output</h2>
+          <span class="pill">Step 3 &ndash; Inspect</span>
+        </div>
+
+        <div class="section-title">Customer Loyalty</div>
+        <div class="summary-row">
+          <span class="label">Coins</span>
+          <span class="value" id="loyaltyCoins">-</span>
+        </div>
+        <div class="summary-row">
+          <span class="label">Tier</span>
+          <span class="value" id="loyaltyTier">-</span>
+        </div>
+
+        <div class="section-title" style="margin-top:16px;">Latest API response</div>
+        <div class="result-header">
+          <span style="font-size:13px;font-weight:600;">Booking service response</span>
+          <span id="resultStatus" class="muted"></span>
+        </div>
+
+        <div class="actions-row">
+          <button type="button" id="copyResultBtn" class="secondary">Copy JSON</button>
+          <button type="button" id="refreshNotifBtn" class="secondary">Refresh notifications</button>
+        </div>
+
+        <pre id="result">{ }</pre>
+
+        <div class="section-title" style="margin-top:16px;">Notifications (RabbitMQ)</div>
+        <pre id="notifications">{ }</pre>
+
+        <div id="uiError" class="alert"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
+

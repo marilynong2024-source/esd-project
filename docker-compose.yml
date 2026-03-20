@@ -1,0 +1,102 @@
+version: "3.8"
+
+services:
+  booking:
+    build: ./booking
+    ports:
+      - "5101:5101"
+    environment:
+      - DB_URL=mysql+pymysql://travel_user:travel_pass@booking-db:3306/travel_booking
+      - FLIGHT_URL=http://flight:5102/flight
+      - HOTEL_URL=http://hotel:5103/hotel
+      - PAYMENT_URL=http://payment:5104/payment
+      - LOYALTY_URL=http://loyalty:5105/loyalty
+      - RABBIT_HOST=rabbitmq
+      - RABBIT_PORT=5672
+      - EXCHANGE_NAME=travel_topic
+      - EXCHANGE_TYPE=topic
+    depends_on:
+      flight:
+        condition: service_started
+      hotel:
+        condition: service_started
+      payment:
+        condition: service_started
+      loyalty:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      booking-db:
+        condition: service_healthy
+
+  account:
+    build: ./account
+    ports:
+      - "5100:5100"
+
+  flight:
+    build: ./flight
+    ports:
+      - "5102:5102"
+
+  hotel:
+    build: ./hotel
+    ports:
+      - "5103:5103"
+
+  payment:
+    build: ./payment
+    ports:
+      - "5104:5104"
+
+  loyalty:
+    build: ./loyalty
+    ports:
+      - "5105:5105"
+
+  notification:
+    build: ./notification
+    ports:
+      - "5106:5106"
+    environment:
+      - RABBIT_HOST=rabbitmq
+      - RABBIT_PORT=5672
+      - EXCHANGE_NAME=travel_topic
+      - EXCHANGE_TYPE=topic
+      - QUEUE_NAME=Notification
+    depends_on:
+      - rabbitmq
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+
+  booking-db:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=travel_booking
+      - MYSQL_USER=travel_user
+      - MYSQL_PASSWORD=travel_pass
+    ports:
+      - "3307:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  ui:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./ui:/usr/share/nginx/html:ro
+

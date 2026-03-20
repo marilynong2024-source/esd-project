@@ -1,0 +1,39 @@
+-- Schema for the travel_booking database (MySQL)
+
+CREATE TABLE IF NOT EXISTS bookings (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  customerID INT NOT NULL,
+  flightID VARCHAR(20) NOT NULL,
+  hotelID INT NOT NULL,
+  hotelRoomType VARCHAR(10),
+  hotelIncludesBreakfast TINYINT(1) DEFAULT 0,
+  departureTime VARCHAR(40) NOT NULL,
+  totalPrice DOUBLE NOT NULL,
+  currency VARCHAR(8) DEFAULT 'SGD',
+  fareType VARCHAR(20) DEFAULT 'Saver',
+  loyaltyTier VARCHAR(20),
+  hotelPaymentMode VARCHAR(20) DEFAULT 'PrepaidInApp',
+  status VARCHAR(20) DEFAULT 'CONFIRMED',
+  refundPercentage INT,
+  refundAmount DOUBLE
+);
+
+-- Sample fake data (3 example bookings)
+
+INSERT INTO bookings (
+  customerID, flightID, hotelID, hotelRoomType, hotelIncludesBreakfast,
+  departureTime, totalPrice, currency, fareType, loyaltyTier,
+  hotelPaymentMode, status, refundPercentage, refundAmount
+) VALUES
+  (1, 'SQ001', 1, 'STD', 0,
+   '2026-05-01T10:00:00', 1200.00, 'SGD', 'Flexi', 'Gold',
+   'PrepaidInApp', 'CONFIRMED', NULL, NULL),
+
+  (2, 'SQ001', 1, 'DLX', 1,
+   '2026-06-15T09:30:00', 1500.00, 'SGD', 'Standard', 'Silver',
+   'PrepaidInApp', 'CONFIRMED', NULL, NULL),
+
+  (3, 'SQ001', 1, 'STD', 0,
+   '2026-04-20T18:45:00', 800.00, 'SGD', 'Saver', NULL,
+   'PayAtHotel', 'CONFIRMED', NULL, NULL);
+
