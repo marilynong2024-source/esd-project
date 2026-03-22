@@ -4,7 +4,7 @@ from datetime import datetime
 import os
 import requests
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text
+from sqlalchemy import text, inspect
 import pika
 import json
 
@@ -84,6 +84,8 @@ class Booking(db.Model):
     status = db.Column(db.String(20), default="CONFIRMED")
     refundPercentage = db.Column(db.Integer, nullable=True)
     refundAmount = db.Column(db.Float, nullable=True)
+    # Flight seat (demo): only meaningful when airline allows online seat selection (e.g. SQ).
+    seatNumber = db.Column(db.String(8), nullable=True)
 
     def to_dict(self):
         return {
@@ -102,6 +104,7 @@ class Booking(db.Model):
             "status": self.status,
             "refundPercentage": self.refundPercentage,
             "refundAmount": self.refundAmount,
+            "seatNumber": self.seatNumber,
         }
 
 
@@ -164,6 +167,9 @@ def create_booking():
     data = request.get_json() or {}
     try:
         coins_to_spend_cents = int(max(0, int(data.get("coinsToSpendCents", 0) or 0)))
+        seat_raw = data.get("seatNumber")
+        seat_number = (str(seat_raw).strip().upper() if seat_raw else None) or None
+
         booking = Booking(
             customerID=data["customerID"],
             flightID=data["flightID"],
@@ -176,6 +182,7 @@ def create_booking():
             fareType=data.get("fareType", "Saver"),
             loyaltyTier=data.get("loyaltyTier"),
             hotelPaymentMode=data.get("hotelPaymentMode", "PrepaidInApp"),
+            seatNumber=seat_number,
         )
     except KeyError as e:
         return jsonify({"code": 400, "message": f"Missing field: {e}"}), 400
@@ -294,10 +301,32 @@ def cancel_booking(booking_id: int):
         "bookingID": booking_id,
         "refundPercentage": percentage,
         "refundAmount": amount,
-        "currency": booking.currency or "USD",
+        "currency": booking.currency or "SGD",
         "payment": payment_data,
     }
     return jsonify({"code": 200, "data": result}), 200
+
+
+def ensure_booking_columns():
+    """Add columns introduced after first deploy (MySQL/SQLite)."""
+    try:
+        inspector = inspect(db.engine)
+        if not inspector.has_table("bookings"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("bookings")}
+        if "seatNumber" not in cols:
+            dialect = db.engine.dialect.name
+            if dialect == "sqlite":
+                db.session.execute(text("ALTER TABLE bookings ADD COLUMN seatNumber VARCHAR(8)"))
+            else:
+                db.session.execute(
+                    text("ALTER TABLE bookings ADD COLUMN seatNumber VARCHAR(8) NULL")
+                )
+            db.session.commit()
+            print("Migrated: added bookings.seatNumber")
+    except Exception as e:
+        db.session.rollback()
+        print(f"ensure_booking_columns (non-fatal): {e}")
 
 
 def wait_for_db(max_attempts=30, delay=2):
@@ -320,5 +349,6 @@ if __name__ == "__main__":
     with app.app_context():
         wait_for_db()
         db.create_all()
+        ensure_booking_columns()
     app.run(host="0.0.0.0", port=5101, debug=True)
 

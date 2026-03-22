@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   hotelPaymentMode VARCHAR(20) DEFAULT 'PrepaidInApp',
   status VARCHAR(20) DEFAULT 'CONFIRMED',
   refundPercentage INT,
-  refundAmount DOUBLE
+  refundAmount DOUBLE,
+  seatNumber VARCHAR(8) NULL
 );
 
 -- Sample fake data (3 example bookings)

@@ -23,6 +23,13 @@
         </div>
 
         <form id="createForm" class="form-grid">
+          <label class="form-grid-1col">
+            Demo profile (fills form for presentation)
+            <select id="demoProfile">
+              <option value="">— Custom / manual —</option>
+            </select>
+          </label>
+
           <label>
             Customer ID
             <input type="number" id="customerID" value="1" required />
@@ -30,8 +37,32 @@
 
           <label>
             Flight ID
-            <input type="text" id="flightID" value="SQ001" required />
+            <input type="text" id="flightID" value="SQ001" required placeholder="e.g. SQ001, AK123" />
           </label>
+
+          <div class="seat-panel form-grid-1col" id="seatPanel">
+            <div class="section-title" style="margin-top:0;">Seat selection</div>
+            <p id="seatPolicyText" class="muted seat-policy-line"></p>
+            <div id="seatMapWrap" class="seat-map-wrap" hidden>
+              <div class="seat-map-legend">
+                <span><span class="swatch taken"></span> Taken</span>
+                <span><span class="swatch free"></span> Free</span>
+                <span><span class="swatch picked"></span> Your seat</span>
+              </div>
+              <div class="seat-map-legend seat-map-legend--types">
+                <span><span class="swatch type-window"></span> Window</span>
+                <span><span class="swatch type-aisle"></span> Aisle</span>
+                <span><span class="swatch type-middle"></span> Middle</span>
+                <span><span class="swatch type-extra"></span> Extra legroom</span>
+                <span><span class="swatch type-exit"></span> Exit row</span>
+              </div>
+              <div class="seat-map" id="seatMap" aria-label="Aircraft seat map"></div>
+              <p class="muted">Selected seat: <strong id="seatSelectedDisplay">—</strong></p>
+              <p class="muted seat-selected-detail" id="seatSelectedDetail"></p>
+            </div>
+            <div id="seatBlockedNote" class="seat-blocked-note" hidden></div>
+            <input type="hidden" id="seatNumber" value="" />
+          </div>
 
           <label>
             Hotel ID

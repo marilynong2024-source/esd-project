@@ -64,6 +64,12 @@ services:
       - EXCHANGE_NAME=travel_topic
       - EXCHANGE_TYPE=topic
       - QUEUE_NAME=Notification
+      # Optional — SMU Lab Utilities SendEmail (see notification/smu_integration.py)
+      # - SMU_NOTIFICATION_ENABLED=true
+      # - SMU_NOTIFICATION_BASE_URL=https://smuedu-dev.outsystemsenterprise.com/SMULab_Notification/rest/Notification
+      # - SMU_NOTIFY_EMAIL_TO=you@student.smu.edu.sg
+      # - SMU_NOTIFICATION_AUTH_HEADER=Authorization
+      # - SMU_NOTIFICATION_AUTH_VALUE=Bearer <API key from SMU Lab Utilities>
     depends_on:
       - rabbitmq
 

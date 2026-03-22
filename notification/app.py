@@ -5,6 +5,8 @@ import threading
 import pika
 import json
 
+from smu_integration import send_email_for_amqp_event
+
 app = Flask(__name__)
 CORS(app)
 
@@ -43,6 +45,21 @@ def start_amqp_consumer():
                 "payload": payload,
             }
         )
+
+        # Optional: SMU Lab Utilities SendEmail (see smu_integration.py + env vars)
+        smu_out = send_email_for_amqp_event(method.routing_key, payload)
+        if smu_out and not smu_out.get("skipped"):
+            NOTIFICATIONS.append(
+                {
+                    "source": "smu_sendemail",
+                    "routing_key": method.routing_key,
+                    "result": smu_out,
+                }
+            )
+        elif smu_out and smu_out.get("skipped"):
+            # Only log once per process to avoid noise — skip reason is in first skipped result
+            pass
+
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     def run():

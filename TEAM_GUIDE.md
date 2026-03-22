@@ -58,6 +58,7 @@
   - `POST /notify/manual`: manual notifications (not central to demo).
   - `GET /notifications`: shows events consumed from RabbitMQ.
   - Runs a **RabbitMQ consumer** that listens for `booking.cancelled` events.
+  - **Optional — SMU Lab Utilities**: you can turn on real **SendEmail** calls when a cancel event arrives. Copy your **API key** from SMU Lab Utilities → API Keys, then set env vars on the `notification` service (see `notification/smu_integration.py` and commented examples in `docker-compose.yml`): `SMU_NOTIFICATION_ENABLED=true`, `SMU_NOTIFICATION_BASE_URL`, `SMU_NOTIFY_EMAIL_TO`, `SMU_NOTIFICATION_AUTH_HEADER` / `SMU_NOTIFICATION_AUTH_VALUE` (usually `Authorization` + `Bearer …`). Successful/failed calls are appended to `GET /notifications` under `source: smu_sendemail`. **SendSMS / SendOTP** use different JSON bodies — extend `smu_integration.py` similarly if your module needs them.
 
 - **RabbitMQ**
   - Exchange: `travel_topic` (type `topic`).

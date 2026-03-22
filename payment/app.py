@@ -23,7 +23,7 @@ def process_payment():
         "paymentID": payment_id,
         "bookingID": data.get("bookingID"),
         "amount": data.get("amount", 0),
-        "currency": data.get("currency", "USD"),
+        "currency": data.get("currency", "SGD"),
         "status": "PAID",
         "createdAt": datetime.utcnow().isoformat(),
     }

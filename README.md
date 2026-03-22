@@ -21,7 +21,7 @@ All services are implemented in Python Flask and are started together with Docke
 3. Build and start all services:
    - `docker compose up --build`
 4. Once everything is up:
-   - **Test UI:** `http://localhost:8080` — the page calls APIs **through nginx** at `/api/booking`, `/api/loyalty`, `/api/notification` (same origin; see `nginx/ui.conf`).
+   - **Test UI:** `http://localhost:8080` — the page calls APIs **through nginx** at `/api/booking`, `/api/loyalty`, `/api/notification` (same origin; see `nginx/ui.conf`). The UI includes **demo customer profiles** and a **seat map** for `SQ*` flights; carriers like `AK`/`TR` show “check-in only” in the demo.
    - Booking API (direct): `http://localhost:5101`
    - Notification API (direct): `http://localhost:5106/notifications`
 

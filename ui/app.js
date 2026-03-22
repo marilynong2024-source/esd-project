@@ -5,6 +5,120 @@ const API_BASE = "/api/booking";
 const LOYALTY_BASE = "/api/loyalty";
 const NOTIFICATION_BASE = "/api/notification";
 
+/** Demo personas — pick from dropdown to fill the form for presentations */
+const DEMO_PROFILES = [
+  {
+    id: "ava",
+    label: "Ava Chen — casual traveller (cust 1)",
+    customerID: 1,
+    flightID: "SQ001",
+    hotelID: 1,
+    hotelRoomType: "STD",
+    hotelIncludesBreakfast: false,
+    departureTime: "2026-05-01T10:00",
+    totalPrice: 1200,
+    currency: "SGD",
+    fareType: "Flexi",
+    discountCode: "",
+    coinsToSpendCents: 0,
+    preferredSeat: "11D",
+  },
+  {
+    id: "ben",
+    label: "Ben Kumar — business (cust 2)",
+    customerID: 2,
+    flightID: "SQ002",
+    hotelID: 1,
+    hotelRoomType: "DLX",
+    hotelIncludesBreakfast: true,
+    departureTime: "2026-06-15T09:30",
+    totalPrice: 1500,
+    currency: "SGD",
+    fareType: "Standard",
+    discountCode: "",
+    coinsToSpendCents: 0,
+    preferredSeat: "11F",
+  },
+  {
+    id: "airasia",
+    label: "Casey — AirAsia AK123 (no online seat map)",
+    customerID: 3,
+    flightID: "AK123",
+    hotelID: 1,
+    hotelRoomType: "STD",
+    hotelIncludesBreakfast: false,
+    departureTime: "2026-07-01T14:00",
+    totalPrice: 650,
+    currency: "SGD",
+    fareType: "Saver",
+    discountCode: "",
+    coinsToSpendCents: 0,
+    preferredSeat: null,
+  },
+  {
+    id: "scoot",
+    label: "Dana — Scoot TR789 (check-in only in demo)",
+    customerID: 4,
+    flightID: "TR789",
+    hotelID: 1,
+    hotelRoomType: "STD",
+    hotelIncludesBreakfast: false,
+    departureTime: "2026-08-10T08:00",
+    totalPrice: 520,
+    currency: "SGD",
+    fareType: "Saver",
+    discountCode: "",
+    coinsToSpendCents: 0,
+    preferredSeat: null,
+  },
+  {
+    id: "elena",
+    label: "Elena — corporate (cust 5, discount code)",
+    customerID: 5,
+    flightID: "SQ001",
+    hotelID: 1,
+    hotelRoomType: "DLX",
+    hotelIncludesBreakfast: true,
+    departureTime: "2026-09-01T12:00",
+    totalPrice: 2400,
+    currency: "SGD",
+    fareType: "Flexi",
+    discountCode: "PLAT20",
+    coinsToSpendCents: 500,
+    preferredSeat: "12A",
+  },
+];
+
+const TAKEN_SEATS = new Set(["8A", "8B", "9D", "10F", "12C"]);
+
+/**
+ * Typical narrow-body 3–3 layout: A/F window, C/D aisle, B/E middle.
+ * Rows 6–7: economy comfort (extra legroom). Row 12: exit row.
+ */
+function getSeatCharacteristics(row, letter) {
+  const L = String(letter).toUpperCase();
+  let position = "middle";
+  if (L === "A" || L === "F") position = "window";
+  else if (L === "C" || L === "D") position = "aisle";
+
+  let zone = "standard";
+  if (row === 6 || row === 7) zone = "extra_legroom";
+  if (row === 12) zone = "exit_row";
+
+  const bits = [];
+  if (position === "window") bits.push("Window");
+  else if (position === "aisle") bits.push("Aisle");
+  else bits.push("Middle");
+  if (zone === "extra_legroom") bits.push("Extra legroom");
+  if (zone === "exit_row") bits.push("Exit row · extra legroom");
+
+  return {
+    position,
+    zone,
+    label: bits.join(" · "),
+  };
+}
+
 let latestResult = null;
 let latestLoyalty = null; // { coins, bookingCount, tier, ... } from loyalty service
 
@@ -109,6 +223,231 @@ function codeDiscountPercent(code, projectedTier) {
   return 0;
 }
 
+function extractAirlineCode(flightId) {
+  const m = String(flightId || "")
+    .trim()
+    .toUpperCase()
+    .match(/^([A-Z]{2})/);
+  return m ? m[1] : "";
+}
+
+/**
+ * SQ = full-service style online seat map in this demo.
+ * AK / AA / TR etc. = must use check-in / counter (demo blocks the map).
+ */
+function getSeatPolicy(flightId) {
+  const code = extractAirlineCode(flightId);
+  if (!code) {
+    return {
+      onlineSeatSelection: false,
+      airlineCode: "",
+      airlineName: "",
+      reason: "Enter a flight number (e.g. SQ001 or AK123).",
+    };
+  }
+  const rules = {
+    SQ: {
+      onlineSeatSelection: true,
+      airlineName: "Singapore Airlines",
+      reason: "",
+    },
+    AK: {
+      onlineSeatSelection: false,
+      airlineName: "AirAsia",
+      reason:
+        "AirAsia: seat assignment at online check-in or at the airport — advance seat map is disabled in this demo.",
+    },
+    AA: {
+      onlineSeatSelection: false,
+      airlineName: "American Airlines",
+      reason:
+        "American Airlines: advance seat selection is not available in this demo — check in online or at the airport.",
+    },
+    TR: {
+      onlineSeatSelection: false,
+      airlineName: "Scoot",
+      reason:
+        "Scoot: budget carrier — seat selection via the airline app or at check-in (not modelled in this UI).",
+    },
+  };
+  const r = rules[code];
+  if (r) {
+    return { ...r, airlineCode: code };
+  }
+  return {
+    onlineSeatSelection: false,
+    airlineCode: code,
+    airlineName: code,
+    reason: `Airline ${code}: online seat map not enabled in this demo — confirm your seat at check-in.`,
+  };
+}
+
+function clearSeatSelection() {
+  document.getElementById("seatNumber").value = "";
+  document.getElementById("seatSelectedDisplay").textContent = "—";
+  const detail = document.getElementById("seatSelectedDetail");
+  if (detail) detail.textContent = "";
+  document.querySelectorAll("#seatMap button.seat").forEach((b) => {
+    b.classList.remove("picked");
+  });
+}
+
+function selectSeat(seatCode) {
+  const code = String(seatCode).toUpperCase();
+  document.getElementById("seatNumber").value = code;
+  document.getElementById("seatSelectedDisplay").textContent = code;
+  const btn = document.querySelector(`#seatMap button.seat[data-seat="${code}"]`);
+  const detail = document.getElementById("seatSelectedDetail");
+  if (detail) {
+    detail.textContent = btn?.dataset?.seatLabel ? `(${btn.dataset.seatLabel})` : "";
+  }
+  document.querySelectorAll("#seatMap button.seat").forEach((b) => {
+    b.classList.toggle("picked", b.dataset.seat === code);
+  });
+}
+
+function selectSeatByCode(code) {
+  const up = String(code || "").toUpperCase();
+  const btn = document.querySelector(`#seatMap button.seat[data-seat="${up}"]`);
+  if (!btn || btn.disabled) return;
+  selectSeat(up);
+}
+
+function addSeatButton(container, row, letter) {
+  const id = `${row}${letter}`;
+  const meta = getSeatCharacteristics(row, letter);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "seat";
+  btn.dataset.seat = id;
+  btn.dataset.seatLabel = meta.label;
+  btn.textContent = letter;
+  btn.classList.add(`seat--${meta.position}`);
+  btn.classList.add(`seat--zone-${meta.zone}`);
+
+  if (TAKEN_SEATS.has(id)) {
+    btn.disabled = true;
+    btn.classList.add("taken");
+    btn.title = `${id} · ${meta.label} · Already taken`;
+  } else {
+    btn.title = `${id} · ${meta.label} · Click to select`;
+    btn.addEventListener("click", () => selectSeat(id));
+  }
+  container.appendChild(btn);
+}
+
+function addSectionHeader(mapEl, title) {
+  const h = document.createElement("div");
+  h.className = "seat-section-header";
+  h.textContent = title;
+  mapEl.appendChild(h);
+}
+
+function addSeatRow(mapEl, row) {
+  const rowEl = document.createElement("div");
+  rowEl.className = "seat-row";
+  const num = document.createElement("span");
+  num.className = "row-num";
+  num.textContent = String(row);
+  rowEl.appendChild(num);
+  const left = document.createElement("div");
+  left.className = "seat-group";
+  addSeatButton(left, row, "A");
+  addSeatButton(left, row, "B");
+  addSeatButton(left, row, "C");
+  rowEl.appendChild(left);
+  const aisle = document.createElement("span");
+  aisle.className = "seat-aisle";
+  aisle.setAttribute("aria-hidden", "true");
+  rowEl.appendChild(aisle);
+  const right = document.createElement("div");
+  right.className = "seat-group";
+  addSeatButton(right, row, "D");
+  addSeatButton(right, row, "E");
+  addSeatButton(right, row, "F");
+  rowEl.appendChild(right);
+  mapEl.appendChild(rowEl);
+}
+
+function buildSeatMapOnce() {
+  const map = document.getElementById("seatMap");
+  if (!map) return;
+  map.innerHTML = "";
+
+  addSectionHeader(map, "Economy comfort · extra legroom");
+  addSeatRow(map, 6);
+  addSeatRow(map, 7);
+
+  addSectionHeader(map, "Standard economy");
+  [8, 9, 10, 11].forEach((r) => addSeatRow(map, r));
+
+  addSectionHeader(map, "Exit row · extra legroom (may require eligibility)");
+  addSeatRow(map, 12);
+}
+
+function updateSeatSelectionUI() {
+  const flightInput = document.getElementById("flightID");
+  if (!flightInput) return;
+  const flightId = flightInput.value;
+  const policy = getSeatPolicy(flightId);
+  const policyEl = document.getElementById("seatPolicyText");
+  const mapWrap = document.getElementById("seatMapWrap");
+  const blocked = document.getElementById("seatBlockedNote");
+
+  if (policy.onlineSeatSelection) {
+    policyEl.textContent = `${policy.airlineName}: choose a seat on the map below (demo).`;
+    mapWrap.hidden = false;
+    blocked.hidden = true;
+    blocked.textContent = "";
+  } else {
+    policyEl.textContent = policy.reason;
+    mapWrap.hidden = true;
+    blocked.hidden = false;
+    blocked.textContent = policy.reason;
+    clearSeatSelection();
+  }
+}
+
+function populateDemoProfileOptions() {
+  const sel = document.getElementById("demoProfile");
+  if (!sel) return;
+  DEMO_PROFILES.forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.label;
+    sel.appendChild(opt);
+  });
+}
+
+function applyDemoProfile() {
+  const sel = document.getElementById("demoProfile");
+  if (!sel || !sel.value) return;
+  const p = DEMO_PROFILES.find((x) => x.id === sel.value);
+  if (!p) return;
+
+  document.getElementById("customerID").value = p.customerID;
+  document.getElementById("flightID").value = p.flightID;
+  document.getElementById("hotelID").value = p.hotelID;
+  document.getElementById("hotelRoomType").value = p.hotelRoomType;
+  document.getElementById("hotelIncludesBreakfast").checked = !!p.hotelIncludesBreakfast;
+  document.getElementById("departureTime").value = p.departureTime;
+  document.getElementById("totalPrice").value = p.totalPrice;
+  document.getElementById("currency").value = p.currency;
+  document.getElementById("fareType").value = p.fareType;
+  document.getElementById("discountCode").value = p.discountCode || "";
+  document.getElementById("coinsToSpendCents").value = p.coinsToSpendCents ?? 0;
+
+  updateSeatSelectionUI();
+  if (p.preferredSeat && getSeatPolicy(p.flightID).onlineSeatSelection) {
+    selectSeatByCode(p.preferredSeat);
+  } else {
+    clearSeatSelection();
+  }
+
+  const cid = Number(p.customerID);
+  if (cid) updateLoyaltySummary(cid);
+}
+
 function showResult(obj, meta = "") {
   latestResult = obj;
   document.getElementById("result").textContent = JSON.stringify(obj, null, 2);
@@ -178,6 +517,20 @@ async function onCreateBookingSubmit(e) {
   clearError(uiError);
   createBtn.disabled = true;
 
+  const flightId = document.getElementById("flightID").value.trim();
+  const seatPol = getSeatPolicy(flightId);
+  if (seatPol.onlineSeatSelection) {
+    const sn = document.getElementById("seatNumber").value.trim();
+    if (!sn) {
+      setError(
+        createError,
+        "Select a seat on the map (required for Singapore Airlines flights in this demo)."
+      );
+      createBtn.disabled = false;
+      return;
+    }
+  }
+
   const payload = {
     customerID: Number(document.getElementById("customerID").value),
     flightID: document.getElementById("flightID").value,
@@ -188,6 +541,9 @@ async function onCreateBookingSubmit(e) {
     totalPrice: Number(document.getElementById("totalPrice").value),
     currency: document.getElementById("currency").value,
     fareType: document.getElementById("fareType").value,
+    seatNumber: seatPol.onlineSeatSelection
+      ? document.getElementById("seatNumber").value.trim().toUpperCase()
+      : null,
   };
 
   try {
@@ -365,6 +721,14 @@ async function onCancelBookingSubmit(e) {
 }
 
 function initUI() {
+  populateDemoProfileOptions();
+  buildSeatMapOnce();
+  updateSeatSelectionUI();
+
+  document.getElementById("demoProfile").addEventListener("change", applyDemoProfile);
+  document.getElementById("flightID").addEventListener("input", updateSeatSelectionUI);
+  document.getElementById("flightID").addEventListener("change", updateSeatSelectionUI);
+
   // Initial load
   refreshNotifications();
 

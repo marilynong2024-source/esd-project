@@ -269,3 +269,217 @@ button:hover {
   color: #111827;
 }
 
+/* Demo seat map (SQ = online selection; other carriers = blocked in UI) */
+.seat-panel {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: #fafbfd;
+}
+
+.seat-policy-line {
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+
+.seat-map-wrap {
+  margin-top: 8px;
+}
+
+.seat-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.seat-map-legend .swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 4px;
+  border: 1px solid #cbd5e1;
+}
+
+.seat-map-legend .swatch.taken {
+  background: #e2e8f0;
+}
+.seat-map-legend .swatch.free {
+  background: #ffffff;
+}
+.seat-map-legend .swatch.picked {
+  background: #bfdbfe;
+  border-color: #2563eb;
+}
+
+.seat-map-legend--types {
+  margin-top: 2px;
+  margin-bottom: 12px;
+}
+
+.seat-map-legend .swatch.type-window {
+  background: #fff;
+  box-shadow: inset 3px 0 0 #0ea5e9;
+  border-color: #94a3b8;
+}
+
+.seat-map-legend .swatch.type-aisle {
+  background: #fff;
+  border-bottom: 3px solid #8b5cf6;
+}
+
+.seat-map-legend .swatch.type-middle {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.seat-map-legend .swatch.type-extra {
+  background: #ecfdf5;
+  border-color: #10b981;
+}
+
+.seat-map-legend .swatch.type-exit {
+  background: #fff7ed;
+  border-color: #f97316;
+}
+
+.seat-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-align: center;
+  width: 100%;
+  max-width: 340px;
+  margin: 10px 0 6px;
+  padding-top: 8px;
+  border-top: 1px dashed #cbd5e1;
+  letter-spacing: 0.02em;
+}
+
+.seat-section-header:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.seat-map {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.seat-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seat-row .row-num {
+  width: 22px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.seat-group {
+  display: flex;
+  gap: 4px;
+}
+
+.seat-aisle {
+  width: 14px;
+  flex-shrink: 0;
+}
+
+button.seat {
+  width: 32px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+button.seat:hover:not(:disabled) {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+button.seat.taken {
+  background: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+}
+
+button.seat.picked {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-color: #1d4ed8 !important;
+  box-shadow: none !important;
+}
+
+/* Position hints (narrow-body 3–3) */
+button.seat--window {
+  box-shadow: inset 2px 0 0 #0ea5e9;
+}
+
+button.seat--aisle {
+  border-bottom: 2px solid #a78bfa;
+  padding-bottom: 0;
+}
+
+/* Cabin zones */
+button.seat--zone-standard {
+  background: #ffffff;
+}
+
+button.seat--zone-standard.seat--middle {
+  background: #f1f5f9;
+}
+
+button.seat--zone-extra_legroom {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+}
+
+button.seat--zone-exit_row {
+  background: #fff7ed;
+  border-color: #fb923c;
+  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.25);
+}
+
+button.seat--zone-exit_row.seat--window {
+  box-shadow: inset 2px 0 0 #0ea5e9, inset 0 0 0 1px rgba(249, 115, 22, 0.25);
+}
+
+.seat-selected-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.seat-blocked-note {
+  font-size: 13px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
