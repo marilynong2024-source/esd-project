@@ -73,12 +73,11 @@
    - `docker compose up --build`
 3. Wait until all containers are up (especially `booking`). If `http://localhost:5101` gives "connection refused", run `docker compose logs booking` to see errors (e.g. DB not ready).
 4. Services:
-   - Booking API: `http://localhost:5101`
-   - Notification API: `http://localhost:5106/notifications`
+   - Booking API (direct): `http://localhost:5101`
+   - Notification API (direct): `http://localhost:5106/notifications`
 5. **UI (use this to avoid file:// errors):**
-   - Open **`http://localhost:8080`** in your browser (the UI is served by Docker).
-   - Do **not** open `ui/index.html` via file:// — that can block requests to the API.
-   - Alternatively, open `ui/index.html` in a browser.
+   - Open **`http://localhost:8080`** in your browser (nginx serves the UI and **proxies** APIs under `/api/booking`, `/api/loyalty`, `/api/notification`).
+   - Do **not** open `ui/index.html` via `file://` — relative `/api/...` calls will not work.
    - Use “Create Booking” and then “Cancel Booking”.
 
 ---

@@ -21,9 +21,9 @@ All services are implemented in Python Flask and are started together with Docke
 3. Build and start all services:
    - `docker compose up --build`
 4. Once everything is up:
-   - Booking API: `http://localhost:5101`
-   - Notification API: `http://localhost:5106/notifications`
-   - Test UI (static HTML): `http://localhost:8080`
+   - **Test UI:** `http://localhost:8080` — the page calls APIs **through nginx** at `/api/booking`, `/api/loyalty`, `/api/notification` (same origin; see `nginx/ui.conf`).
+   - Booking API (direct): `http://localhost:5101`
+   - Notification API (direct): `http://localhost:5106/notifications`
 
 ## Main APIs (for slides/report)
 

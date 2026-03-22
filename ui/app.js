@@ -1,8 +1,9 @@
 // Travel Booking UI logic
 
-const API_BASE = "http://localhost:5101";
-const LOYALTY_BASE = "http://localhost:5105";
-const NOTIFICATION_BASE = "http://localhost:5106";
+// Same-origin paths (nginx proxies to booking / loyalty / notification — see nginx/ui.conf)
+const API_BASE = "/api/booking";
+const LOYALTY_BASE = "/api/loyalty";
+const NOTIFICATION_BASE = "/api/notification";
 
 let latestResult = null;
 let latestLoyalty = null; // { coins, bookingCount, tier, ... } from loyalty service
@@ -29,8 +30,10 @@ function formatNetworkError(err) {
       "",
       "Check:",
       "• Docker is running: docker compose up --build",
-      "• Booking API responds: open http://localhost:5101/ in the browser",
-      "• Use the UI at http://localhost:8080 (not file://)",
+      "• Open the UI at http://localhost:8080 (not file://) — API is proxied under /api/",
+      "• Booking container is Up: docker compose ps",
+      "• If booking keeps failing: docker compose logs booking --tail 80",
+      "• Direct API (optional): http://localhost:5101/",
     ].join("\n");
   }
   return s;
