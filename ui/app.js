@@ -7,6 +7,69 @@ const NOTIFICATION_BASE = "http://localhost:5106";
 let latestResult = null;
 let latestLoyalty = null; // { coins, bookingCount, tier, ... } from loyalty service
 
+/**
+ * Detects GET / response (welcome page), not a booking payload.
+ * Happens if the wrong URL is used or a proxy returns the root handler.
+ */
+function isBookingWelcomePayload(body) {
+  return (
+    body &&
+    typeof body === "object" &&
+    body.message === "Booking API is running" &&
+    body.endpoints &&
+    !("data" in body && body.data !== undefined)
+  );
+}
+
+function formatNetworkError(err) {
+  const s = String(err?.message || err || "Unknown error");
+  if (s.includes("Failed to fetch") || s.includes("NetworkError")) {
+    return [
+      "Could not reach the API (network error).",
+      "",
+      "Check:",
+      "• Docker is running: docker compose up --build",
+      "• Booking API responds: open http://localhost:5101/ in the browser",
+      "• Use the UI at http://localhost:8080 (not file://)",
+    ].join("\n");
+  }
+  return s;
+}
+
+/**
+ * fetch + safe JSON parse. Returns { ok, status, body, networkError?, parseError? }.
+ */
+async function fetchJson(url, options = {}) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (e) {
+    return {
+      ok: false,
+      status: 0,
+      body: null,
+      networkError: true,
+      errorMessage: formatNetworkError(e),
+    };
+  }
+  const text = await res.text();
+  let body = null;
+  let parseError = false;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      parseError = true;
+      body = { _raw: text.slice(0, 500), _parseError: true };
+    }
+  }
+  return { ok: res.ok, status: res.status, body, networkError: false, parseError };
+}
+
+function isMissingBookingData(body) {
+  return !body || !body.data || body.data.id == null;
+}
+
 function computeProjectedTier(bookingCountAfterThisBooking) {
   const n = Number(bookingCountAfterThisBooking || 0);
   if (n >= 10) return "Platinum";
@@ -60,39 +123,35 @@ function clearError(el) {
 }
 
 async function updateLoyaltySummary(customerID) {
-  try {
-    const res = await fetch(`${LOYALTY_BASE}/loyalty/${customerID}/points`);
-    const data = await res.json();
-    if (data && data.data) {
-      latestLoyalty = data.data;
-      document.getElementById("loyaltyCoins").textContent =
-        data.data.coins ?? data.data.points ?? "-";
-      document.getElementById("loyaltyTier").textContent = data.data.tier;
-    }
-  } catch {
-    // Non-fatal for demo.
+  const out = await fetchJson(`${LOYALTY_BASE}/loyalty/${customerID}/points`);
+  if (out.networkError || !out.ok || !out.body?.data) {
     latestLoyalty = null;
     document.getElementById("loyaltyCoins").textContent = "-";
     document.getElementById("loyaltyTier").textContent = "-";
+    return;
   }
+  const data = out.body;
+  latestLoyalty = data.data;
+  document.getElementById("loyaltyCoins").textContent =
+    data.data.coins ?? data.data.points ?? "-";
+  document.getElementById("loyaltyTier").textContent = data.data.tier;
 }
 
 async function refreshNotifications() {
-  try {
-    const res = await fetch(`${NOTIFICATION_BASE}/notifications`);
-    const data = await res.json();
+  const out = await fetchJson(`${NOTIFICATION_BASE}/notifications`);
+  if (out.networkError) {
     document.getElementById("notifications").textContent = JSON.stringify(
-      data,
+      { error: out.errorMessage },
       null,
       2
     );
-  } catch (e) {
-    document.getElementById("notifications").textContent = JSON.stringify(
-      { error: String(e) },
-      null,
-      2
-    );
+    return;
   }
+  document.getElementById("notifications").textContent = JSON.stringify(
+    out.body ?? { error: `HTTP ${out.status}` },
+    null,
+    2
+  );
 }
 
 async function copyLatestResult() {
@@ -165,23 +224,69 @@ async function onCreateBookingSubmit(e) {
     payload.totalPrice = finalPaid;
     payload.coinsToSpendCents = coinsToSpendCents;
 
-    const res = await fetch(API_BASE + "/booking", {
+    const out = await fetchJson(`${API_BASE}/booking`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    showResult(data, `POST /booking • HTTP ${res.status}`);
-    if (data.data && data.data.id) {
-      document.getElementById("cancelBookingID").value = data.data.id;
+
+    if (out.networkError) {
+      setError(createError, out.errorMessage);
+      showResult({ error: out.errorMessage }, "Network error");
+      return;
     }
 
-    // Update loyalty summary after booking creation.
+    const data = out.body;
+    const httpStatus = out.status;
+
+    if (out.parseError && data?._parseError) {
+      const msg =
+        "Server returned non-JSON (wrong URL or proxy). Expected JSON from POST /booking.";
+      setError(createError, msg);
+      showResult(data, `POST /booking • HTTP ${httpStatus}`);
+      return;
+    }
+
+    if (isBookingWelcomePayload(data)) {
+      const msg =
+        "Got the Booking API welcome page (GET /) instead of a booking. Use POST /booking only. Ensure Docker is up: http://localhost:5101/";
+      setError(createError, msg);
+      showResult(
+        {
+          _help: msg,
+          received: data,
+        },
+        `Unexpected • HTTP ${httpStatus}`
+      );
+      return;
+    }
+
+    if (!out.ok || (data && typeof data.code === "number" && data.code >= 400)) {
+      const msg = data?.message || `Request failed (HTTP ${httpStatus})`;
+      setError(createError, msg);
+      showResult(data ?? { error: msg }, `POST /booking • HTTP ${httpStatus}`);
+      return;
+    }
+
+    if (isMissingBookingData(data)) {
+      const msg =
+        "Response OK but missing booking data (expected code + data.id). Check Booking service.";
+      setError(createError, msg);
+      showResult(
+        { _help: msg, received: data },
+        `POST /booking • HTTP ${httpStatus}`
+      );
+      return;
+    }
+
+    showResult(data, `POST /booking • HTTP ${httpStatus}`);
+    document.getElementById("cancelBookingID").value = data.data.id;
+
     await updateLoyaltySummary(payload.customerID);
   } catch (err) {
-    const msg = String(err);
+    const msg = formatNetworkError(err);
     setError(createError, msg);
-    showResult({ error: msg }, "Network error while creating booking");
+    showResult({ error: msg }, "Error while creating booking");
   } finally {
     createBtn.disabled = false;
   }
@@ -197,26 +302,60 @@ async function onCancelBookingSubmit(e) {
 
   const id = document.getElementById("cancelBookingID").value;
   try {
-    const res = await fetch(API_BASE + "/booking/cancel/" + id, { method: "POST" });
-    const data = await res.json();
-    showResult(data, `POST /booking/cancel/${id} • HTTP ${res.status}`);
+    const out = await fetchJson(`${API_BASE}/booking/cancel/${id}`, {
+      method: "POST",
+    });
 
-    // Show notifications consumed by the RabbitMQ consumer.
+    if (out.networkError) {
+      setError(uiError, out.errorMessage);
+      showResult({ error: out.errorMessage }, "Network error");
+      return;
+    }
+
+    const data = out.body;
+    const httpStatus = out.status;
+
+    if (out.parseError && data?._parseError) {
+      const msg = "Server returned non-JSON for cancel. Check Booking API.";
+      setError(uiError, msg);
+      showResult(data, `POST /booking/cancel/${id} • HTTP ${httpStatus}`);
+      return;
+    }
+
+    if (isBookingWelcomePayload(data)) {
+      const msg =
+        "Got welcome JSON instead of cancel response. Wrong URL or proxy — use POST /booking/cancel/{id}.";
+      setError(uiError, msg);
+      showResult({ _help: msg, received: data }, `Unexpected • HTTP ${httpStatus}`);
+      return;
+    }
+
+    if (!out.ok || (data && typeof data.code === "number" && data.code >= 400)) {
+      const msg = data?.message || `Cancel failed (HTTP ${httpStatus})`;
+      setError(uiError, msg);
+      showResult(data ?? { error: msg }, `POST /booking/cancel/${id} • HTTP ${httpStatus}`);
+      return;
+    }
+
+    if (!data?.data) {
+      const msg = "Cancel response missing data payload.";
+      setError(uiError, msg);
+      showResult({ _help: msg, received: data }, `POST /booking/cancel/${id} • HTTP ${httpStatus}`);
+      return;
+    }
+
+    showResult(data, `POST /booking/cancel/${id} • HTTP ${httpStatus}`);
+
     await refreshNotifications();
 
-    // Update loyalty summary for the booking's customer.
-    try {
-      const bookingRes = await fetch(API_BASE + "/booking/" + id);
-      const bookingData = await bookingRes.json();
-      const customerID = bookingData?.data?.customerID;
-      if (customerID) await updateLoyaltySummary(customerID);
-    } catch {
-      // Non-fatal for demo.
+    const bookingOut = await fetchJson(`${API_BASE}/booking/${id}`);
+    if (!bookingOut.networkError && bookingOut.body?.data?.customerID) {
+      await updateLoyaltySummary(bookingOut.body.data.customerID);
     }
   } catch (err) {
-    const msg = String(err);
+    const msg = formatNetworkError(err);
     setError(uiError, msg);
-    showResult({ error: msg }, "Network error while cancelling booking");
+    showResult({ error: msg }, "Error while cancelling booking");
   } finally {
     cancelBtn.disabled = false;
   }
