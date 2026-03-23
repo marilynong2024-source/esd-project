@@ -46,7 +46,8 @@ All services are implemented in Python Flask and are started together with Docke
 - **Cancel booking + refund**  
   - `POST /booking/cancel/{id}`  
   - Orchestrates:
-    - Computes refund based on **fare rules + timing + loyalty tier + hotel payment mode**.
+    - Computes refund based on **cancellation source + timing + hotel payment mode**.
+    - Optional request body: `{ "cancelSource": "customer|airline|hotel" }` (default: `customer`).
     - Calls `payment` microservice: `POST /payment/refund`.
     - Updates booking status and refund fields in MySQL.
     - Publishes `booking.cancelled` event to RabbitMQ (`travel_topic` exchange).
@@ -72,9 +73,12 @@ Other microservices expose:
 
 ## Refund & loyalty logic (short version)
 
-- Fare types:
-  - Saver: non‑refundable (0%).
-  - Standard and Flexi: partially or fully refundable depending on **days before departure**.
+- Refund rules:
+  - `POST /booking/cancel/{id}` accepts optional `{ "cancelSource": "customer|airline|hotel" }`.
+  - Customer cancellation: if `>= 30` days before departure, full refund.
+  - Otherwise, customer-side flight refund is generally 0 (or fare-rule dependent for refundable big-airline tickets), while hotel uses the 7-day rule.
+  - Airline cancellation: full package refund in this demo.
+  - Hotel cancellation: full hotel-side refund in this demo.
 - Loyalty:
   - `$1` spent = `1` tier point.
   - Loyalty service stores **points + tier** and auto‑upgrades tier based on thresholds.
@@ -89,3 +93,20 @@ Other microservices expose:
   - For full refunds, you can explain that both cash and loyalty benefits for that booking are reversed.
 
 For a more detailed, story‑style explanation (flows, loyalty coins, guest vs logged‑in user, partial cancellation rules), see `TEAM_GUIDE.md`.
+
+## Database scripts (schema + dummy data)
+
+`database/` now contains ready-to-use MySQL scripts for each domain:
+- `customer_db.sql`
+- `traveller_db.sql`
+- `flight_db.sql`
+- `hotel_db.sql`
+- `package_db.sql`
+- `loyalty_db.sql`
+- `payment_db.sql`
+- `notification_db.sql`
+- `discount_db.sql`
+
+You can import any file into MySQL (inside Docker) with:
+
+`docker exec -i esd-project-booking-db-1 mysql -utravel_user -ptravel_pass travel_booking < database/<file>.sql`

@@ -244,14 +244,42 @@ def cancel_booking(booking_id: int):
         )
 
     now = datetime.utcnow()
-    fare_type = booking.fareType or "Saver"
-    loyalty_tier = booking.loyaltyTier  # e.g. Bronze, Silver, Gold
-    percentage = compute_refund_percentage(departure_time, now, fare_type, loyalty_tier)
-    total_price = booking.totalPrice or 0
+    total_price = float(booking.totalPrice or 0)
+    days_before_departure = (departure_time - now).days
+    req = request.get_json(silent=True) or {}
+    # Who caused the cancellation: "customer" (default), "airline", or "hotel".
+    cancel_source = (req.get("cancelSource") or "customer").strip().lower()
 
-    # Refund computation (simplified for this demo):
-    # We refund against the full total (no "Pay at hotel" split).
-    amount = total_price * percentage / 100
+    # Simple package split for demo logic:
+    # - If hotel is prepaid in app, assume 60% flight + 40% hotel.
+    # - If hotel is pay-at-hotel, app only controls flight-side amount.
+    if (booking.hotelPaymentMode or "PrepaidInApp") == "PayAtHotel":
+        flight_component = total_price
+        hotel_component = 0.0
+    else:
+        flight_component = total_price * 0.6
+        hotel_component = total_price * 0.4
+
+    # Rule requested by team:
+    # - Flight has no refund unless airline cancels.
+    # - Hotel refund is 100% only when cancelled >= 7 days before departure, else 0.
+    if cancel_source == "airline":
+        # Airline-initiated cancellation -> full package refund in this demo.
+        amount = total_price
+        flight_refund = flight_component
+        hotel_refund = hotel_component
+    elif cancel_source == "hotel":
+        # Hotel-initiated cancellation -> full hotel-side refund.
+        flight_refund = 0.0
+        hotel_refund = hotel_component
+        amount = flight_refund + hotel_refund
+    else:
+        # Customer cancellation.
+        flight_refund = 0.0
+        hotel_refund = hotel_component if days_before_departure >= 7 else 0.0
+        amount = flight_refund + hotel_refund
+
+    percentage = int(round((amount / total_price) * 100)) if total_price > 0 else 0
 
     # Call payment refund microservice
     payment_url = os.environ.get("PAYMENT_URL", "http://localhost:5104/payment/refund")
@@ -299,8 +327,11 @@ def cancel_booking(booking_id: int):
 
     result = {
         "bookingID": booking_id,
+        "cancelSource": cancel_source,
         "refundPercentage": percentage,
         "refundAmount": amount,
+        "flightRefundAmount": round(flight_refund, 2),
+        "hotelRefundAmount": round(hotel_refund, 2),
         "currency": booking.currency or "SGD",
         "payment": payment_data,
     }

@@ -29,6 +29,10 @@
               <option value="">— Custom / manual —</option>
             </select>
           </label>
+          <div class="actions-row form-grid-1col">
+            <button type="button" class="secondary" id="loadDemoBtn">Load selected demo</button>
+            <button type="button" class="secondary" id="newManualBtn">New manual booking</button>
+          </div>
 
           <label>
             Customer ID
@@ -150,12 +154,20 @@
             Booking ID
             <input type="number" id="cancelBookingID" required />
           </label>
+          <label>
+            Cancel Source
+            <select id="cancelSource">
+              <option value="customer" selected>Customer</option>
+              <option value="airline">Airline</option>
+              <option value="hotel">Hotel</option>
+            </select>
+          </label>
           <button type="submit" class="secondary" id="cancelBtn">
             <span>↩</span>
             <span>Compute Refund</span>
           </button>
           <div class="muted">
-            Calls <code>POST /booking/cancel/{id}</code>. Shows refund percentage/amount and payment info.
+            Calls <code>POST /booking/cancel/{id}</code> with a cancel source. Flight refunds apply only for airline-initiated cancellations.
           </div>
         </form>
       </section>

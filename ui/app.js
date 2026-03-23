@@ -448,6 +448,23 @@ function applyDemoProfile() {
   if (cid) updateLoyaltySummary(cid);
 }
 
+function setManualDefaults() {
+  document.getElementById("demoProfile").value = "";
+  document.getElementById("customerID").value = 1;
+  document.getElementById("flightID").value = "SQ001";
+  document.getElementById("hotelID").value = 1;
+  document.getElementById("hotelRoomType").value = "STD";
+  document.getElementById("hotelIncludesBreakfast").checked = false;
+  document.getElementById("departureTime").value = "2026-05-01T10:00";
+  document.getElementById("totalPrice").value = 1200;
+  document.getElementById("currency").value = "SGD";
+  document.getElementById("fareType").value = "Flexi";
+  document.getElementById("discountCode").value = "";
+  document.getElementById("coinsToSpendCents").value = 0;
+  clearSeatSelection();
+  updateSeatSelectionUI();
+}
+
 function showResult(obj, meta = "") {
   latestResult = obj;
   document.getElementById("result").textContent = JSON.stringify(obj, null, 2);
@@ -660,9 +677,12 @@ async function onCancelBookingSubmit(e) {
   cancelBtn.disabled = true;
 
   const id = document.getElementById("cancelBookingID").value;
+  const cancelSource = document.getElementById("cancelSource").value;
   try {
     const out = await fetchJson(`${API_BASE}/booking/cancel/${id}`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cancelSource }),
     });
 
     if (out.networkError) {
@@ -677,7 +697,7 @@ async function onCancelBookingSubmit(e) {
     if (out.parseError && data?._parseError) {
       const msg = "Server returned non-JSON for cancel. Check Booking API.";
       setError(uiError, msg);
-      showResult(data, `POST /booking/cancel/${id} • HTTP ${httpStatus}`);
+      showResult(data, `POST /booking/cancel/${id} (${cancelSource}) • HTTP ${httpStatus}`);
       return;
     }
 
@@ -692,18 +712,24 @@ async function onCancelBookingSubmit(e) {
     if (!out.ok || (data && typeof data.code === "number" && data.code >= 400)) {
       const msg = data?.message || `Cancel failed (HTTP ${httpStatus})`;
       setError(uiError, msg);
-      showResult(data ?? { error: msg }, `POST /booking/cancel/${id} • HTTP ${httpStatus}`);
+      showResult(
+        data ?? { error: msg },
+        `POST /booking/cancel/${id} (${cancelSource}) • HTTP ${httpStatus}`
+      );
       return;
     }
 
     if (!data?.data) {
       const msg = "Cancel response missing data payload.";
       setError(uiError, msg);
-      showResult({ _help: msg, received: data }, `POST /booking/cancel/${id} • HTTP ${httpStatus}`);
+      showResult(
+        { _help: msg, received: data },
+        `POST /booking/cancel/${id} (${cancelSource}) • HTTP ${httpStatus}`
+      );
       return;
     }
 
-    showResult(data, `POST /booking/cancel/${id} • HTTP ${httpStatus}`);
+    showResult(data, `POST /booking/cancel/${id} (${cancelSource}) • HTTP ${httpStatus}`);
 
     await refreshNotifications();
 
@@ -726,6 +752,11 @@ function initUI() {
   updateSeatSelectionUI();
 
   document.getElementById("demoProfile").addEventListener("change", applyDemoProfile);
+  document.getElementById("loadDemoBtn").addEventListener("click", applyDemoProfile);
+  document.getElementById("newManualBtn").addEventListener("click", () => {
+    setManualDefaults();
+    showResult({ info: "Manual mode ready. Edit fields and click Create Booking." }, "Manual entry");
+  });
   document.getElementById("flightID").addEventListener("input", updateSeatSelectionUI);
   document.getElementById("flightID").addEventListener("change", updateSeatSelectionUI);
 

@@ -4,7 +4,7 @@
 
 - **Scenario**: Users book a **flight + hotel package** and can later **cancel and get a refund**.
 - **Key ideas**:
-  - Refund depends on **fare type** (Saver / Standard / Flexi), **days before departure**, and **loyalty tier**.
+  - Refund depends on **cancellation source** (customer/airline/hotel), **days before departure/check-in**, and package components (flight vs hotel).
   - `Booking` is the **composite microservice** that orchestrates other services and talks to a **real DB (MySQL)**.
   - Cancellation triggers both a **payment refund (HTTP)** and a **notification event (RabbitMQ)**.
 
@@ -105,29 +105,20 @@
 
 1. **UI → Booking**
    - `POST /booking/cancel/{id}`.
+   - Optional JSON body: `{ "cancelSource": "customer|airline|hotel" }` (default is `customer`).
 2. **Booking**
    - Loads booking from DB.
-   - Computes `refundPercentage` based on:
-     - Days from `now()` to `departureTime`.
-     - `fareType` (Saver, Standard, Flexi).
-     - `loyaltyTier` (Gold gets +10% uplift; Platinum uses base fare rules).
+   - Computes refund by cancellation source + timing.
    - **Exact refund rules implemented in `booking/app.py`:**
-     - **Flexi**:
-       - ≥30 days before departure → **100%** refund.
-       - ≥15 days → **90%** refund.
-       - ≥7 days → **70%** refund.
-       - ≥1 day → **50%** refund.
-       - Same day / past → **0%**.
-     - **Standard**:
-       - ≥21 days → **70%** refund.
-       - ≥7 days → **50%** refund.
-       - ≥1 day → **25%** refund.
-       - Same day / past → **0%**.
-     - **Saver**: always **0%** (non‑refundable).
-   - **Gold loyalty tier**: if base refund > 0, add **+10%** (capped at 100%).
-     - Note: `booking/app.py` currently checks explicitly for `loyaltyTier == "Gold"` (so `Platinum` does not get the uplift unless you update the code).
-   - Derives `refundAmount = totalPrice * refundPercentage / 100`.
-     - Note: the code for this demo no longer splits refundable vs non-refundable hotel portion (`PayAtHotel` was removed).
+     - **Customer cancellation** (`cancelSource=customer`):
+       - **Flight refund = 0** (no flight refund for customer-initiated cancellation).
+       - **Hotel refund = 100%** only if cancellation is **>= 7 days** before departure/check-in; else **0**.
+     - **Airline cancellation** (`cancelSource=airline`):
+       - Full package refund in this demo.
+     - **Hotel cancellation** (`cancelSource=hotel`):
+       - Full hotel-side refund in this demo.
+   - Response includes breakdown fields:
+     - `flightRefundAmount`, `hotelRefundAmount`, `refundAmount`, `refundPercentage`.
    - **Loyalty side‑effects (earn + adjust + auto tiering):**
      - On **create booking**, Booking calls `POST /loyalty/earn` with:
        - `customerID`, `amount` (the final `totalPrice` you send), and optionally `coinsToSpendCents`.
@@ -316,29 +307,22 @@ High‑level rules you can refer to in slides and code comments:
   - The Flask “atomic” demo currently uses a simplified refund-percentage calculation.
   - The rules below are the intended **end-to-end cancellation policy** you can explain in your report/slides and map to Booking/Payment/Loyalty behaviour.
 
-- **Customer cancellation (full package)**
-  - If the customer requests cancellation **≥ 30 days before departure**:
-    - **Full refund** (money + loyalty benefits/coins earned from that booking are reversed).
-  - If cancellation is **within 30 days**:
-    - Apply the **flight rules** and **hotel rules** below (and combine them into an overall package refund outcome).
+- **Customer cancellation**
+  - Flight refund is **always 0%** for customer-initiated cancellation.
+  - Hotel follows the 7-day rule:
+    - `>= 7` days before departure/check-in: hotel side refundable.
+    - `< 7` days: hotel side non-refundable.
 
 - **Flight cancellation rules**
-  - **No free cancellation** for flights:
-    - Customer-initiated cancellation may incur a **fixed $300 cancel fee** with **no ticket refund** (effectively a “no-show fee” model).
-  - **Non-refundable flights** (e.g. small planes / Saver fare):
-    - Cannot be cancelled; refund for the flight portion is **0%**.
-  - **Big airline (partially refundable)**:
-    - Ticket may be partially refundable after cancellation charges.
-    - Example: `$1000` ticket, cancellation charge `$500` → refund `$500`.
-  - **Airline cancels the flight**:
-    - Flight portion is **fully refunded**.
+  - **Customer-initiated**: flight refund is **0%**.
+  - **Airline-initiated**: flight refund is **100%**.
 
 - **Hotel cancellation rules**
   - **Customer cancels**:
     - Cancel **at least 1 week before check-in** → **100% hotel refund**.
     - Cancel **within 1 week** → **no hotel refund**.
   - **Hotel cancels the stay**:
-    - Full hotel refund, **including any loyalty benefits associated with the hotel component**.
+    - Full hotel-side refund in this demo.
 
 - **Mixed scenario: flight cancelled, hotel not cancelled**
   - Attempt to **re-accommodate** the customer on an alternative flight with **similar timing and price**.
@@ -346,7 +330,7 @@ High‑level rules you can refer to in slides and code comments:
     - Hotel booking continues.
     - No immediate package refund; only fare differences if applicable.
   - If no acceptable alternative exists (or the customer rejects all alternatives):
-    - **Entire package is cancelled** and a **full refund** is issued (money + loyalty benefits/coins from that booking).
+    - Treat as airline-initiated cancellation in this demo and issue full package refund.
 
 - **Effect on loyalty after cancellation**
   - **Full refunds**:
@@ -359,4 +343,82 @@ This section allows you to explain:
 - The **user journey** (login → search → customise bundle → add travellers → pay → confirmation).
 - The **loyalty and tiering logic** (coins, booking-count tiers, discounts).
 - The **refund and error‑handling policy** for customer/airline/hotel‑initiated cancellations and mixed cases (like flight cancelled but hotel active).
+
+---
+
+### 9. Final agreed business rules (team source of truth)
+
+Use this as the final aligned rulebook for implementation, demo, and slides.
+
+#### 9.1 User journey (Baseline + Upsell)
+
+1. Log in / create account (or continue as guest).
+2. Start search with:
+   - destination
+   - flight departure/arrival date
+   - hotel check-in/check-out date
+3. System returns cheapest **baseline bundle** (flight + hotel).
+4. User customises:
+   - Flight: airline/time, class (Flexi/Elite/Standard), baggage, seat (optional if time).
+   - Hotel: hotel upgrade, room type, breakfast.
+5. User adds traveller details (support multiple travellers with “+”).
+6. Checkout:
+   - apply tier discount
+   - apply discount code (if eligible)
+   - offset using loyalty coins
+   - pay online
+7. System generates PDF booking confirmation and triggers notification.
+
+#### 9.2 Guest flow
+
+- Guest can search, customise, enter traveller details, and pay without login.
+- Guest bookings do not earn/apply loyalty benefits.
+
+#### 9.3 Loyalty, tier, discount, and coins
+
+- Start tier: **Bronze**.
+- Tier progression (by completed bookings):
+  - `2` bookings → Silver
+  - `5` bookings → Gold
+  - `10` bookings → Platinum
+- Tier discount:
+  - Silver `10%`
+  - Gold `15%`
+  - Platinum `20%`
+- Coins earned per `$1` spent:
+  - Bronze: `1` cent
+  - Silver: `2` cents
+  - Gold: `3` cents
+  - Platinum: `5` cents
+- Coins can offset payment at checkout.
+- Full refund should reverse money + loyalty effects from that booking.
+
+#### 9.4 Cancellation and refund precedence
+
+Apply rules in this order:
+
+1. **Customer cancellation ≥ 30 days** before departure:
+   - full refund (money + loyalty effects reversed).
+2. Else apply component rules:
+   - **Flight (customer-initiated)**:
+     - no free cancellation
+     - customer cancellation generally no flight refund
+     - may include fixed fee / no-show model (e.g. `$300`) as configured
+     - small-plane/non-refundable fares: no refund
+     - big-airline refundable fares: refund after cancellation charge (example `$1000 - $500 = $500`)
+   - **Flight (airline-initiated)**:
+     - full flight refund
+   - **Hotel (customer-initiated)**:
+     - `>= 7` days before check-in: `100%` hotel refund
+     - `< 7` days: `0%` hotel refund
+   - **Hotel (hotel-initiated)**:
+     - full hotel refund, including loyalty reversal for that component
+3. **Flight cancelled but hotel still active**:
+   - try similar alternative flight first
+   - if accepted: continue booking
+   - if rejected/no suitable alternative: full package refund
+
+#### 9.5 Traveller Profile in OutSystems
+
+- Traveller Profile stays as an OutSystems atomic microservice for storing passenger details (minimal error handling).
 
