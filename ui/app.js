@@ -419,6 +419,41 @@ function populateDemoProfileOptions() {
   });
 }
 
+async function fetchTravellerProfiles(customerID) {
+  const row = document.getElementById("travellerProfileRow");
+  const select = document.getElementById("travellerProfileIDs");
+  if (!row || !select) return; // tolerant if element is missing
+
+  row.hidden = true;
+  select.innerHTML = "";
+
+  if (!customerID) return;
+
+  try {
+    const resp = await fetch(`${API_BASE}/booking/profiles/${customerID}`);
+    if (!resp.ok) return;
+    const payload = await resp.json();
+    if (!payload || payload.code !== 200 || !Array.isArray(payload.data)) return;
+
+    const profiles = payload.data;
+    if (!profiles.length) return;
+
+    for (const profile of profiles) {
+      const opt = document.createElement("option");
+      opt.value = String(profile.id ?? profile.travellerProfileId ?? profile.travellerID ?? profile.profileID ?? "");
+      opt.textContent = profile.name || profile.fullName || `Profile ${opt.value}`;
+      if (!opt.value) continue;
+      select.appendChild(opt);
+    }
+
+    if (select.children.length) {
+      row.hidden = false;
+    }
+  } catch (error) {
+    console.error("Failed to load traveller profiles", error);
+  }
+}
+
 function applyDemoProfile() {
   const sel = document.getElementById("demoProfile");
   if (!sel || !sel.value) return;
@@ -428,6 +463,7 @@ function applyDemoProfile() {
   document.getElementById("customerID").value = p.customerID;
   document.getElementById("flightID").value = p.flightID;
   document.getElementById("hotelID").value = p.hotelID;
+  fetchTravellerProfiles(p.customerID);
   document.getElementById("hotelRoomType").value = p.hotelRoomType;
   document.getElementById("hotelIncludesBreakfast").checked = !!p.hotelIncludesBreakfast;
   document.getElementById("departureTime").value = p.departureTime;
@@ -562,6 +598,11 @@ async function onCreateBookingSubmit(e) {
       ? document.getElementById("seatNumber").value.trim().toUpperCase()
       : null,
   };
+
+  const selectedTravelerOptions = Array.from(document.getElementById("travellerProfileIDs")?.selectedOptions || []);
+  if (selectedTravelerOptions.length) {
+    payload.travellerProfileIDs = selectedTravelerOptions.map((opt) => opt.value);
+  }
 
   try {
     // Compute discounts/coin offset client-side for the demo.
@@ -765,15 +806,22 @@ function initUI() {
 
   // Load initial loyalty state for the default customer.
   const customerID = Number(document.getElementById("customerID").value || 0);
-  if (customerID) updateLoyaltySummary(customerID);
+  if (customerID) {
+    updateLoyaltySummary(customerID);
+    fetchTravellerProfiles(customerID);
+  }
 
   document.getElementById("customerID").addEventListener("change", () => {
     const id = Number(document.getElementById("customerID").value || 0);
-    if (id) updateLoyaltySummary(id);
-    else {
+    if (id) {
+      updateLoyaltySummary(id);
+      fetchTravellerProfiles(id);
+    } else {
       latestLoyalty = null;
       document.getElementById("loyaltyCoins").textContent = "-";
       document.getElementById("loyaltyTier").textContent = "-";
+      document.getElementById("travellerProfileRow").hidden = true;
+      document.getElementById("travellerProfileIDs").innerHTML = "";
     }
   });
 

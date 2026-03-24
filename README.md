@@ -31,6 +31,7 @@ All services are implemented in Python Flask and are started together with Docke
   - `POST /booking` (Booking service, port 5101)  
   - Body (JSON, main fields):  
     - `customerID` (from OutSystems Customer Account)  
+    - `travellerProfileIDs` (comma-separated string or array of traveller profile IDs from OutSystems TravellerProfileService)  
     - `flightID` (e.g. `SQ001`)  
     - `hotelID` (e.g. `1`)  
     - `hotelRoomType` (e.g. `STD` or `DLX`)  

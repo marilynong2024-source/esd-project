@@ -7,6 +7,9 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text, inspect
 import pika
 import json
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from travellerprofile.outsystems_client import get_profiles_by_account
 
 app = Flask(__name__)
 CORS(app)
@@ -165,6 +168,24 @@ def index():
 @app.route("/booking", methods=["POST"])
 def create_booking():
     data = request.get_json() or {}
+
+    # Validate traveller profiles (optional)
+    traveller_profile_ids = data.get("travellerProfileIDs")
+    if traveller_profile_ids:
+        profiles = get_profiles_by_account(data.get("customerID"))
+        if profiles is None:
+            return jsonify({"code": 502, "message": "Traveller profile service unavailable"}), 502
+
+        valid_ids = [str(p.get("id")) for p in profiles if p.get("id")]
+        provided_ids = (
+            traveller_profile_ids.split(",")
+            if isinstance(traveller_profile_ids, str)
+            else [str(tid) for tid in traveller_profile_ids]
+        )
+
+        if not provided_ids or not all(pid in valid_ids for pid in provided_ids):
+            return jsonify({"code": 400, "message": "Invalid traveller profile IDs"}), 400
+
     try:
         coins_to_spend_cents = int(max(0, int(data.get("coinsToSpendCents", 0) or 0)))
         seat_raw = data.get("seatNumber")
@@ -219,6 +240,14 @@ def create_booking():
             print(f"Failed to call loyalty earn: {e}")
 
     return jsonify({"code": 201, "data": booking.to_dict()}), 201
+
+
+@app.route("/booking/profiles/<int:customer_id>", methods=["GET"])
+def get_booking_profiles(customer_id: int):
+    profiles = get_profiles_by_account(customer_id)
+    if profiles is None:
+        return jsonify({"code": 404, "message": "No traveller profiles found for customer"}), 404
+    return jsonify({"code": 200, "data": profiles}), 200
 
 
 @app.route("/booking/<int:booking_id>", methods=["GET"])
