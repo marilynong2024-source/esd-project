@@ -1,425 +1,377 @@
-## Team Guide – Travel Booking Microservices Project
+## Team Guide - Travel Booking Microservices Project (Comprehensive)
 
-### 1. What this system does
+This document is the team source of truth for implementation, demo prep, report writing, and handover.
 
-- **Scenario**: Users book a **flight + hotel package** and can later **cancel and get a refund**.
-- **Key ideas**:
-  - Refund depends on **cancellation source** (customer/airline/hotel), **days before departure/check-in**, and package components (flight vs hotel).
-  - `Booking` is the **composite microservice** that orchestrates other services and talks to a **real DB (MySQL)**.
-  - Cancellation triggers both a **payment refund (HTTP)** and a **notification event (RabbitMQ)**.
+Use `README.md` for quick installation and getting a working web UI fast.  
+Use this `TEAM_GUIDE.md` for full technical and project-level reference.
 
----
+## Quick Navigation
+- `1-4`: Project scope, architecture, repo map, runbook
+- `5-7`: Business flows, UI behavior, GraphQL/BTL
+- `8-10`: API contracts, business rules, OutSystems notes
+- `11-13`: Testing, troubleshooting, report/submission checklist
+- `14-15`: Team ownership and change-log discipline
 
-### 2. Microservices overview
+## 1) Project Purpose and Scope
 
-- **UI (`ui/index.html`)**
-  - Simple HTML/JS page for local testing.
-  - Calls `Booking` APIs using `fetch` (JSON). The “real” front‑end will be in OutSystems.
+### Business scenario
+- Users book a bundled trip (flight + hotel), optionally with companion traveller profiles.
+- Users can later cancel bookings; refunds follow business rules by cancellation source and timing.
+- Loyalty coins and tier affect checkout pricing and post-booking rewards.
 
-- **Account (Flask, in‑memory demo)**
-  - Endpoints:
-    - `GET /account/{customerID}`: fetch basic account profile.
-    - `POST /account`: create account.
-    - `PUT /account/{customerID}`: update account details.
-  - Stores simple fields like `email`, `firstName`, `lastName`, `phoneNumber`, `nationality`, and `accountStatus`.
-  - Used as the Python counterpart to the Customer Account atomic MS in OutSystems; `Booking.customerID` refers to this ID.
-
-- **Booking (Flask + SQLAlchemy + MySQL)**
-  - Endpoints:
-    - `POST /booking`: create a booking (flight + hotel bundle).
-    - `GET /booking/{id}`: fetch booking from DB.
-    - `POST /booking/cancel/{id}`: compute refund, call Payment, publish event.
-  - Owns `BookingDB` (`bookings` table).
-  - Contains **refund policy logic** and (optional) external FX API call.
-
-- **Flight / Hotel**
-  - In‑memory “fake DBs” with sample flights and hotels.
-  - **Hotel** now exposes basic room catalogue:
-    - Example hotel with:
-      - Room type `STD` – Standard Room (room only), price per night.
-      - Room type `DLX` – Deluxe Room (with breakfast), higher price per night.
-    - Response includes `roomTypes` (code, label, pricePerNight, includesBreakfast).
-
-- **Payment**
-  - `POST /payment`: record payment for a booking (simple in‑memory store).
-  - `POST /payment/refund`: record a refund for a booking.
-
-- **Loyalty**
-  - `GET /loyalty/{customerID}/points`: check coins/tier (route name kept for backward compatibility).
-  - `POST /loyalty/earn`: earn coins after a booking is completed.
-  - `POST /loyalty/adjust`: undo a booking’s loyalty effects on cancellation.
-  - Internally keeps **coins + completed booking count + tier** (coins are the spendable loyalty currency):
-    - `< 2` bookings → Bronze
-    - `2–4` bookings → Silver
-    - `5–9` bookings → Gold
-    - `>= 10` bookings → Platinum
-
-- **Notification**
-  - `POST /notify/manual`: manual notifications (not central to demo).
-  - `GET /notifications`: shows events consumed from RabbitMQ.
-  - Runs a **RabbitMQ consumer** that listens for `booking.cancelled` events.
-  - **Optional — SMU Lab Utilities**: you can turn on real **SendEmail** calls when a cancel event arrives. Copy your **API key** from SMU Lab Utilities → API Keys, then set env vars on the `notification` service (see `notification/smu_integration.py` and commented examples in `docker-compose.yml`): `SMU_NOTIFICATION_ENABLED=true`, `SMU_NOTIFICATION_BASE_URL`, `SMU_NOTIFY_EMAIL_TO`, `SMU_NOTIFICATION_AUTH_HEADER` / `SMU_NOTIFICATION_AUTH_VALUE` (usually `Authorization` + `Bearer …`). Successful/failed calls are appended to `GET /notifications` under `source: smu_sendemail`. **SendSMS / SendOTP** use different JSON bodies — extend `smu_integration.py` similarly if your module needs them.
-
-- **RabbitMQ**
-  - Exchange: `travel_topic` (type `topic`).
-  - Queue: `Notification`, bound with routing key `booking.cancelled`.
+### Technical architecture goals
+- Use microservices with clear service boundaries and own data stores.
+- Use synchronous HTTP orchestration where suitable.
+- Use asynchronous messaging (RabbitMQ) for event-driven notifications.
+- Include at least one Beyond-The-Labs (BTL) element:
+  - GraphQL gateway on top of REST (implemented in this repo).
+  - External API integration options (FX, Twilio/SMU notification hooks).
 
 ---
 
-### 3. How everything runs (for everyone to test)
+## 2) High-Level Architecture
 
-1. Install **Docker Desktop**.
-2. Open a terminal and run:
-   - `cd c:\ESD\esd-project`
+### Services
+- `booking` (composite orchestration service, Flask + SQLAlchemy + MySQL)
+- `flight` (atomic in-memory catalog, Flask)
+- `hotel` (atomic in-memory catalog + room types/add-ons, Flask)
+- `payment` (atomic payment/refund recording, Flask)
+- `loyalty` (atomic points/tier tracking, Flask)
+- `notification` (event consumer + optional external notification integration, Flask)
+- `account` (atomic account profile demo, Flask)
+- `graphql` (gateway aggregation layer, Flask + Graphene)
+- `rabbitmq` (topic exchange message broker)
+- `booking-db` (MySQL for booking persistence)
+- `ui` (nginx static host + reverse proxy for same-origin API calls)
+
+### Communication patterns
+- HTTP sync:
+  - UI -> Booking/Loyalty/GraphQL (via nginx reverse proxy)
+  - Booking -> Flight/Hotel/Payment/Loyalty
+  - GraphQL -> Flight/Hotel/Loyalty
+- AMQP async:
+  - Booking publishes `booking.cancelled` events to RabbitMQ
+  - Notification consumes and stores events for retrieval
+
+### Data ownership
+- Booking owns persistent booking records in MySQL.
+- Flight/Hotel/Loyalty/Payment/Notification use isolated in-memory stores for demo.
+- No direct DB sharing across microservices.
+
+---
+
+## 3) Repository and Runtime Map
+
+### Key directories/files
+- `booking/app.py`: booking orchestration, refund logic, booking APIs, seat reservation query endpoint.
+- `flight/app.py`: flight catalog + search.
+- `hotel/app.py`: hotel catalog + search with room types/add-ons.
+- `graphql_gateway/app.py`: GraphQL query schema and resolvers.
+- `notification/app.py`: RabbitMQ consumer, notification read endpoint.
+- `ui/index.html`, `ui/app.js`, `ui/styles.css`: web UI flow and client logic.
+- `nginx/ui.conf`: UI static serving + API reverse proxy config.
+- `docker-compose.yml`: all services and networking.
+- `init_db.sql`: demo SQL seed references.
+- `.env` / `.env.example`: runtime config and secrets.
+
+### Default local URLs
+- UI: `http://localhost:8080`
+- Booking: `http://localhost:5101`
+- Flight: `http://localhost:5102`
+- Hotel: `http://localhost:5103`
+- Payment: `http://localhost:5104`
+- Loyalty: `http://localhost:5105`
+- Notification: `http://localhost:5106`
+- GraphQL: `http://localhost:5110/graphql`
+
+---
+
+## 4) Setup and Runbook
+
+### Prerequisites
+- Docker Desktop (includes Docker Compose).
+- Port availability: 8080, 5100-5110, 3307, 5674, 15673.
+
+### First-time setup
+1. Copy environment template:
+   - PowerShell: `Copy-Item .env.example .env`
+2. Fill required values in `.env` (if using external integrations).
+3. Start services:
    - `docker compose up --build`
-3. Wait until all containers are up (especially `booking`). If `http://localhost:5101` gives "connection refused", run `docker compose logs booking` to see errors (e.g. DB not ready).
-4. Services:
-   - Booking API (direct): `http://localhost:5101`
-   - Notification API (direct): `http://localhost:5106/notifications`
-5. **UI (use this to avoid file:// errors):**
-   - Open **`http://localhost:8080`** in your browser (nginx serves the UI and **proxies** APIs under `/api/booking`, `/api/loyalty`, `/api/notification`).
-   - Do **not** open `ui/index.html` via `file://` — relative `/api/...` calls will not work.
-   - Use “Create Booking” and then “Cancel Booking”.
+4. Open UI:
+   - `http://localhost:8080`
+
+### Restart / reset workflow
+- Restart all: `docker compose down && docker compose up --build`
+- Only rebuild one service: `docker compose up --build <service>`
+- View running status: `docker compose ps`
+
+### Logs and health checks
+- Booking logs: `docker compose logs booking --tail 120`
+- UI/nginx logs: `docker compose logs ui --tail 120`
+- GraphQL logs: `docker compose logs graphql --tail 120`
+- RabbitMQ UI: `http://localhost:15673` (guest/guest)
 
 ---
 
-### 4. Main flows (what to explain in slides/demo)
+## 5) Core Business Flows
 
-#### 4.1 Book travel package
+### Flow A: Create booking
+1. User completes 5-step UI flow (Personal -> Traveller profile -> Hotel -> Flights -> Loyalty/Payment).
+2. UI computes final price (tier discount, discount code, coin offset).
+3. UI calls `POST /booking`.
+4. Booking validates/catalog-checks as configured, stores booking in MySQL.
+5. Booking calls loyalty earn flow.
+6. Booking returns booking reference and details.
 
-1. **UI → Booking**
-   - `POST /booking` with:
-     - `customerID`, `flightID`, `hotelID`
-     - `departureTime` (ISO string)
-     - `totalPrice`, `currency`
-     - `fareType` (`Saver|Standard|Flexi`)
-     - `loyaltyTier` (`Bronze|Silver|Gold|Platinum|null`)
-2. **Booking**
-   - (Optional) calls **external FX API** to get exchange rate.
-   - Saves booking into **MySQL `bookings` table** with status `CONFIRMED`.
-   - (Optional) calls `Payment` to charge and `Loyalty` to `earn` coins.
-3. **Response**
-   - Returns the created booking JSON (including `id`).
+### Flow B: Cancel booking
+1. User enters booking reference in cancel form.
+2. UI calls `POST /booking/cancel/{id}` with optional `cancelSource`.
+3. Booking computes refund:
+   - customer cancel: no flight refund, hotel refund by 7-day rule
+   - airline cancel: full package refund
+   - hotel cancel: hotel-side refund
+4. Booking calls payment refund API.
+5. Booking adjusts loyalty effects.
+6. Booking updates booking status in MySQL.
+7. Booking publishes `booking.cancelled` event to RabbitMQ.
+8. Notification service consumes and exposes event via `GET /notifications`.
 
-#### 4.2 Cancel package + refund + notification
-
-1. **UI → Booking**
-   - `POST /booking/cancel/{id}`.
-   - Optional JSON body: `{ "cancelSource": "customer|airline|hotel" }` (default is `customer`).
-2. **Booking**
-   - Loads booking from DB.
-   - Computes refund by cancellation source + timing.
-   - **Exact refund rules implemented in `booking/app.py`:**
-     - **Customer cancellation** (`cancelSource=customer`):
-       - **Flight refund = 0** (no flight refund for customer-initiated cancellation).
-       - **Hotel refund = 100%** only if cancellation is **>= 7 days** before departure/check-in; else **0**.
-     - **Airline cancellation** (`cancelSource=airline`):
-       - Full package refund in this demo.
-     - **Hotel cancellation** (`cancelSource=hotel`):
-       - Full hotel-side refund in this demo.
-   - Response includes breakdown fields:
-     - `flightRefundAmount`, `hotelRefundAmount`, `refundAmount`, `refundPercentage`.
-   - **Loyalty side‑effects (earn + adjust + auto tiering):**
-     - On **create booking**, Booking calls `POST /loyalty/earn` with:
-       - `customerID`, `amount` (the final `totalPrice` you send), and optionally `coinsToSpendCents`.
-     - Loyalty then:
-       - increments the customer’s `bookingCount` by `+1`,
-       - sets the `tier` based on the updated booking count:
-         - `<2` Bronze, `2–4` Silver, `5–9` Gold, `>=10` Platinum,
-       - earns `coins` at a rate based on that tier:
-         - Bronze `1` cent/$1, Silver `2` cent/$1, Gold `3` cent/$1, Platinum `5` cent/$1.
-     - On **cancel**, Booking calls `POST /loyalty/adjust` with:
-       - `customerID`, `bookingAmount`, `bookingTier` (tier stored on the booking), and `coinsSpentCents`:
-         - loyalty decrements `bookingCount` by `-1`,
-         - restores coins spent at payment time,
-         - removes coins that were earned for that booking.
-3. **Booking → Payment**
-   - `POST /payment/refund { bookingID, refundAmount }`.
-4. **Booking (DB update)**
-   - Updates DB row:
-     - `status = CANCELLED`
-     - `refundPercentage`, `refundAmount`.
-5. **Booking → RabbitMQ**
-   - Publishes `booking.cancelled` event to `travel_topic` exchange.
-6. **RabbitMQ → Notification**
-   - Notification’s consumer receives event and appends it to an in‑memory list.
-   - `GET /notifications` returns all consumed events.
-7. **Booking → UI**
-   - Responds with `refundPercentage`, `refundAmount`, and payment info.
+### Flow C: Seat handling
+- UI requests reserved seats using `GET /booking/seats/{flightID}`.
+- Seat map disables already-reserved seats.
+- After booking/cancel, seat map refreshes to avoid stale selection.
 
 ---
 
-### 5. Optional external API integration (for “beyond the labs”)
+## 6) UI Guide and UX Behavior
 
-**Idea:** Use a public **currency exchange rate API** when creating a booking.
+### Main UI principles
+- User-friendly booking flow instead of technical form dump.
+- Name-based selection where possible (especially traveller profiles).
+- Search-select model for hotels/flights rather than raw IDs.
 
-- Example endpoint (subject to provider changes):  
-  - `https://api.exchangerate.host/latest?base=SGD&symbols=USD`
-- Sketch of how to integrate in `booking/app.py` (inside `create_booking`):
-  1. Read `currency` from request (e.g. `"SGD"`).
-  2. If `currency == "SGD"`:
-     - Call the external API once to get rate SGD→USD.
-     - Compute `priceInUSD = totalPrice * rate`.
-     - Optionally store `rate` and/or `priceInUSD` in extra DB columns or return them in the JSON response.
-  3. In report/slides, mention:
-     - You call the live API sparingly and **cache or hard‑code** a sample response during development to avoid overusing the external service.
+### Current tabs in booking flow
+1. Personal particulars
+2. Traveller profile (CRUD + selection for lead/companions)
+3. Hotel (country/city/name search + images + room details)
+4. Flights (seat selection, policy hints)
+5. Loyalty and payment (coins, discount, final amount)
 
-> Note: APIs and URLs can change; always check the latest documentation of the provider you choose.
+### Hotel display behavior
+- Shows hotel image, star rating, amenities, total available rooms.
+- Shows room type lines (STD/DLX), price/night, breakfast add-on, rooms left.
+- Selected room summary updates with room details.
 
----
-
-### 6. Suggested role breakdown
-
-- **Member A – Booking & DB**
-  - Owns `booking/app.py`, SQLAlchemy model, refund logic.
-  - Implements or explains external FX API usage.
-
-- **Member B – Payment & Loyalty**
-  - Owns payment/loyalty microservices and ensures Booking → Payment/Loyalty calls work.
-
-- **Member C – Notification & RabbitMQ**
-  - Understands `notification/app.py`, queue bindings, `/notifications`.
-  - Explains asynchronous messaging in slides.
-
-- **Member D – UI & Demo**
-  - Owns `ui/index.html`, ensures it calls Booking correctly.
-  - Prepares live demo steps and ensures everything is visible and clear.
-
-- **Member E – Diagrams & Report**
-  - Uses `README.md` (technical behaviour) and this guide to produce final PowerPoint diagrams and report sections.
+### Flight seat behavior
+- SQ routes: interactive seat map enabled.
+- Some carriers: check-in-only policy (map disabled by rule).
+- Exit-row shown as extra legroom and may require eligibility.
 
 ---
 
-### 7. OutSystems front‑end (how to connect)
+## 7) GraphQL (BTL) Guide
 
-**Goal:** Build a nicer UI in OutSystems that talks to this backend instead of using only `ui/index.html`.
+### Why GraphQL is included
+- Demonstrates API style beyond REST (explicit BTL candidate).
+- Aggregates data from multiple atomic services for frontend efficiency.
+- Reduces client overfetching and multiple round-trips.
 
-1. **Prepare backend URL**
-   - Run backend locally: `docker compose up --build` in `c:\ESD\esd-project`.
-   - Expose Booking API with a tunnel (so OutSystems cloud can reach it), e.g. with ngrok:  
-     - `ngrok http 5101`  
-     - Use the generated `https://<something>.ngrok.io` as your **base URL** (e.g. `https://<id>.ngrok.io`).
+### GraphQL gateway service
+- Service: `graphql` in `docker-compose.yml`
+- Code: `graphql_gateway/app.py`
+- Endpoint: `POST /graphql` (proxied via nginx as `/api/graphql/graphql`)
 
-2. **Create OutSystems app**
-   - Log in to your OutSystems environment (personal or school).
-   - Create a new **Reactive Web App** called e.g. **TravelBookingUI**.
+### Implemented queries
+- `hotelSearch(country, city, name)`
+  - Returns hotel list with room types/add-ons in one response.
+- `packagePreview(customerID, flightID, hotelID, roomCode)`
+  - Aggregates flight + hotel + loyalty and returns estimated total.
 
-3. **Add REST integration to Booking**
-   - In Data → **REST** → **Consume REST API**.
-   - Base URL: your tunnel URL (e.g. `https://<id>.ngrok.io`).
-   - Add methods:
-     - `POST /booking` (CreateBooking).
-     - `GET /booking/{id}` (GetBookingById).
-     - `POST /booking/cancel/{id}` (CancelBooking).
-   - Map the JSON structure to match this backend:
-     - Request body for create: `customerID`, `flightID`, `hotelID`, `departureTime`, `totalPrice`, `currency`, `fareType`, `loyaltyTier` (plus optional fields per API, e.g. traveller profiles, seat).
-     - Response: use `code` + `data` as defined by the API.
+### UI integration status
+- `ui/app.js` hotel search uses GraphQL first.
+- REST fallback retained for demo resilience if GraphQL is unavailable.
 
-4. **Build OutSystems screens**
-   - **Screen 1 – Create Booking**
-     - Form inputs: Customer ID, Flight ID, Hotel ID, Departure Date/Time, Total Package Price, Currency, Fare Type, Loyalty Tier.
-     - On submit: call `CreateBooking` REST method and show returned `data.id`, `status`, etc.
-   - **Screen 2 – Cancel Booking**
-     - Input: Booking ID.
-     - On submit: call `CancelBooking` REST method and show `refundPercentage`, `refundAmount`, and currency.
-
-5. **How to explain this in slides**
-   - OutSystems app is the **front‑end layer**.
-   - It calls the existing **Booking API** (plus Payment/Loyalty indirectly through Booking).
-   - You can show a simple architecture: browser (OutSystems) → Booking (Flask) → Payment/Loyalty/Notification/MySQL/RabbitMQ.
-
-This section is your **cheat sheet for the OutSystems part**: follow steps 1–4 to implement it, and use step 5 wording in your report/presentation.
-
-This file is meant as your **internal cheat sheet** so everyone in the team knows how the system is wired, what to say in the presentation, and where to extend if needed.
+### Example GraphQL payload
+```json
+{
+  "query": "query($country:String,$city:String,$name:String){ hotelSearch(country:$country, city:$city, name:$name){ hotelID name city country roomTypes { code label pricePerNight includesBreakfast availableRooms } } }",
+  "variables": { "country": "Singapore", "city": "", "name": "" }
+}
+```
 
 ---
 
-### 8. End‑to‑end customer journey, loyalty and refund rules
+## 8) API Contract Summary
 
-This section summarises the **business flow** and policies you will implement across UI, Booking, Payment, Hotel, Flight and Loyalty. Some details (like seat selection UI) may be partially implemented or mocked, but this is the target behaviour for your report/demo.
+### Booking
+- `POST /booking`
+- `GET /booking/{id}`
+- `POST /booking/cancel/{id}`
+- `GET /booking/seats/{flightID}`
+- traveller profile proxy routes:
+  - `GET /travellerprofiles/byaccount/{customerID}`
+  - `POST /travellerprofiles/create`
+  - `PUT /travellerprofiles/update/{id}`
+  - `DELETE /travellerprofiles/delete/{id}`
 
-#### 8.1 Booking journey (logged‑in customer)
+### Flight
+- `GET /flight/{flightNum}`
+- `GET /flight/search`
 
-1. **Log in / Create account**
-   - Customer account profile is stored in the **Account** microservice (Python) and/or mirrored in an OutSystems atomic MS.
-   - **Traveller profiles** — a per-customer list of saved **companions / co-travellers** (people they fly with: family, colleagues, etc.), usually with passenger data such as legal name, DOB, nationality, **passport** number/expiry — are managed in a separate **Traveller Profile** atomic MS in OutSystems (not the same as the account login row).
-2. **Start search**
-   - Inputs: origin, destination, travel dates, hotel check‑in/check‑out, number of travellers.
-   - System returns a **cheapest baseline bundle** (basic flight + basic hotel).
-3. **Customise bundle**
-   - **Flight**:
-     - Choose airline and departure/arrival time.
-     - Choose cabin/class (e.g. Economy Saver / Standard / Flexi, Premium, etc.).
-     - Optional: choose baggage and seat (secondary feature).
-   - **Hotel**:
-     - Choose hotel and room type (STD vs DLX, etc.).
-     - Toggle breakfast on/off.
-     - Simple placeholder image/icon is shown for hotels (more images are a future enhancement).
-   - **Filters**: customer can filter by price, rating or other basic attributes.
-4. **Add travellers**
-   - Customer picks one or more saved companion profiles from OutSystems (each row = someone they’ve travelled with before, with passport-style details on file). The demo HTML UI may only send one `travellerProfileId` per booking; OutSystems holds the full list and attributes.
-5. **Payment + loyalty**
-   - Show price breakdown (flight + hotel) and loyalty info:
-     - **Coins** are stored in cents (cents earned per $1 spent):
-       - Bronze: `1` cent per $1.
-       - Silver: `2` cents per $1.
-       - Gold: `3` cents per $1.
-       - Platinum: `5` cents per $1.
-     - **Tier thresholds (by bookings)**:
-       - Start at **Bronze**.
-       - `2` completed bookings → **Silver**.
-       - `5` completed bookings → **Gold**.
-       - `10` completed bookings → **Platinum**.
-     - **Tier discounts on booking price**:
-       - Silver: `10%` discount.
-       - Gold: `15%` discount.
-       - Platinum: `20%` discount.
-      - **Discount codes**:
-        - UI can accept promo codes such as `SILVER10`, `GOLD15`, `PLAT20`.
-        - Discount is only applied if the customer’s **current tier** is high enough (e.g. `GOLD15` only works for Gold and above).
-        - Effective price used for Booking/payment is:  
-          `basePrice – tierDiscount – discountCodeAmount – coinsOffset`.
-   - Payment logic:
-     - Apply tier discount (based on projected tier for this booking).
-     - Optionally apply a discount code (extra percentage discount).
-     - Apply coins offset after discounts.
-     - Charge card (via Payment MS or external provider).
-   - After successful payment:
-     - Earn coins.
-    - Check if tier needs upgrading based on completed booking count thresholds (2/5/10) while coins continue accumulating.
-6. **Confirmation + PDF + notification**
-   - System generates a simple **PDF booking confirmation**.
-   - Notification service sends an email/SMS or exposes the confirmation via `/notifications`.
+### Hotel
+- `GET /hotel/{hotelID}`
+- `GET /hotel/search?country=&city=&name=`
 
-#### 8.2 Guest journey
+### Loyalty
+- `GET /loyalty/{customerID}/points`
+- `POST /loyalty/earn`
+- `POST /loyalty/adjust`
 
-- Guest can start a search, customise bundle, enter traveller details and pay **without logging in**.
-- For guest bookings:
-  - `customerID` is set to `0` in the Booking payload.
-  - Loyalty tier/coins are **not applied** (no tier discounts, no coins, no tier upgrades).
-  - Booking is still stored and can be retrieved by ID, but is not tied to a persistent account profile.
+### Payment
+- `POST /payment`
+- `POST /payment/refund`
 
-#### 8.3 Refund and cancellation rules (overview)
-
-High‑level rules you can refer to in slides and code comments:
-
-- **Note about demo vs report wording**
-  - The Flask “atomic” demo currently uses a simplified refund-percentage calculation.
-  - The rules below are the intended **end-to-end cancellation policy** you can explain in your report/slides and map to Booking/Payment/Loyalty behaviour.
-
-- **Customer cancellation**
-  - Flight refund is **always 0%** for customer-initiated cancellation.
-  - Hotel follows the 7-day rule:
-    - `>= 7` days before departure/check-in: hotel side refundable.
-    - `< 7` days: hotel side non-refundable.
-
-- **Flight cancellation rules**
-  - **Customer-initiated**: flight refund is **0%**.
-  - **Airline-initiated**: flight refund is **100%**.
-
-- **Hotel cancellation rules**
-  - **Customer cancels**:
-    - Cancel **at least 1 week before check-in** → **100% hotel refund**.
-    - Cancel **within 1 week** → **no hotel refund**.
-  - **Hotel cancels the stay**:
-    - Full hotel-side refund in this demo.
-
-- **Mixed scenario: flight cancelled, hotel not cancelled**
-  - Attempt to **re-accommodate** the customer on an alternative flight with **similar timing and price**.
-  - If a suitable alternative is found and accepted:
-    - Hotel booking continues.
-    - No immediate package refund; only fare differences if applicable.
-  - If no acceptable alternative exists (or the customer rejects all alternatives):
-    - Treat as airline-initiated cancellation in this demo and issue full package refund.
-
-- **Effect on loyalty after cancellation**
-  - **Full refunds**:
-    - Reverse **both** money and loyalty benefits (coins + booking-count progression adjustments derived from that booking).
-    - Treat “cancel booking” as reverting the loyalty state that was earned for that booking.
-  - **Partial refunds**:
-    - Deduct loyalty benefits proportionally to the refunded amount (or, if you want to keep it simple for the demo: deduct all benefits from that booking; document your choice).
-
-This section allows you to explain:
-- The **user journey** (login → search → customise bundle → add travellers → pay → confirmation).
-- The **loyalty and tiering logic** (coins, booking-count tiers, discounts).
-- The **refund and error‑handling policy** for customer/airline/hotel‑initiated cancellations and mixed cases (like flight cancelled but hotel active).
+### Notification
+- `GET /notifications`
+- `POST /notify/manual`
 
 ---
 
-### 9. Final agreed business rules (team source of truth)
+## 9) Business Rules and Assumptions
 
-Use this as the final aligned rulebook for implementation, demo, and slides.
+### Loyalty
+- Tier by completed booking count:
+  - `<2` Bronze, `2-4` Silver, `5-9` Gold, `>=10` Platinum.
+- Tier discount (UI pricing model):
+  - Silver 10%, Gold 15%, Platinum 20%.
+- Coins earn rate in cents per 1 SGD (configured in loyalty service).
+- On cancellation, loyalty side effects are reversed/adjusted.
 
-#### 9.1 User journey (Baseline + Upsell)
+### Refund policy
+- Customer cancellation:
+  - flight refund = 0
+  - hotel refund = 100% only if >= 7 days before departure/check-in, else 0
+- Airline cancellation:
+  - full package refund
+- Hotel cancellation:
+  - hotel-side refund
 
-1. Log in / create account (or continue as guest).
-2. Start search with:
-   - destination
-   - flight departure/arrival date
-   - hotel check-in/check-out date
-3. System returns cheapest **baseline bundle** (flight + hotel).
-4. User customises:
-   - Flight: airline/time, class (Flexi/Elite/Standard), baggage, seat (optional if time).
-   - Hotel: hotel upgrade, room type, breakfast.
-5. User adds traveller details (support multiple travellers with “+”).
-6. Checkout:
-   - apply tier discount
-   - apply discount code (if eligible)
-   - offset using loyalty coins
-   - pay online
-7. System generates PDF booking confirmation and triggers notification.
+### Traveller profile assumptions
+- OutSystems traveller profile service may be optional in local demos.
+- If unavailable/unconfigured, UI degrades gracefully with messaging.
 
-#### 9.2 Guest flow
+---
 
-- Guest can search, customise, enter traveller details, and pay without login.
-- Guest bookings do not earn/apply loyalty benefits.
+## 10) OutSystems Integration Notes
 
-#### 9.3 Loyalty, tier, discount, and coins
+### Recommended approach
+- Keep OutSystems as presentation/workflow UI layer.
+- Consume Python REST APIs for booking and cancellation.
+- Optionally consume GraphQL endpoint for richer search/display.
 
-- Start tier: **Bronze**.
-- Tier progression (by completed bookings):
-  - `2` bookings → Silver
-  - `5` bookings → Gold
-  - `10` bookings → Platinum
-- Tier discount:
-  - Silver `10%`
-  - Gold `15%`
-  - Platinum `20%`
-- Coins earned per `$1` spent:
-  - Bronze: `1` cent
-  - Silver: `2` cents
-  - Gold: `3` cents
-  - Platinum: `5` cents
-- Coins can offset payment at checkout.
-- Full refund should reverse money + loyalty effects from that booking.
+### Connectivity
+- If OutSystems cloud cannot reach local Docker host directly, use secure tunneling.
+- Map OutSystems structures to backend JSON (`code` + `data` envelope style).
 
-#### 9.4 Cancellation and refund precedence
+### Demo-safe advice
+- Prepare fallback demo video in case external tunnel/network fails.
 
-Apply rules in this order:
+---
 
-1. **Customer cancellation ≥ 30 days** before departure:
-   - full refund (money + loyalty effects reversed).
-2. Else apply component rules:
-   - **Flight (customer-initiated)**:
-     - no free cancellation
-     - customer cancellation generally no flight refund
-     - may include fixed fee / no-show model (e.g. `$300`) as configured
-     - small-plane/non-refundable fares: no refund
-     - big-airline refundable fares: refund after cancellation charge (example `$1000 - $500 = $500`)
-   - **Flight (airline-initiated)**:
-     - full flight refund
-   - **Hotel (customer-initiated)**:
-     - `>= 7` days before check-in: `100%` hotel refund
-     - `< 7` days: `0%` hotel refund
-   - **Hotel (hotel-initiated)**:
-     - full hotel refund, including loyalty reversal for that component
-3. **Flight cancelled but hotel still active**:
-   - try similar alternative flight first
-   - if accepted: continue booking
-   - if rejected/no suitable alternative: full package refund
+## 11) Testing and Demo Script
 
-#### 9.5 Traveller Profile in OutSystems
+### Minimum smoke test checklist
+1. Open UI at `http://localhost:8080`.
+2. Search hotel by country (`Singapore` / `France`) and verify images + room lines.
+3. Select room type and verify selected room summary updates.
+4. Select SQ flight, verify seat map appears and taken seats disabled.
+5. Create booking, note booking reference.
+6. Cancel booking with `customer` and verify refund amount logic.
+7. Check `GET /notifications` for consumed `booking.cancelled`.
+8. Verify loyalty values change after create and cancel.
+9. Test GraphQL `hotelSearch` directly via `/graphql`.
 
-- Owned as an **OutSystems atomic** module by a teammate. **Five** REST endpoints exist there; this repo’s Python integration documents the **three** used for demos/scripts in `travellerprofile/outsystems_client.py` (`CreateTravellerProfile`, `GetAllTravellerProfiles`, `byaccount/{customerID}`). For the other two operations, use the teammate’s OutSystems / Service Studio definition as the source of truth.
-- **Booking** (Docker) only calls **`byaccount/{customerID}`** and ties `travellerProfileId` to the row **`Id`**; it snapshots `FullName` + masked passport when `TRAVELLER_PROFILE_BASE_URL` is set.
+### Suggested 15-minute presentation demo order
+1. Architecture slide (services + sync/async lines).
+2. Create booking in UI.
+3. Show loyalty effect.
+4. Cancel booking and show refund + notification event.
+5. Show GraphQL request/response and explain BTL value.
+
+---
+
+## 12) Troubleshooting Playbook
+
+### UI loads but API actions fail
+- Ensure opened from `http://localhost:8080`, not `file://`.
+- Check nginx route config in `nginx/ui.conf`.
+- Check `docker compose ps` for missing/down services.
+
+### Nginx upstream resolution issues
+- Ensure service names in `docker-compose.yml` match nginx upstream names.
+- Rebuild UI container after config changes:
+  - `docker compose up --build ui`
+
+### Booking startup errors
+- DB not ready: check `booking-db` health.
+- Verify `BOOKING_DB_URL` matches DB creds.
+
+### GraphQL issues
+- Check `graphql` container is up.
+- Test direct endpoint `http://localhost:5110/graphql`.
+- Verify query fields match schema names exactly.
+
+### RabbitMQ/notifications issues
+- Confirm rabbitmq service up and queue bindings active.
+- Verify notification consumer thread running via logs.
+
+---
+
+## 13) Report and Submission Checklist
+
+### Must include
+- Slides, report, source code, README, and demo video link.
+- API documentation appendix for all microservices.
+- Architecture and interaction diagrams consistent with real implementation.
+- Team contribution table.
+
+### BTL evidence checklist
+- Show GraphQL gateway in architecture diagram.
+- Show at least one real GraphQL request/response.
+- Explain why GraphQL is beneficial for your scenario (aggregation + flexibility).
+
+### Consistency checks before submission
+- Ensure code, slides, and report describe the same implemented behavior.
+- Avoid claiming unimplemented features as complete.
+- Note assumptions and demo constraints explicitly.
+
+---
+
+## 14) Team Ownership and Operating Model
+
+### Suggested ownership split
+- Member A: Booking + DB + refund orchestration.
+- Member B: Loyalty + Payment business rules.
+- Member C: Notification + RabbitMQ + external notify integrations.
+- Member D: UI/UX flow + GraphQL client usage.
+- Member E: OutSystems + report/diagrams + integration verification.
+
+### Working agreements
+- One source of truth for business rules: this file.
+- Update this guide whenever behavior changes.
+- Validate via smoke checklist before merging.
+
+---
+
+## 15) Change Log Guidance
+
+When major changes are made, append:
+- Date
+- What changed
+- Why
+- Impacted services/files
+- Demo/report implications
+
+Keeping this concise log prevents drift between code and presentation content.
 

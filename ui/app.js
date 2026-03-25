@@ -1,12 +1,12 @@
 // Travel Booking UI logic
 
-// Same-origin paths (nginx proxies to booking / loyalty / notification — see nginx/ui.conf)
+// Same-origin paths (nginx proxies to services — see nginx/ui.conf)
 const API_BASE = "/api/booking";
 const LOYALTY_BASE = "/api/loyalty";
 const NOTIFICATION_BASE = "/api/notification";
-// Use direct hotel service calls.
-// Nginx /api/hotel proxying is unreliable in this environment, but the hotel
-// Flask service has CORS enabled and runs on :5103.
+const GRAPHQL_BASE = "/api/graphql/graphql";
+const FLIGHT_BASE = "/api/flight";
+// Keep REST hotel base as fallback path if GraphQL is down.
 const HOTEL_BASE = "http://localhost:5103";
 
 /** Demo personas — pick from dropdown to fill the form for presentations */
@@ -128,7 +128,9 @@ const DEMO_PROFILES = [
   },
 ];
 
-const TAKEN_SEATS = new Set(["8A", "8B", "9D", "10F", "12C"]);
+const DEFAULT_TAKEN_SEATS = new Set(["8A", "8B", "9D", "10F", "12C"]);
+let currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
+let seatRefreshToken = 0;
 
 /**
  * Typical narrow-body 3–3 layout: A/F window, C/D aisle, B/E middle.
@@ -236,6 +238,25 @@ async function fetchJson(url, options = {}) {
     };
   }
   return { ok: res.ok, status: res.status, body, networkError: false, parseError };
+}
+
+async function fetchGraphql(query, variables = {}) {
+  const out = await fetchJson(GRAPHQL_BASE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (out.networkError || !out.ok) return out;
+  if (out.body?.errors?.length) {
+    return {
+      ok: false,
+      status: out.status,
+      body: out.body,
+      networkError: false,
+      errorMessage: out.body.errors.map((e) => e.message).join("; "),
+    };
+  }
+  return out;
 }
 
 function isMissingBookingData(body) {
@@ -409,6 +430,13 @@ function clearSeatSelection() {
   });
 }
 
+function resetSeatMap() {
+  const map = document.getElementById("seatMap");
+  if (!map) return;
+  map.innerHTML = "";
+  buildSeatMapOnce();
+}
+
 function selectSeat(seatCode) {
   const code = String(seatCode).toUpperCase();
   document.getElementById("seatNumber").value = code;
@@ -442,7 +470,7 @@ function addSeatButton(container, row, letter) {
   btn.classList.add(`seat--${meta.position}`);
   btn.classList.add(`seat--zone-${meta.zone}`);
 
-  if (TAKEN_SEATS.has(id)) {
+  if (currentTakenSeats.has(id)) {
     btn.disabled = true;
     btn.classList.add("taken");
     btn.title = `${id} · ${meta.label} · Already taken`;
@@ -516,12 +544,92 @@ function updateSeatSelectionUI() {
     mapWrap.hidden = false;
     blocked.hidden = true;
     blocked.textContent = "";
+    void refreshTakenSeatsForFlight(flightId);
   } else {
     policyEl.textContent = policy.reason;
     mapWrap.hidden = true;
     blocked.hidden = false;
     blocked.textContent = policy.reason;
     clearSeatSelection();
+    currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
+    resetSeatMap();
+  }
+
+  updateSeatGroupSummary();
+}
+
+async function syncFlightScheduleUI() {
+  const flightId = document.getElementById("flightID")?.value?.trim()?.toUpperCase() || "";
+  const depEl = document.getElementById("flightDepartureTime");
+  const arrEl = document.getElementById("flightArrivalTime");
+  const bookingDepEl = document.getElementById("departureTime");
+  if (!depEl || !arrEl || !bookingDepEl) return;
+
+  if (!flightId) {
+    depEl.value = "";
+    arrEl.value = "";
+    bookingDepEl.value = "";
+    return;
+  }
+
+  const out = await fetchJson(`${FLIGHT_BASE}/flight/${encodeURIComponent(flightId)}`);
+  if (out.networkError || !out.ok || !out.body?.data) return;
+  const f = out.body.data;
+  const dep = String(f.departureTime || "").slice(0, 16);
+  const arr = String(f.arrivalTime || "").slice(0, 16);
+  if (dep) {
+    depEl.value = dep;
+    bookingDepEl.value = dep;
+  }
+  if (arr) arrEl.value = arr;
+}
+
+async function refreshTakenSeatsForFlight(flightId) {
+  const fid = String(flightId || "").trim().toUpperCase();
+  if (!fid) return;
+
+  const token = ++seatRefreshToken;
+  const out = await fetchJson(`${API_BASE}/booking/seats/${encodeURIComponent(fid)}`);
+  if (token !== seatRefreshToken) return;
+
+  if (out.networkError || !out.ok) {
+    currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
+    resetSeatMap();
+    return;
+  }
+
+  const seats = out.body?.data?.seats;
+  const merged = new Set(DEFAULT_TAKEN_SEATS);
+  if (Array.isArray(seats)) {
+    seats.forEach((s) => {
+      const up = String(s || "").trim().toUpperCase();
+      if (up) merged.add(up);
+    });
+  }
+  currentTakenSeats = merged;
+
+  const currentSeat = document.getElementById("seatNumber")?.value?.trim()?.toUpperCase() || "";
+  if (currentSeat && currentTakenSeats.has(currentSeat)) {
+    clearSeatSelection();
+  }
+  resetSeatMap();
+}
+
+function updateSeatGroupSummary() {
+  const seat = document.getElementById("seatNumber")?.value?.trim() || "—";
+  const leadPill = document.getElementById("seatLeadPill");
+  const compPill = document.getElementById("seatCompanionPill");
+  const hintPill = document.getElementById("seatGroupHint");
+  const compSel = document.getElementById("companionTravellerSelect");
+  const companions = Array.from(compSel?.selectedOptions || []).length;
+
+  if (leadPill) leadPill.textContent = `Lead traveller seat: ${seat === "—" ? "not selected" : seat}`;
+  if (compPill) compPill.textContent = `Companions: ${companions}`;
+
+  if (hintPill) {
+    hintPill.textContent = companions > 0
+      ? "Companions will be auto-assigned nearby in this demo."
+      : "No companions selected.";
   }
 }
 
@@ -675,6 +783,7 @@ function updateBreakfastAddonUI() {
     if (lastHotelRoomType === "DLX") cb.checked = false;
   }
   lastHotelRoomType = room;
+  updateHotelRoomDetailsUI();
 }
 
 function setHotelRoomTypeOptionsFromHotel(hotel) {
@@ -719,6 +828,38 @@ function setHotelSelection(hotel) {
   if (cb) cb.checked = roomCode === "DLX";
 
   updateBreakfastAddonUI();
+  updateHotelRoomDetailsUI();
+}
+
+function updateHotelRoomDetailsUI() {
+  const displayEl = document.getElementById("hotelSelectedRoomDisplay");
+  if (!displayEl || !selectedHotel) return;
+
+  const roomCode = document.getElementById("hotelRoomType")?.value;
+  const cb = document.getElementById("hotelIncludesBreakfast");
+  const room = (selectedHotel.roomTypes || []).find((rt) => rt.code === roomCode);
+
+  if (!room) {
+    displayEl.textContent = "—";
+    return;
+  }
+
+  const label = room.label || room.typeName || roomCode || "Room";
+  const price = Number.isFinite(Number(room.pricePerNight))
+    ? Number(room.pricePerNight).toFixed(2)
+    : null;
+  const available = Number.isFinite(Number(room.availableRooms)) ? Number(room.availableRooms) : null;
+  const breakfastIncluded = room.code === "DLX" || !!cb?.checked;
+  const addonText = breakfastIncluded ? "Breakfast included" : "Room only";
+
+  const parts = [
+    label,
+    price !== null ? `$${price}/night` : null,
+    addonText,
+    available !== null ? `${available} rooms left` : null,
+  ].filter(Boolean);
+
+  displayEl.textContent = parts.join(" · ");
 }
 
 function renderHotelResults(hotels) {
@@ -736,6 +877,27 @@ function renderHotelResults(hotels) {
     const id = h.hotelID || h.id;
     const card = document.createElement("div");
     card.className = "hotel-card";
+    const roomLines = (h.roomTypes || [])
+      .map((rt) => {
+        const code = rt.code || "";
+        const label = rt.label || (code === "DLX" ? "Deluxe" : code === "STD" ? "Standard" : "Room");
+        const price = Number.isFinite(Number(rt.pricePerNight)) ? `$${Number(rt.pricePerNight).toFixed(2)}/night` : "";
+        const addon = rt.includesBreakfast ? "Breakfast included" : "Room only";
+        const available =
+          rt.availableRooms !== undefined && rt.availableRooms !== null
+            ? `${rt.availableRooms} rooms left`
+            : "";
+        return `<div class="hotel-card__roomline"><strong>${escapeHtml(
+          label
+        )}</strong>${code ? ` (${escapeHtml(code)})` : ""}: ${escapeHtml(
+          addon
+        )}${price ? ` · ${escapeHtml(price)}` : ""}${available ? ` · ${escapeHtml(available)}` : ""}</div>`;
+      })
+      .join("");
+    const totalRooms = (h.roomTypes || []).reduce((sum, rt) => {
+      const v = Number(rt?.availableRooms);
+      return Number.isFinite(v) && v > 0 ? sum + v : sum;
+    }, 0);
     card.innerHTML = `
       <div class="hotel-card__img">
         <img src="${escapeHtml(h.imageUrl || '')}" alt="${escapeHtml(h.name || 'Hotel')}" />
@@ -749,9 +911,10 @@ function renderHotelResults(hotels) {
       h.country || ''
     )}</div>
         <div class="hotel-card__amenities muted">${escapeHtml(h.amenities || '')}</div>
-        <div class="hotel-card__rooms muted">Rooms: ${escapeHtml(
-          (h.roomTypes || []).map((rt) => rt.code).filter(Boolean).join(", ")
-        )}</div>
+        <div class="hotel-card__rooms muted">
+          ${totalRooms > 0 ? `Rooms available: ${escapeHtml(String(totalRooms))} total` : "Rooms available: —"}
+          ${roomLines ? `<div style="margin-top:2px;">Room types:</div>${roomLines}` : ""}
+        </div>
         <div class="hotel-card__actions">
           <button type="button" class="btn-secondary" data-action="selectHotel" data-id="${escapeHtml(
             String(id || 0)
@@ -775,19 +938,45 @@ async function searchHotels() {
   if (selectedHintEl) selectedHintEl.textContent = "Searching hotels…";
   if (resultsEl) resultsEl.textContent = "Loading…";
 
-  const qs = new URLSearchParams();
-  if (country) qs.set("country", country);
-  if (city) qs.set("city", city);
-  if (name) qs.set("name", name);
+  const gqlQuery = `
+    query SearchHotels($country: String, $city: String, $name: String) {
+      hotelSearch(country: $country, city: $city, name: $name) {
+        hotelID
+        name
+        city
+        country
+        starRating
+        imageUrl
+        amenities
+        availableRooms
+        roomTypes {
+          code
+          label
+          pricePerNight
+          includesBreakfast
+          availableRooms
+        }
+      }
+    }
+  `;
+  const gqlOut = await fetchGraphql(gqlQuery, { country, city, name });
+  let hotels = gqlOut.body?.data?.hotelSearch ?? [];
 
-  const out = await fetchJson(`${HOTEL_BASE}/hotel/search?${qs.toString()}`);
-  if (out.networkError) {
-    if (selectedHintEl) selectedHintEl.textContent = "Could not reach hotel service.";
-    if (resultsEl) resultsEl.textContent = out.errorMessage || "";
-    return;
+  // Graceful fallback to REST search for resilience in demos.
+  if (!gqlOut.ok) {
+    const qs = new URLSearchParams();
+    if (country) qs.set("country", country);
+    if (city) qs.set("city", city);
+    if (name) qs.set("name", name);
+    const restOut = await fetchJson(`${HOTEL_BASE}/hotel/search?${qs.toString()}`);
+    if (restOut.networkError) {
+      if (selectedHintEl) selectedHintEl.textContent = "Could not reach hotel service.";
+      if (resultsEl) resultsEl.textContent = restOut.errorMessage || gqlOut.errorMessage || "";
+      return;
+    }
+    hotels = restOut.body?.data ?? [];
   }
 
-  const hotels = out.body?.data ?? [];
   latestHotelRows = Array.isArray(hotels) ? hotels : [];
   if (!hotels.length) {
     if (selectedHintEl) selectedHintEl.textContent = "No hotels match those details.";
@@ -853,9 +1042,16 @@ function applyDemoProfile() {
       updateBreakfastAddonUI();
     });
   }
+  document.getElementById("flightDepartureTime").value = p.departureTime;
   document.getElementById("departureTime").value = p.departureTime;
+  document.getElementById("hotelCheckInTime").value = p.departureTime;
+  const pCheckOut = new Date(p.departureTime);
+  if (!Number.isNaN(pCheckOut.getTime())) {
+    pCheckOut.setDate(pCheckOut.getDate() + 4);
+    document.getElementById("hotelCheckOutTime").value = pCheckOut.toISOString().slice(0, 16);
+  }
   document.getElementById("totalPrice").value = p.totalPrice;
-  document.getElementById("currency").value = p.currency;
+  document.getElementById("currency").value = "SGD";
   document.getElementById("fareType").value = p.fareType;
   document.getElementById("discountCode").value = p.discountCode || "";
   document.getElementById("coinsToSpendCents").value = p.coinsToSpendCents ?? 0;
@@ -863,6 +1059,7 @@ function applyDemoProfile() {
   updateCoinsOffsetUI();
 
   updateSeatSelectionUI();
+  void syncFlightScheduleUI();
   // Refresh traveller profile list + selectors so the demo can pick by name.
   if (document.getElementById("travellerProfilesList")) {
     void loadTravellerProfiles();
@@ -902,7 +1099,11 @@ function setManualDefaults() {
   document.getElementById("hotelIncludesBreakfast").checked = false;
   updateBreakfastAddonUI();
   void initHotelSelectionById(1);
+  document.getElementById("flightDepartureTime").value = "2026-05-01T10:00";
+  document.getElementById("flightArrivalTime").value = "2026-05-01T15:30";
   document.getElementById("departureTime").value = "2026-05-01T10:00";
+  document.getElementById("hotelCheckInTime").value = "2026-05-01T15:00";
+  document.getElementById("hotelCheckOutTime").value = "2026-05-05T11:00";
   document.getElementById("totalPrice").value = 1200;
   document.getElementById("currency").value = "SGD";
   document.getElementById("fareType").value = "Flexi";
@@ -917,6 +1118,7 @@ function setManualDefaults() {
   }
   clearSeatSelection();
   updateSeatSelectionUI();
+  void syncFlightScheduleUI();
   void updateLoyaltySummary(1);
 }
 
@@ -1054,7 +1256,7 @@ async function onCreateBookingSubmit(e) {
       document.getElementById("hotelIncludesBreakfast").checked,
     departureTime: document.getElementById("departureTime").value,
     totalPrice: Number(document.getElementById("totalPrice").value),
-    currency: document.getElementById("currency").value,
+    currency: "SGD",
     fareType: document.getElementById("fareType").value,
     seatNumber: seatPol.onlineSeatSelection
       ? document.getElementById("seatNumber").value.trim().toUpperCase()
@@ -1131,6 +1333,7 @@ async function onCreateBookingSubmit(e) {
     showResult(data, "Trip confirmed");
     document.getElementById("cancelBookingID").value = String(data.data.id);
 
+    updateSeatSelectionUI();
     await updateLoyaltySummary(payload.customerID);
   } catch (err) {
     const msg = formatNetworkError(err);
@@ -1220,6 +1423,7 @@ async function onCancelBookingSubmit(e) {
     showResult(data, "Cancellation processed");
 
     await refreshNotifications();
+    updateSeatSelectionUI();
 
     const bookingOut = await fetchJson(`${API_BASE}/booking/${id}`);
     if (!bookingOut.networkError && bookingOut.body?.data?.customerID) {
@@ -1319,9 +1523,9 @@ function setupLoyaltyPaymentTabs() {
 function setupBookingFlowTabs() {
   const steps = [
     { tabId: "bookingStep1Tab", panelId: "bookingStep1Panel" },
-    { tabId: "bookingStep2Tab", panelId: "bookingStep2Panel" },
-    { tabId: "bookingStep3Tab", panelId: "bookingStep3Panel" },
-    { tabId: "bookingStep4Tab", panelId: "bookingStep4Panel" },
+    { tabId: "bookingStep2Tab", panelId: "bookingStep4Panel" },
+    { tabId: "bookingStep3Tab", panelId: "bookingStep2Panel" },
+    { tabId: "bookingStep4Tab", panelId: "bookingStep3Panel" },
     { tabId: "bookingStep5Tab", panelId: "bookingStep5Panel" },
   ];
 
@@ -1349,8 +1553,8 @@ function setupBookingFlowTabs() {
     if (activePanelId)
       document.getElementById(activePanelId)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
-    // Step 4 (index 3) includes traveller profile CRUD + selectors.
-    if (stepIndex === 3) {
+    // Step 2 (index 1) includes traveller profile CRUD + selectors.
+    if (stepIndex === 1) {
       const listEl = document.getElementById("travellerProfilesList");
       if (listEl && latestTravellerRows.length === 0) {
         void loadTravellerProfiles();
@@ -1859,6 +2063,14 @@ function setupTravellerProfilesUI() {
       }
 
       refreshTripContactSummary();
+      updateSeatGroupSummary();
+    });
+  }
+
+  const compSel = document.getElementById("companionTravellerSelect");
+  if (compSel) {
+    compSel.addEventListener("change", () => {
+      updateSeatGroupSummary();
     });
   }
 
@@ -1892,6 +2104,7 @@ function initUI() {
   setupBookingFlowTabs();
   setupTravellerProfilesUI();
   refreshTripContactSummary();
+  updateSeatGroupSummary();
 
   document.getElementById("demoProfile").addEventListener("change", applyDemoProfile);
   document.getElementById("loadDemoBtn").addEventListener("click", applyDemoProfile);
@@ -1899,8 +2112,14 @@ function initUI() {
     setManualDefaults();
     showResult({ info: "Ready — edit the form, then confirm & pay when done." }, "Ready to edit");
   });
-  document.getElementById("flightID").addEventListener("input", updateSeatSelectionUI);
-  document.getElementById("flightID").addEventListener("change", updateSeatSelectionUI);
+  document.getElementById("flightID").addEventListener("input", () => {
+    updateSeatSelectionUI();
+    void syncFlightScheduleUI();
+  });
+  document.getElementById("flightID").addEventListener("change", () => {
+    updateSeatSelectionUI();
+    void syncFlightScheduleUI();
+  });
   document
     .getElementById("hotelRoomType")
     .addEventListener("change", updateBreakfastAddonUI);
@@ -1924,6 +2143,7 @@ function initUI() {
   // Initial load
   refreshNotifications();
   updateBreakfastAddonUI();
+  void syncFlightScheduleUI();
   const hotelId = Number(document.getElementById("hotelID")?.value || 0);
   void initHotelSelectionById(hotelId > 0 ? hotelId : 1);
 

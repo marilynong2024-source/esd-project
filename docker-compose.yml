@@ -65,6 +65,15 @@ services:
     ports:
       - "5105:5105"
 
+  graphql:
+    build: ./graphql_gateway
+    ports:
+      - "5110:5110"
+    depends_on:
+      - flight
+      - hotel
+      - loyalty
+
   notification:
     build: ./notification
     ports:
@@ -120,4 +129,5 @@ services:
       - booking
       - loyalty
       - notification
+      - graphql
 

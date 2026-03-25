@@ -5,6 +5,7 @@ import os
 import requests
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text, inspect
+from sqlalchemy import func
 import sqlalchemy.exc as sa_exc
 import pika
 import json
@@ -458,6 +459,31 @@ def get_booking(booking_id: int):
     if not booking:
         return jsonify({"code": 404, "message": "Booking not found"}), 404
     return jsonify({"code": 200, "data": booking.to_dict()}), 200
+
+
+@app.route("/booking/seats/<flight_id>", methods=["GET"])
+def get_reserved_seats_for_flight(flight_id: str):
+    fid = str(flight_id or "").strip().upper()
+    if not fid:
+        return jsonify({"code": 400, "message": "flight_id is required"}), 400
+
+    rows = (
+        Booking.query.filter(func.upper(Booking.flightID) == fid)
+        .filter(Booking.seatNumber.isnot(None))
+        .filter(func.upper(func.coalesce(Booking.status, "")) != "CANCELLED")
+        .all()
+    )
+
+    seats = []
+    seen = set()
+    for b in rows:
+        s = str(b.seatNumber or "").strip().upper()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        seats.append(s)
+
+    return jsonify({"code": 200, "data": {"flightID": fid, "seats": seats}}), 200
 
 
 @app.route("/travellerprofiles/byaccount/<int:customer_id>", methods=["GET"])

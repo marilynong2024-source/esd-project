@@ -448,7 +448,7 @@ h2 {
   background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 22px 24px 24px;
+  padding: 20px 22px 22px;
   border: 1px solid var(--border);
   min-width: 0;
   overflow-x: hidden;
@@ -513,7 +513,12 @@ h2 {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 16px;
+  gap: 10px 14px;
+}
+
+/* Booking step panels should use full form width */
+#createForm > .segment-panel {
+  grid-column: 1 / -1;
 }
 
 .form-grid-1col {
@@ -532,7 +537,7 @@ label {
   display: flex;
   flex-direction: column;
   font-size: 0.8125rem;
-  gap: 6px;
+  gap: 5px;
   color: #44403c;
   font-weight: 500;
 }
@@ -600,7 +605,7 @@ button {
 
 .btn-primary,
 .btn-secondary {
-  margin-top: 14px;
+  margin-top: 0;
   padding: 12px 22px;
   border-radius: 999px;
   font-size: 0.875rem;
@@ -668,6 +673,7 @@ button {
 .form-submit-wrap .btn-primary {
   width: 100%;
   max-width: 320px;
+  margin-top: 8px;
 }
 
 .actions-row {
@@ -675,7 +681,7 @@ button {
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
-  margin-bottom: 10px;
+  margin: 6px 0 8px;
 }
 
 .actions-row .btn-secondary {
@@ -685,7 +691,7 @@ button {
 .muted {
   font-size: 0.75rem;
   color: var(--muted);
-  margin-top: 6px;
+  margin-top: 4px;
   line-height: 1.45;
 }
 
@@ -781,6 +787,38 @@ button {
 .seat-policy-line {
   margin: 0 0 10px;
   line-height: 1.45;
+}
+
+.seat-group-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.seat-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  color: #115e59;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.seat-pill--muted {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.seat-pill--hint {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-weight: 600;
 }
 
 .seat-map-wrap {
@@ -1010,7 +1048,7 @@ button.seat--zone-exit_row.seat--window {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  margin: 0 0 14px;
+  margin: 0 0 12px;
 }
 
 .segment-tab {
@@ -1032,6 +1070,10 @@ button.seat--zone-exit_row.seat--window {
 
 .segment-panel[hidden] {
   display: none;
+}
+
+.segment-panel > * + * {
+  margin-top: 10px;
 }
 
 /* ——— Traveller Profiles UI ——— */
@@ -1084,7 +1126,7 @@ button.seat--zone-exit_row.seat--window {
 
 /* ——— Hotel search UI ——— */
 .hotel-search {
-  padding: 12px 12px;
+  padding: 10px 10px;
   border: 1px solid var(--border);
   background: var(--card);
   border-radius: var(--radius);
@@ -1113,6 +1155,10 @@ button.seat--zone-exit_row.seat--window {
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: 0 1px 0 rgba(28, 25, 23, 0.03);
+}
+
+.hotel-card__body {
+  min-width: 0;
 }
 
 .hotel-card:hover {
@@ -1160,10 +1206,44 @@ button.seat--zone-exit_row.seat--window {
 
 .hotel-card__amenities {
   font-size: 0.8125rem;
+  overflow-wrap: anywhere;
 }
 
 .hotel-card__rooms {
   font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.hotel-card__roomline {
+  margin-top: 3px;
+}
+
+.section-title--flush {
+  margin-top: 0;
+}
+
+.card-sub--tight {
+  margin: 4px 0 8px;
+}
+
+.traveller-edit-status {
+  min-height: 1.2em;
+}
+
+.section-hint--flush {
+  margin-top: 0;
+}
+
+.contact-inline {
+  margin-top: 6px;
+}
+
+.contact-inline__name-label {
+  margin-left: 10px;
+}
+
+.muted--compact-top {
+  margin: -4px 0 4px;
 }
 
 .hotel-card__actions {
