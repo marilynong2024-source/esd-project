@@ -12,9 +12,23 @@ import json
 from traveller_os import (
     validate_travellers_for_booking,
     snapshot_display_names,
+    fetch_byaccount_rows,
 )
 from fx_quote import optional_fx_snapshot
 from catalog_validate import validate_flight_and_hotel
+try:
+    # When running inside booking Docker image, we copy the client as traveller_outsystems_client.py
+    from traveller_outsystems_client import (
+        create_traveller_profile,
+        update_traveller_profile,
+        delete_traveller_profile,
+    )
+except ImportError:  # Local dev fallback
+    from travellerprofile.outsystems_client import (  # type: ignore[no-redef]
+        create_traveller_profile,
+        update_traveller_profile,
+        delete_traveller_profile,
+    )
 
 app = Flask(__name__)
 CORS(app)
@@ -444,6 +458,66 @@ def get_booking(booking_id: int):
     if not booking:
         return jsonify({"code": 404, "message": "Booking not found"}), 404
     return jsonify({"code": 200, "data": booking.to_dict()}), 200
+
+
+@app.route("/travellerprofiles/byaccount/<int:customer_id>", methods=["GET"])
+def traveller_profiles_byaccount(customer_id: int):
+    err, rows = fetch_byaccount_rows(customer_id)
+    if rows is None and err is None:
+        return (
+            jsonify(
+                {
+                    "code": 500,
+                    "message": "Traveller profile service not configured (TRAVELLER_PROFILE_BASE_URL is empty).",
+                }
+            ),
+            500,
+        )
+    if err:
+        return jsonify({"code": 502, "message": err}), 502
+    return jsonify({"code": 200, "data": rows or []}), 200
+
+
+@app.route(
+    "/travellerprofiles/update/<int:traveller_profile_id>", methods=["PUT", "POST"]
+)
+def traveller_profile_update(traveller_profile_id: int):
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+
+    # OutSystems actions vary slightly by naming; send both common keys.
+    payload.setdefault("Id", int(traveller_profile_id))
+    payload.setdefault("TravellerProfileId", int(traveller_profile_id))
+
+    result = update_traveller_profile(payload)
+    return jsonify({"code": 200, "data": result}), 200
+
+
+@app.route("/travellerprofiles/create", methods=["POST"])
+def traveller_profile_create():
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+
+    result = create_traveller_profile(payload)
+    return jsonify({"code": 200, "data": result}), 200
+
+
+@app.route(
+    "/travellerprofiles/delete/<int:traveller_profile_id>",
+    methods=["DELETE", "POST"],
+)
+def traveller_profile_delete(traveller_profile_id: int):
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+
+    payload.setdefault("Id", int(traveller_profile_id))
+    payload.setdefault("TravellerProfileId", int(traveller_profile_id))
+
+    result = delete_traveller_profile(payload)
+    return jsonify({"code": 200, "data": result}), 200
 
 
 @app.route("/booking/cancel/<int:booking_id>", methods=["POST"])

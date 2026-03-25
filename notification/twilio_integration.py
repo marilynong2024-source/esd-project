@@ -70,11 +70,28 @@ def send_sms_for_amqp_event(
     routing_key: str, event_payload: dict[str, Any]
 ) -> dict[str, Any]:
     """Send a short SMS summarising a RabbitMQ booking event."""
-    to = os.environ.get("TWILIO_TO_NUMBER", "").strip()
+    fallback_to = os.environ.get("TWILIO_TO_NUMBER", "").strip()
+
+    def normalize_to(raw: Any) -> str | None:
+        if raw is None:
+            return None
+        s = str(raw).strip()
+        if not s:
+            return None
+        s = s.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        if s.startswith("00"):
+            s = "+" + s[2:]
+        # Twilio expects E.164; in this demo we require it to start with '+'.
+        if s.startswith("+"):
+            return s
+        return None
+
+    typed_to = normalize_to(event_payload.get("passengerPhone"))
+    to = typed_to or fallback_to
     if not to:
         return {
             "skipped": True,
-            "reason": "Set TWILIO_TO_NUMBER (E.164) to receive SMS",
+            "reason": "No SMS destination: set passengerPhone (+E.164) in booking, or set TWILIO_TO_NUMBER",
         }
 
     bid = event_payload.get("bookingID", "?")

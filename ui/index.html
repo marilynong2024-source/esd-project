@@ -69,6 +69,28 @@
 
   <main class="site-main">
     <div class="col col--booking">
+      <nav class="segment-tabs" aria-label="Booking sections">
+        <button
+          type="button"
+          class="segment-tab segment-tab--active"
+          id="tabBook"
+          aria-controls="segment-book"
+          aria-selected="true"
+        >
+          Trip
+        </button>
+        <button
+          type="button"
+          class="segment-tab"
+          id="tabManage"
+          aria-controls="segment-manage"
+          aria-selected="false"
+        >
+          Change / cancel
+        </button>
+      </nav>
+
+      <div id="segment-book" class="segment-panel">
       <section id="step-book" class="card card--package">
         <div class="card-header">
           <div class="card-header__titles">
@@ -76,6 +98,64 @@
             <p class="card-sub">Start with who is travelling, then flight, hotel, and dates. Confirm at the bottom when you&rsquo;re ready.</p>
           </div>
         </div>
+
+        <nav class="segment-tabs" aria-label="Booking steps">
+          <button
+            type="button"
+            class="segment-tab segment-tab--active"
+            id="bookingStep1Tab"
+            role="tab"
+            aria-selected="true"
+            aria-controls="bookingStep1Panel"
+            tabindex="0"
+          >
+            1. Personal
+          </button>
+          <button
+            type="button"
+            class="segment-tab"
+            id="bookingStep2Tab"
+            role="tab"
+            aria-selected="false"
+            aria-controls="bookingStep2Panel"
+            tabindex="-1"
+          >
+            2. Hotel
+          </button>
+          <button
+            type="button"
+            class="segment-tab"
+            id="bookingStep3Tab"
+            role="tab"
+            aria-selected="false"
+            aria-controls="bookingStep3Panel"
+            tabindex="-1"
+          >
+            3. Flights
+          </button>
+          <button
+            type="button"
+            class="segment-tab"
+            id="bookingStep4Tab"
+            role="tab"
+            aria-selected="false"
+            aria-controls="bookingStep4Panel"
+            tabindex="-1"
+          >
+            4. Traveller profile
+          </button>
+          <button
+            type="button"
+            class="segment-tab"
+            id="bookingStep5Tab"
+            role="tab"
+            aria-selected="false"
+            aria-controls="bookingStep5Panel"
+            tabindex="-1"
+          >
+            5. Loyalty &amp; payment
+          </button>
+        </nav>
 
         <form id="createForm" class="form-grid">
           <label class="form-grid-1col form-label--demo">
@@ -89,6 +169,7 @@
             <button type="button" class="btn-secondary" id="newManualBtn">Clear &amp; start fresh</button>
           </div>
 
+          <div id="bookingStep1Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep1Tab">
           <label>
             Account / customer number
             <input type="number" id="customerID" value="1" required />
@@ -129,58 +210,206 @@
               placeholder="+65 …"
             />
           </label>
-
-          <label>
-            Companion profile IDs (optional)
-            <input
-              type="text"
-              id="travellerProfileIds"
-              value=""
-              placeholder="e.g. 101, 102 — comma-separated, linked to the account above"
-              autocomplete="off"
-            />
-          </label>
-          <details class="advanced-details form-grid-1col">
-            <summary>About companion IDs &amp; demo setup</summary>
-            <p class="muted advanced-details__body">
-              Each number is a saved traveller ID from the account&rsquo;s list (e.g. dependents). Several companions can share the same package.
-              In this demo, the seat map applies to the lead traveller only. Course setups may preload profiles via the traveller service.
-            </p>
-          </details>
-
-          <label>
-            Flight code
-            <input type="text" id="flightID" value="SQ001" required placeholder="e.g. SQ001, AK123" />
-          </label>
-
-          <div class="seat-panel form-grid-1col" id="seatPanel">
-            <div class="section-title" style="margin-top:0;">Seat selection</div>
-            <p id="seatPolicyText" class="muted seat-policy-line"></p>
-            <div id="seatMapWrap" class="seat-map-wrap" hidden>
-              <div class="seat-map-legend">
-                <span><span class="swatch taken"></span> Taken</span>
-                <span><span class="swatch free"></span> Free</span>
-                <span><span class="swatch picked"></span> Your seat</span>
-              </div>
-              <div class="seat-map-legend seat-map-legend--types">
-                <span><span class="swatch type-window"></span> Window</span>
-                <span><span class="swatch type-aisle"></span> Aisle</span>
-                <span><span class="swatch type-middle"></span> Middle</span>
-                <span><span class="swatch type-extra"></span> Extra legroom</span>
-                <span><span class="swatch type-exit"></span> Exit row</span>
-              </div>
-              <div class="seat-map" id="seatMap" aria-label="Aircraft seat map"></div>
-              <p class="muted">Selected seat: <strong id="seatSelectedDisplay">—</strong></p>
-              <p class="muted seat-selected-detail" id="seatSelectedDetail"></p>
-            </div>
-            <div id="seatBlockedNote" class="seat-blocked-note" hidden></div>
-            <input type="hidden" id="seatNumber" value="" />
           </div>
 
-          <label>
-            Hotel reference
-            <input type="number" id="hotelID" value="1" required />
-          </label>
+          <div id="bookingStep4Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep4Tab" hidden>
+            <div class="card-header__titles">
+              <div class="section-title form-grid-1col" style="margin: 0;">Traveller profiles</div>
+              <p class="card-sub" style="margin: 4px 0 10px;">Create, edit, or delete saved traveller passport details — then pick who will be on the booking.</p>
+            </div>
+
+            <label>
+              Customer number
+              <input type="number" id="travellerCustomerID" value="1" required />
+            </label>
+
+            <div class="actions-row form-grid-1col">
+              <button type="button" class="btn-secondary" id="loadTravellerProfilesBtn">
+                Load profiles
+              </button>
+              <button type="button" class="btn-primary" id="travellerCreateBtn">
+                Create new profile
+              </button>
+            </div>
+
+            <div id="travellerProfilesError" class="alert" role="alert" hidden></div>
+
+            <div id="travellerProfilesList" class="traveller-list" aria-label="Traveller profiles list"></div>
+
+            <div id="travellerEditWrap" class="traveller-edit" hidden>
+              <div class="section-title section-title--spaced">Edit record</div>
+              <input type="hidden" id="travellerEditId" value="" />
+
+              <label>
+                Full name
+                <input type="text" id="travellerEditFullName" required />
+              </label>
+
+              <div class="form-grid">
+                <label>
+                  Passport number
+                  <input type="text" id="travellerEditPassportNumber" required />
+                </label>
+                <label>
+                  Passport expiry (YYYY-MM-DD)
+                  <input type="date" id="travellerEditPassportExpiry" required />
+                </label>
+              </div>
+
+              <div class="form-grid">
+                <label>
+                  Date of birth
+                  <input type="date" id="travellerEditDateOfBirth" />
+                </label>
+                <label>
+                  Nationality
+                  <input type="text" id="travellerEditNationality" />
+                </label>
+              </div>
+
+              <div class="form-grid">
+                <label>
+                  Seat preference
+                  <input type="text" id="travellerEditSeatPreference" />
+                </label>
+                <label>
+                  Meal preference
+                  <input type="text" id="travellerEditMealPreference" />
+                </label>
+              </div>
+
+              <div class="form-grid">
+                <label>
+                  Emergency contact name
+                  <input type="text" id="travellerEditEmergencyContactName" />
+                </label>
+                <label>
+                  Emergency contact phone
+                  <input type="text" id="travellerEditEmergencyContactPhone" />
+                </label>
+              </div>
+
+              <label>
+                Relationship
+                <input type="text" id="travellerEditRelationship" />
+              </label>
+
+              <div class="actions-row form-grid-1col">
+                <button type="button" class="btn-primary" id="travellerSaveBtn">
+                  Save changes
+                </button>
+                <button type="button" class="btn-secondary" id="travellerDeleteBtn">
+                  Delete profile
+                </button>
+              </div>
+
+              <div id="travellerEditStatus" class="muted" style="min-height:1.2em;"></div>
+            </div>
+
+            <div class="section-title section-title--spaced">For booking</div>
+
+            <label class="form-grid-1col">
+              Lead traveller
+              <select id="leadTravellerSelect">
+                <option value="">— Pick from saved profiles —</option>
+              </select>
+              <span class="muted">Tip: the seat map (if available) uses the lead traveller in this demo.</span>
+            </label>
+
+            <label class="form-grid-1col">
+              Companions (optional)
+              <select id="companionTravellerSelect" multiple size="5"></select>
+              <span class="muted">We’ll attach the selected companions to your booking.</span>
+            </label>
+          </div>
+
+          <div id="bookingStep3Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep3Tab" hidden>
+            <label>
+              Flight code
+              <input type="text" id="flightID" value="SQ001" required placeholder="e.g. SQ001, AK123" />
+            </label>
+
+            <div class="seat-panel form-grid-1col" id="seatPanel">
+              <div class="section-title" style="margin-top:0;">Seat selection</div>
+              <p id="seatPolicyText" class="muted seat-policy-line"></p>
+              <div id="seatMapWrap" class="seat-map-wrap" hidden>
+                <div class="seat-map-legend">
+                  <span><span class="swatch taken"></span> Taken</span>
+                  <span><span class="swatch free"></span> Free</span>
+                  <span><span class="swatch picked"></span> Your seat</span>
+                </div>
+                <div class="seat-map-legend seat-map-legend--types">
+                  <span><span class="swatch type-window"></span> Window</span>
+                  <span><span class="swatch type-aisle"></span> Aisle</span>
+                  <span><span class="swatch type-middle"></span> Middle</span>
+                  <span><span class="swatch type-extra"></span> Extra legroom</span>
+                  <span><span class="swatch type-exit"></span> Exit row</span>
+                </div>
+                <div class="seat-map" id="seatMap" aria-label="Aircraft seat map"></div>
+                <p class="muted">Selected seat: <strong id="seatSelectedDisplay">—</strong></p>
+                <p class="muted seat-selected-detail" id="seatSelectedDetail"></p>
+              </div>
+              <div id="seatBlockedNote" class="seat-blocked-note" hidden></div>
+              <input type="hidden" id="seatNumber" value="" />
+            </div>
+          </div>
+
+          <div id="bookingStep2Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep2Tab" hidden>
+            <div class="muted section-hint" style="margin-top:-6px;">
+              Contact details
+              <div style="margin-top:6px;">
+                <span>Phone:</span> <strong id="summaryPassengerPhone">—</strong>
+                <span style="margin-left:10px;">Name:</span> <strong id="summaryPassengerName">—</strong>
+              </div>
+            </div>
+          <div class="hotel-search form-grid-1col">
+            <div class="form-grid">
+              <label>
+                Hotel name
+                <input
+                  type="text"
+                  id="hotelSearchName"
+                  value=""
+                  placeholder="e.g. Marina Bay"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                Hotel country
+                <input
+                  type="text"
+                  id="hotelSearchCountry"
+                  value=""
+                  placeholder="e.g. Japan"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                City
+                <input
+                  type="text"
+                  id="hotelSearchCity"
+                  value=""
+                  placeholder="e.g. Tokyo"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+            <div class="actions-row form-grid-1col">
+              <button type="button" class="btn-secondary" id="hotelSearchBtn">
+                Search hotels
+              </button>
+            </div>
+            <div class="muted section-hint" id="hotelSelectedHint">
+              Pick a hotel option to continue.
+            </div>
+            <div id="hotelResults" class="hotel-results" aria-label="Hotel results"></div>
+            <div class="muted">
+              Selected hotel: <strong id="hotelSelectedDisplay">—</strong>
+            </div>
+
+            <input type="number" id="hotelID" value="0" hidden />
+          </div>
 
           <label>
             Room Type
@@ -199,68 +428,114 @@
             Total Package Price (Flight + Hotel)
             <input type="number" id="totalPrice" value="1200" required />
           </label>
-
-          <label>
-            Discount code (optional)
-            <input type="text" id="discountCode" placeholder="SILVER10 / GOLD15 / PLAT20" />
-          </label>
-
-          <label id="coinsOffsetWrap">
-            Pay with loyalty coins (amount in cents)
-            <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
-            <span class="muted">Signed-in accounts only (customer number above &gt; 0). Guests cannot use coins.</span>
-          </label>
-
-          <div class="muted">
-            <strong>How your total is calculated:</strong> we apply your <strong>tier discount</strong> first,
-            then your <strong>promo code</strong>, then <strong>coins</strong> (1 cent of coin ≈ S$0.01 off). The number we charge is:
-            <div>Estimated amount to pay: <strong id="computedTotalPrice">-</strong></div>
           </div>
 
-          <label>
-            Currency
-            <input type="text" id="currency" value="SGD" required />
-          </label>
+          <div id="bookingStep5Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep5Tab" hidden>
+            <label>
+              Discount code (optional)
+              <input type="text" id="discountCode" placeholder="SILVER10 / GOLD15 / PLAT20" />
+            </label>
 
-          <label>
-            Fare Type
-            <select id="fareType">
-              <option value="Saver">Saver</option>
-              <option value="Standard">Standard</option>
-              <option value="Flexi" selected>Flexi</option>
-            </select>
-          </label>
-
-          <label class="form-grid-1col" id="breakfastAddonWrap">
-            Hotel extras
-            <span class="inline-checkbox">
-              <input type="checkbox" id="hotelIncludesBreakfast" />
-              <span>Add breakfast package</span>
-            </span>
-            <span class="muted">Only for <strong>Standard</strong> rooms. Deluxe already includes breakfast.</span>
-          </label>
-
-          <div class="form-grid-1col form-submit-wrap">
-            <button type="submit" class="btn-primary" id="createBtn">
-              <span aria-hidden="true">✓</span>
-              <span>Confirm &amp; pay</span>
+          <nav class="segment-tabs" aria-label="Loyalty points and payment">
+            <button
+              type="button"
+              class="segment-tab"
+              id="tabLoyaltyPoints"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panelLoyaltyPoints"
+              tabindex="-1"
+            >
+              Loyalty points
             </button>
-            <p class="muted form-after-submit-hint">
-              Next: check <strong>Your summary</strong> on the right for your confirmation. If you need to cancel, note the <strong>booking reference</strong> for step 2.
-            </p>
-            <details class="advanced-details">
-              <summary>For developers &amp; instructors</summary>
-              <p class="muted advanced-details__body">
-                Submits to <code>POST /booking</code>. Tier, coins, and companion IDs mirror what a full stack would send from
-                OutSystems or loyalty services.
+            <button
+              type="button"
+              class="segment-tab segment-tab--active"
+              id="tabPayment"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panelPayment"
+              tabindex="0"
+            >
+              Payment
+            </button>
+          </nav>
+
+          <div id="panelLoyaltyPoints" class="segment-panel" role="tabpanel" aria-labelledby="tabLoyaltyPoints" hidden>
+            <label id="coinsOffsetWrap">
+              Pay with loyalty coins (amount in cents)
+              <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
+              <span class="muted">Signed-in accounts only (customer number above &gt; 0). Guests cannot use coins.</span>
+              <div class="coins-meta">
+                Available coins: <strong id="coinsAvailableCents">-</strong> cents
+              </div>
+              <div class="coins-quick-actions">
+                <button type="button" class="btn-secondary" id="coinsUseNoneBtn">
+                  Use 0
+                </button>
+                <button type="button" class="btn-secondary" id="coinsUseAllBtn">
+                  Use all
+                </button>
+              </div>
+            </label>
+          </div>
+
+          <div id="panelPayment" class="segment-panel" role="tabpanel" aria-labelledby="tabPayment">
+            <div class="muted">
+              <strong>How your total is calculated:</strong> we apply your <strong>tier discount</strong> first,
+              then your <strong>promo code</strong>, then <strong>coins</strong> (1 cent of coin ≈ S$0.01 off). The number we charge is:
+              <div>Estimated amount to pay: <strong id="computedTotalPrice">-</strong></div>
+            </div>
+
+            <label>
+              Currency
+              <input type="text" id="currency" value="SGD" required />
+            </label>
+
+            <label>
+              Fare Type
+              <select id="fareType">
+                <option value="Saver">Saver</option>
+                <option value="Standard">Standard</option>
+                <option value="Flexi" selected>Flexi</option>
+              </select>
+            </label>
+
+            <label class="form-grid-1col" id="breakfastAddonWrap">
+              Hotel extras
+              <span class="inline-checkbox">
+                <input type="checkbox" id="hotelIncludesBreakfast" />
+                <span>Add breakfast package</span>
+              </span>
+              <span class="muted">Only for <strong>Standard</strong> rooms. Deluxe already includes breakfast.</span>
+            </label>
+
+            <div class="form-grid-1col form-submit-wrap">
+              <button type="submit" class="btn-primary" id="createBtn">
+                <span aria-hidden="true">✓</span>
+                <span>Confirm &amp; pay</span>
+              </button>
+              <p class="muted form-after-submit-hint">
+                Next: check <strong>Your summary</strong> on the right for your confirmation. If you need to cancel, note the <strong>booking reference</strong> for step 2.
               </p>
-            </details>
+              <details class="advanced-details">
+                <summary>For developers &amp; instructors</summary>
+                <p class="muted advanced-details__body">
+                  Submits to <code>POST /booking</code>. Tier, coins, and companion IDs mirror what a full stack would send from
+                  OutSystems or loyalty services.
+                </p>
+              </details>
+            </div>
+          </div>
           </div>
         </form>
 
         <div id="createError" class="alert" role="alert"></div>
       </section>
 
+      </div>
+
+      <div id="segment-manage" class="segment-panel" hidden>
       <section id="step-manage" class="card card--manage">
         <div class="card-header">
           <div class="card-header__titles">
@@ -297,6 +572,10 @@
           </details>
         </form>
       </section>
+
+      </div>
+
+      <div id="segment-travellers" class="segment-panel" hidden></div>
     </div>
 
     <div class="col col--sidebar">

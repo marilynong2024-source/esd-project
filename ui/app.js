@@ -4,6 +4,10 @@
 const API_BASE = "/api/booking";
 const LOYALTY_BASE = "/api/loyalty";
 const NOTIFICATION_BASE = "/api/notification";
+// Use direct hotel service calls.
+// Nginx /api/hotel proxying is unreliable in this environment, but the hotel
+// Flask service has CORS enabled and runs on :5103.
+const HOTEL_BASE = "http://localhost:5103";
 
 /** Demo personas — pick from dropdown to fill the form for presentations */
 const DEMO_PROFILES = [
@@ -156,6 +160,13 @@ function getSeatCharacteristics(row, letter) {
 
 let latestResult = null;
 let latestLoyalty = null; // { coins, bookingCount, tier, ... } from loyalty service
+let latestTravellerRows = [];
+let selectedTravellerRow = null; // OutSystems traveller profile row object
+let pendingTravellerIdsFromDemo = null;
+let selectedHotel = null; // Hotel row from hotel service (for UI only)
+let latestHotelRows = [];
+let lastHotelRoomType = null;
+let travellerProfilesServiceAvailable = true; // avoids repeated 500 spam when OutSystems is not configured
 
 /**
  * Detects GET / response (welcome page), not a booking payload.
@@ -515,54 +526,140 @@ function updateSeatSelectionUI() {
 }
 
 function readTravellerProfileIdsFromInput() {
-  const el = document.getElementById("travellerProfileIds");
-  if (!el) return [];
-  const raw = String(el.value || "").trim();
-  if (!raw) return [];
-  const parts = raw.split(/[\s,]+/).filter(Boolean);
+  // UI: use names/selectors, but backend still needs numeric IDs.
+  const leadEl = document.getElementById("leadTravellerSelect");
+  const compEl = document.getElementById("companionTravellerSelect");
+
   const ids = [];
-  for (const p of parts) {
-    const n = parseInt(p, 10);
-    if (Number.isFinite(n) && n > 0) ids.push(n);
+  const leadId = Number(leadEl?.value || 0);
+  if (leadId > 0) ids.push(leadId);
+
+  if (compEl) {
+    const selected = Array.from(compEl.selectedOptions || []).map((o) =>
+      Number(o.value)
+    );
+    for (const id of selected) {
+      if (id > 0) ids.push(id);
+    }
   }
-  return ids;
+
+  // Dedup while preserving order.
+  const seen = new Set();
+  const out = [];
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+function applyTravellerSelectionFromIds(preferredIds) {
+  const leadEl = document.getElementById("leadTravellerSelect");
+  const compEl = document.getElementById("companionTravellerSelect");
+  if (!leadEl || !compEl) return;
+
+  const ids = Array.isArray(preferredIds)
+    ? preferredIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  const leadId = ids[0] || 0;
+  leadEl.value = leadId ? String(leadId) : "";
+
+  // Update passengerName from lead.
+  const leadRow = latestTravellerRows.find(
+    (r) => Number(r?.Id ?? r?.id ?? r?.TravellerProfileId ?? 0) === leadId
+  );
+  const leadName = getOsField(leadRow, ["FullName", "Name", "TravellerName"]);
+  if (leadRow && leadName) {
+    document.getElementById("passengerName").value = leadName;
+    const phone = getOsField(leadRow, [
+      "EmergencyContactPhone",
+      "EmergencyPhone",
+      "emergencyContactPhone",
+    ]);
+    const passengerPhoneEl = document.getElementById("passengerPhone");
+    if (passengerPhoneEl && !String(passengerPhoneEl.value || "").trim() && phone) {
+      passengerPhoneEl.value = phone;
+    }
+  }
+
+  // Clear companions then mark selected.
+  Array.from(compEl.options || []).forEach((opt) => {
+    opt.selected = false;
+  });
+  const companionIds = new Set(ids.slice(1));
+  Array.from(compEl.options || []).forEach((opt) => {
+    const id = Number(opt.value);
+    if (companionIds.has(id)) opt.selected = true;
+  });
+
+  refreshTripContactSummary();
 }
 
 function setTravellerProfileIdsInputFromDemo(p) {
-  const tpEl = document.getElementById("travellerProfileIds");
-  if (!tpEl) return;
-  if (Array.isArray(p.rawTravellerProfileIds) && p.rawTravellerProfileIds.length) {
-    tpEl.value = p.rawTravellerProfileIds.join(", ");
-    return;
+  const preferredIds = Array.isArray(p.rawTravellerProfileIds)
+    ? p.rawTravellerProfileIds
+    : Array.isArray(p.travellerProfileIds)
+      ? p.travellerProfileIds
+      : Array.isArray(p.travellerProfileId)
+        ? p.travellerProfileId
+        : p.travellerProfileId !== undefined && p.travellerProfileId !== null
+          ? [p.travellerProfileId]
+          : [];
+
+  pendingTravellerIdsFromDemo = preferredIds;
+
+  // If profiles are already loaded, apply immediately.
+  if (latestTravellerRows && latestTravellerRows.length) {
+    applyTravellerSelectionFromIds(preferredIds);
   }
-  if (Array.isArray(p.travellerProfileIds) && p.travellerProfileIds.length) {
-    tpEl.value = p.travellerProfileIds.join(", ");
-    return;
-  }
-  if (
-    p.travellerProfileId !== undefined &&
-    p.travellerProfileId !== null &&
-    p.travellerProfileId !== ""
-  ) {
-    tpEl.value = String(p.travellerProfileId);
-    return;
-  }
-  tpEl.value = "";
 }
 
 function updateCoinsOffsetUI() {
   const cid = Number(document.getElementById("customerID")?.value || 0);
   const wrap = document.getElementById("coinsOffsetWrap");
   const input = document.getElementById("coinsToSpendCents");
+  const availEl = document.getElementById("coinsAvailableCents");
+  const btnNone = document.getElementById("coinsUseNoneBtn");
+  const btnAll = document.getElementById("coinsUseAllBtn");
   if (!wrap || !input) return;
   if (!hasAccountCustomerId(cid)) {
     wrap.hidden = true;
     input.value = "0";
     input.disabled = true;
+    if (availEl) availEl.textContent = "-";
+    if (btnNone) btnNone.disabled = true;
+    if (btnAll) btnAll.disabled = true;
   } else {
     wrap.hidden = false;
     input.disabled = false;
+
+    const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
+    if (availEl) availEl.textContent = String(coinsAvailableCents);
+    if (btnNone) btnNone.disabled = coinsAvailableCents <= 0;
+    if (btnAll) btnAll.disabled = coinsAvailableCents <= 0;
+
+    // Keep input capped to available coins for a predictable UX.
+    const requested = Number(input.value || 0);
+    const capped = Math.min(coinsAvailableCents, Math.max(0, requested));
+    if (!Number.isFinite(capped)) {
+      input.value = "0";
+    } else {
+      input.value = String(capped);
+    }
   }
+
+  refreshPricePreview();
+}
+
+function setCoinsToSpendCents(value) {
+  const input = document.getElementById("coinsToSpendCents");
+  if (!input) return;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) input.value = "0";
+  else input.value = String(Math.floor(n));
+  refreshPricePreview();
 }
 
 function updateBreakfastAddonUI() {
@@ -575,7 +672,141 @@ function updateBreakfastAddonUI() {
     cb.checked = true;
   } else {
     wrap.hidden = false;
+    if (lastHotelRoomType === "DLX") cb.checked = false;
   }
+  lastHotelRoomType = room;
+}
+
+function setHotelRoomTypeOptionsFromHotel(hotel) {
+  const select = document.getElementById("hotelRoomType");
+  if (!select || !hotel || !Array.isArray(hotel.roomTypes)) return;
+
+  const current = select.value;
+
+  const codes = hotel.roomTypes
+    .map((rt) => rt.code)
+    .filter((c) => c === "STD" || c === "DLX");
+
+  select.innerHTML = "";
+  codes.forEach((code) => {
+    const rt = hotel.roomTypes.find((x) => x.code === code);
+    const label = rt?.label || (code === "DLX" ? "Deluxe" : "Standard");
+    const opt = document.createElement("option");
+    opt.value = code;
+    opt.textContent = label.includes("Room") ? label : `${label} (hotel room)`;
+    select.appendChild(opt);
+  });
+
+  if (codes.includes(current)) select.value = current;
+  else select.value = codes[0] || "";
+}
+
+function setHotelSelection(hotel) {
+  if (!hotel) return;
+
+  selectedHotel = hotel;
+
+  const hotelIDEl = document.getElementById("hotelID");
+  if (hotelIDEl) hotelIDEl.value = String(hotel.hotelID || hotel.id || 0);
+
+  const displayEl = document.getElementById("hotelSelectedDisplay");
+  if (displayEl) displayEl.textContent = hotel.name || "—";
+
+  setHotelRoomTypeOptionsFromHotel(hotel);
+
+  const roomCode = document.getElementById("hotelRoomType")?.value;
+  const cb = document.getElementById("hotelIncludesBreakfast");
+  if (cb) cb.checked = roomCode === "DLX";
+
+  updateBreakfastAddonUI();
+}
+
+function renderHotelResults(hotels) {
+  const resultsEl = document.getElementById("hotelResults");
+  if (!resultsEl) return;
+  resultsEl.innerHTML = "";
+
+  const list = Array.isArray(hotels) ? hotels : [];
+  if (!list.length) {
+    resultsEl.textContent = "No matching hotels found.";
+    return;
+  }
+
+  list.forEach((h) => {
+    const id = h.hotelID || h.id;
+    const card = document.createElement("div");
+    card.className = "hotel-card";
+    card.innerHTML = `
+      <div class="hotel-card__img">
+        <img src="${escapeHtml(h.imageUrl || '')}" alt="${escapeHtml(h.name || 'Hotel')}" />
+      </div>
+      <div class="hotel-card__body">
+        <div class="hotel-card__top">
+          <div class="hotel-card__title">${escapeHtml(h.name || 'Hotel')}</div>
+          <div class="hotel-card__rating">${escapeHtml(String(h.starRating ?? ''))}★</div>
+        </div>
+        <div class="hotel-card__meta">${escapeHtml(h.city || '')}${h.city && h.country ? ', ' : ''}${escapeHtml(
+      h.country || ''
+    )}</div>
+        <div class="hotel-card__amenities muted">${escapeHtml(h.amenities || '')}</div>
+        <div class="hotel-card__rooms muted">Rooms: ${escapeHtml(
+          (h.roomTypes || []).map((rt) => rt.code).filter(Boolean).join(", ")
+        )}</div>
+        <div class="hotel-card__actions">
+          <button type="button" class="btn-secondary" data-action="selectHotel" data-id="${escapeHtml(
+            String(id || 0)
+          )}">
+            Select
+          </button>
+        </div>
+      </div>
+    `;
+    resultsEl.appendChild(card);
+  });
+}
+
+async function searchHotels() {
+  const country = document.getElementById("hotelSearchCountry")?.value?.trim() || "";
+  const city = document.getElementById("hotelSearchCity")?.value?.trim() || "";
+  const name = document.getElementById("hotelSearchName")?.value?.trim() || "";
+
+  const resultsEl = document.getElementById("hotelResults");
+  const selectedHintEl = document.getElementById("hotelSelectedHint");
+  if (selectedHintEl) selectedHintEl.textContent = "Searching hotels…";
+  if (resultsEl) resultsEl.textContent = "Loading…";
+
+  const qs = new URLSearchParams();
+  if (country) qs.set("country", country);
+  if (city) qs.set("city", city);
+  if (name) qs.set("name", name);
+
+  const out = await fetchJson(`${HOTEL_BASE}/hotel/search?${qs.toString()}`);
+  if (out.networkError) {
+    if (selectedHintEl) selectedHintEl.textContent = "Could not reach hotel service.";
+    if (resultsEl) resultsEl.textContent = out.errorMessage || "";
+    return;
+  }
+
+  const hotels = out.body?.data ?? [];
+  latestHotelRows = Array.isArray(hotels) ? hotels : [];
+  if (!hotels.length) {
+    if (selectedHintEl) selectedHintEl.textContent = "No hotels match those details.";
+    renderHotelResults([]);
+    return;
+  }
+
+  if (selectedHintEl) selectedHintEl.textContent = "Pick one hotel option below.";
+  renderHotelResults(hotels);
+}
+
+async function initHotelSelectionById(hotelId) {
+  const hid = Number(hotelId);
+  if (!Number.isFinite(hid) || hid < 1) return;
+
+  const out = await fetchJson(`${HOTEL_BASE}/hotel/${hid}`);
+  if (out.networkError || !out.ok || !out.body?.data) return;
+
+  setHotelSelection(out.body.data);
 }
 
 function populateDemoProfileOptions() {
@@ -596,17 +827,32 @@ function applyDemoProfile() {
   if (!p) return;
 
   document.getElementById("customerID").value = p.customerID;
+  const tc = document.getElementById("travellerCustomerID");
+  if (tc) tc.value = String(p.customerID);
   const pn = document.getElementById("passengerName");
   const pe = document.getElementById("passengerEmail");
   const pp = document.getElementById("passengerPhone");
   if (pn) pn.value = p.passengerName ?? "";
   if (pe) pe.value = p.passengerEmail ?? "";
   if (pp) pp.value = p.passengerPhone ?? "";
+  refreshTripContactSummary();
   document.getElementById("flightID").value = p.flightID;
-  document.getElementById("hotelID").value = p.hotelID;
+  const hotelId = Number(p.hotelID);
+  document.getElementById("hotelID").value = hotelId;
   document.getElementById("hotelRoomType").value = p.hotelRoomType;
   document.getElementById("hotelIncludesBreakfast").checked = !!p.hotelIncludesBreakfast;
   updateBreakfastAddonUI();
+
+  if (Number.isFinite(hotelId) && hotelId > 0) {
+    void initHotelSelectionById(hotelId).then(() => {
+      const rtSel = document.getElementById("hotelRoomType");
+      if (rtSel && p.hotelRoomType) {
+        const opt = rtSel.querySelector(`option[value="${p.hotelRoomType}"]`);
+        if (opt) rtSel.value = p.hotelRoomType;
+      }
+      updateBreakfastAddonUI();
+    });
+  }
   document.getElementById("departureTime").value = p.departureTime;
   document.getElementById("totalPrice").value = p.totalPrice;
   document.getElementById("currency").value = p.currency;
@@ -617,6 +863,10 @@ function applyDemoProfile() {
   updateCoinsOffsetUI();
 
   updateSeatSelectionUI();
+  // Refresh traveller profile list + selectors so the demo can pick by name.
+  if (document.getElementById("travellerProfilesList")) {
+    void loadTravellerProfiles();
+  }
   if (p.preferredSeat && getSeatPolicy(p.flightID).onlineSeatSelection) {
     selectSeatByCode(p.preferredSeat);
   } else {
@@ -636,17 +886,22 @@ function applyDemoProfile() {
 function setManualDefaults() {
   document.getElementById("demoProfile").value = "";
   document.getElementById("customerID").value = 1;
+  const tc = document.getElementById("travellerCustomerID");
+  if (tc) tc.value = "1";
+  pendingTravellerIdsFromDemo = null;
   const pn0 = document.getElementById("passengerName");
   const pe0 = document.getElementById("passengerEmail");
   const pp0 = document.getElementById("passengerPhone");
   if (pn0) pn0.value = "Ava Chen";
   if (pe0) pe0.value = "ava.chen@example.com";
   if (pp0) pp0.value = "+65 9123 4567";
+  refreshTripContactSummary();
   document.getElementById("flightID").value = "SQ001";
   document.getElementById("hotelID").value = 1;
   document.getElementById("hotelRoomType").value = "STD";
   document.getElementById("hotelIncludesBreakfast").checked = false;
   updateBreakfastAddonUI();
+  void initHotelSelectionById(1);
   document.getElementById("departureTime").value = "2026-05-01T10:00";
   document.getElementById("totalPrice").value = 1200;
   document.getElementById("currency").value = "SGD";
@@ -654,8 +909,12 @@ function setManualDefaults() {
   document.getElementById("discountCode").value = "";
   document.getElementById("coinsToSpendCents").value = 0;
   updateCoinsOffsetUI();
-  const tpEl = document.getElementById("travellerProfileIds");
-  if (tpEl) tpEl.value = "";
+  const leadSel = document.getElementById("leadTravellerSelect");
+  if (leadSel) leadSel.value = "";
+  const compSel = document.getElementById("companionTravellerSelect");
+  if (compSel) {
+    Array.from(compSel.options || []).forEach((opt) => (opt.selected = false));
+  }
   clearSeatSelection();
   updateSeatSelectionUI();
   void updateLoyaltySummary(1);
@@ -698,6 +957,7 @@ async function updateLoyaltySummary(customerID) {
     document.getElementById("loyaltyCoins").textContent = "-";
     document.getElementById("loyaltyTier").textContent = "-";
     refreshPricePreview();
+    updateCoinsOffsetUI();
     return;
   }
   const data = out.body;
@@ -706,6 +966,7 @@ async function updateLoyaltySummary(customerID) {
     data.data.coins ?? data.data.points ?? "-";
   document.getElementById("loyaltyTier").textContent = data.data.tier;
   refreshPricePreview();
+  updateCoinsOffsetUI();
 }
 
 async function refreshNotifications() {
@@ -769,7 +1030,19 @@ async function onCreateBookingSubmit(e) {
   const passengerEmailRaw = document.getElementById("passengerEmail").value.trim();
   const passengerPhoneRaw = document.getElementById("passengerPhone").value.trim();
 
+  const hotelId = Number(document.getElementById("hotelID").value || 0);
+  if (!Number.isFinite(hotelId) || hotelId < 1) {
+    setError(createError, "Pick a hotel option first.");
+    createBtn.disabled = false;
+    return;
+  }
+
   const hotelRoomType = document.getElementById("hotelRoomType").value;
+  if (!hotelRoomType) {
+    setError(createError, "Select a room type for your hotel.");
+    createBtn.disabled = false;
+    return;
+  }
   const payload = {
     customerID: Number(document.getElementById("customerID").value),
     passengerName,
@@ -961,10 +1234,664 @@ async function onCancelBookingSubmit(e) {
   }
 }
 
+function setActiveSegment(segmentKey) {
+  const panels = {
+    book: "segment-book",
+    manage: "segment-manage",
+  };
+  const buttons = {
+    book: "tabBook",
+    manage: "tabManage",
+  };
+
+  for (const [key, panelId] of Object.entries(panels)) {
+    const panel = document.getElementById(panelId);
+    const btn = document.getElementById(buttons[key]);
+    const isActive = key === segmentKey;
+    if (panel) {
+      if (isActive) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "");
+    }
+    if (btn) {
+      btn.classList.toggle("segment-tab--active", isActive);
+      btn.setAttribute("aria-selected", isActive ? "true" : "false");
+    }
+  }
+}
+
+function setupSegmentTabs() {
+  const tabBook = document.getElementById("tabBook");
+  const tabManage = document.getElementById("tabManage");
+
+  if (tabBook) {
+    tabBook.addEventListener("click", () => {
+      setActiveSegment("book");
+      document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth" });
+    });
+  }
+  if (tabManage) {
+    tabManage.addEventListener("click", () => {
+      setActiveSegment("manage");
+      document.getElementById("step-manage")?.scrollIntoView({ behavior: "smooth" });
+    });
+  }
+
+  // Keep the existing “stepper” links working with the new tab panels.
+  document.querySelectorAll("a.booking-flow__link").forEach((a) => {
+    const href = a.getAttribute("href");
+    if (href === "#step-book" || href === "#step-manage") {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (href === "#step-book") setActiveSegment("book");
+        if (href === "#step-manage") setActiveSegment("manage");
+        document.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  });
+}
+
+function setupLoyaltyPaymentTabs() {
+  const tabLoyalty = document.getElementById("tabLoyaltyPoints");
+  const tabPayment = document.getElementById("tabPayment");
+  const panelLoyalty = document.getElementById("panelLoyaltyPoints");
+  const panelPayment = document.getElementById("panelPayment");
+  if (!tabLoyalty || !tabPayment || !panelLoyalty || !panelPayment) return;
+
+  const setActive = (which) => {
+    const isLoyalty = which === "loyalty";
+    panelLoyalty.hidden = !isLoyalty;
+    panelPayment.hidden = isLoyalty;
+
+    tabLoyalty.classList.toggle("segment-tab--active", isLoyalty);
+    tabPayment.classList.toggle("segment-tab--active", !isLoyalty);
+
+    tabLoyalty.setAttribute("aria-selected", isLoyalty ? "true" : "false");
+    tabPayment.setAttribute("aria-selected", !isLoyalty ? "true" : "false");
+
+    tabLoyalty.tabIndex = isLoyalty ? 0 : -1;
+    tabPayment.tabIndex = !isLoyalty ? 0 : -1;
+  };
+
+  tabLoyalty.addEventListener("click", () => setActive("loyalty"));
+  tabPayment.addEventListener("click", () => setActive("payment"));
+}
+
+function setupBookingFlowTabs() {
+  const steps = [
+    { tabId: "bookingStep1Tab", panelId: "bookingStep1Panel" },
+    { tabId: "bookingStep2Tab", panelId: "bookingStep2Panel" },
+    { tabId: "bookingStep3Tab", panelId: "bookingStep3Panel" },
+    { tabId: "bookingStep4Tab", panelId: "bookingStep4Panel" },
+    { tabId: "bookingStep5Tab", panelId: "bookingStep5Panel" },
+  ];
+
+  const tabEls = {};
+  const panelEls = {};
+  for (const s of steps) {
+    tabEls[s.tabId] = document.getElementById(s.tabId);
+    panelEls[s.panelId] = document.getElementById(s.panelId);
+  }
+
+  const setActiveStep = (stepIndex) => {
+    for (let i = 0; i < steps.length; i++) {
+      const isActive = i === stepIndex;
+      const { tabId, panelId } = steps[i];
+      const tab = tabEls[tabId];
+      const panel = panelEls[panelId];
+      if (panel) panel.hidden = !isActive;
+      if (tab) {
+        tab.classList.toggle("segment-tab--active", isActive);
+        tab.setAttribute("aria-selected", isActive ? "true" : "false");
+        tab.tabIndex = isActive ? 0 : -1;
+      }
+    }
+    const activePanelId = steps[stepIndex]?.panelId;
+    if (activePanelId)
+      document.getElementById(activePanelId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // Step 4 (index 3) includes traveller profile CRUD + selectors.
+    if (stepIndex === 3) {
+      const listEl = document.getElementById("travellerProfilesList");
+      if (listEl && latestTravellerRows.length === 0) {
+        void loadTravellerProfiles();
+      }
+    }
+  };
+
+  steps.forEach((s, idx) => {
+    tabEls[s.tabId]?.addEventListener("click", () => setActiveStep(idx));
+  });
+
+  // Ensure correct initial visibility (HTML defaults should already handle this).
+  const initial = 0;
+  setActiveStep(initial);
+}
+
+function refreshTripContactSummary() {
+  const name = document.getElementById("passengerName")?.value?.trim() || "";
+  const phone = document.getElementById("passengerPhone")?.value?.trim() || "";
+  const nameEl = document.getElementById("summaryPassengerName");
+  const phoneEl = document.getElementById("summaryPassengerPhone");
+  if (nameEl) nameEl.textContent = name || "—";
+  if (phoneEl) phoneEl.textContent = phone || "—";
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (ch) => {
+    const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
+    return map[ch] || ch;
+  });
+}
+
+function getOsField(row, candidates) {
+  if (!row) return "";
+  for (const key of candidates) {
+    const v = row[key];
+    if (v !== undefined && v !== null) {
+      const s = String(v).trim();
+      if (s !== "") return s;
+    }
+  }
+  return "";
+}
+
+function toDateInputValue(v) {
+  if (!v) return "";
+  const s = String(v);
+  // Accept ISO date or ISO datetime.
+  return s.includes("T") ? s.slice(0, 10) : s;
+}
+
+function maskPassport(passport) {
+  const s = String(passport || "").trim();
+  if (!s) return "";
+  return s.length <= 4 ? s : s.slice(-4);
+}
+
+function populateTravellerSelectorsFromRows(rows) {
+  const leadSel = document.getElementById("leadTravellerSelect");
+  const compSel = document.getElementById("companionTravellerSelect");
+  const passengerNameEl = document.getElementById("passengerName");
+  const passengerPhoneEl = document.getElementById("passengerPhone");
+
+  if (!leadSel || !compSel) return;
+
+  const safeRows = Array.isArray(rows) ? rows : [];
+
+  const makeOptionText = (row) => {
+    const id = Number(row?.Id ?? row?.id ?? row?.TravellerProfileId ?? 0) || 0;
+    const fullName = getOsField(row, ["FullName", "Name", "TravellerName"]);
+    const passport = getOsField(row, ["PassportNumber", "PassportNo", "passportNumber"]);
+    const tail = maskPassport(passport);
+    const title = fullName || `Traveller #${id}`;
+    return tail ? `${title} · …${tail}` : title;
+  };
+
+  // Build options.
+  const leadPlaceholder = document.createElement("option");
+  leadPlaceholder.value = "";
+  leadPlaceholder.textContent = "— Pick from saved profiles —";
+
+  leadSel.innerHTML = "";
+  leadSel.appendChild(leadPlaceholder);
+  compSel.innerHTML = "";
+
+  safeRows.forEach((row) => {
+    const id = Number(row?.Id ?? row?.id ?? row?.TravellerProfileId ?? 0);
+    if (!id) return;
+    const txt = makeOptionText(row);
+    leadSel.appendChild(new Option(txt, String(id)));
+    compSel.appendChild(new Option(txt, String(id)));
+  });
+
+  // Apply pending selection (from demo) or default to first row.
+  let desired = Array.isArray(pendingTravellerIdsFromDemo)
+    ? pendingTravellerIdsFromDemo
+    : null;
+
+  let leadId = 0;
+  let companionIds = [];
+  if (desired && desired.length) {
+    leadId = Number(desired[0]) || 0;
+    companionIds = desired.slice(1).map((x) => Number(x)).filter((n) => n > 0);
+  } else if (safeRows.length) {
+    leadId = Number(safeRows[0]?.Id ?? safeRows[0]?.id ?? 0) || 0;
+  }
+
+  leadSel.value = leadId ? String(leadId) : "";
+  Array.from(compSel.options || []).forEach((opt) => {
+    opt.selected = companionIds.includes(Number(opt.value));
+  });
+
+  // Update passengerName + passengerPhone from the selected lead.
+  const leadRow = safeRows.find(
+    (r) => Number(r?.Id ?? r?.id ?? r?.TravellerProfileId ?? 0) === leadId
+  );
+  const leadName = getOsField(leadRow, ["FullName", "Name", "TravellerName"]);
+  if (leadName && passengerNameEl) passengerNameEl.value = leadName;
+
+  if (passengerPhoneEl && passengerPhoneEl.value.trim() === "") {
+    const phone = getOsField(leadRow, [
+      "EmergencyContactPhone",
+      "EmergencyPhone",
+      "emergencyContactPhone",
+    ]);
+    if (phone) passengerPhoneEl.value = phone;
+  }
+
+  pendingTravellerIdsFromDemo = null;
+}
+
+async function loadTravellerProfiles() {
+  if (!travellerProfilesServiceAvailable) return;
+
+  const listEl = document.getElementById("travellerProfilesList");
+  const errEl = document.getElementById("travellerProfilesError");
+  const customerIdRaw = document.getElementById("travellerCustomerID")?.value ?? "";
+
+  if (errEl) {
+    errEl.hidden = true;
+    errEl.textContent = "";
+  }
+
+  const customerID = Number(customerIdRaw || 0);
+  if (!customerID || customerID < 1) {
+    if (errEl) {
+      errEl.textContent = "Enter a valid customer number.";
+      errEl.hidden = false;
+    }
+    if (listEl) listEl.textContent = "";
+    return;
+  }
+
+  if (listEl) listEl.textContent = "Loading profiles...";
+
+  const out = await fetchJson(`${API_BASE}/travellerprofiles/byaccount/${customerID}`);
+  if (out.networkError) {
+    if (errEl) {
+      errEl.textContent = out.errorMessage;
+      errEl.hidden = false;
+    }
+    if (listEl) listEl.textContent = "";
+    return;
+  }
+
+  if (!out.ok) {
+    const msg = out.body?.message || out.errorMessage || `HTTP ${out.status}`;
+    const lower = String(msg).toLowerCase();
+    if (lower.includes("traveller profile service not configured") || lower.includes("not configured")) {
+      travellerProfilesServiceAvailable = false;
+    }
+    if (errEl) {
+      errEl.textContent = msg;
+      errEl.hidden = false;
+    }
+    latestTravellerRows = [];
+    if (listEl) listEl.textContent = "";
+    // Clear selectors used in Trip tab to avoid stale drop-down values.
+    populateTravellerSelectorsFromRows([]);
+    return;
+  }
+
+  const data = out.body?.data ?? [];
+  latestTravellerRows = Array.isArray(data) ? data : [];
+
+  if (!listEl) return;
+  listEl.innerHTML = "";
+
+  if (!latestTravellerRows.length) {
+    listEl.textContent = "No saved traveller profiles found for this account.";
+    return;
+  }
+
+  latestTravellerRows.forEach((row) => {
+    const id = Number(row?.Id ?? row?.id ?? row?.TravellerProfileId ?? 0);
+    const fullName = getOsField(row, ["FullName", "Name", "TravellerName", "fullName"]);
+    const passport = getOsField(row, ["PassportNumber", "PassportNo", "passportNumber"]);
+    const tail = maskPassport(passport);
+    const title = fullName || `Traveller #${id}`;
+    const sub = tail ? `Passport •••• ${tail}` : "Passport on file";
+
+    const item = document.createElement("div");
+    item.className = "traveller-item";
+    item.innerHTML = `
+      <div class="traveller-item__meta">
+        <div class="traveller-item__title">${escapeHtml(title)}</div>
+        <div class="traveller-item__sub">${escapeHtml(sub)}</div>
+      </div>
+      <button type="button" class="btn-secondary" data-action="selectTraveller" data-id="${id}">
+        Edit
+      </button>
+    `;
+    listEl.appendChild(item);
+  });
+
+  // Keep Trip tab selectors in sync (so users can pick by name).
+  populateTravellerSelectorsFromRows(latestTravellerRows);
+}
+
+function resetTravellerEdit() {
+  selectedTravellerRow = null;
+  const wrap = document.getElementById("travellerEditWrap");
+  const idEl = document.getElementById("travellerEditId");
+  if (wrap) wrap.hidden = true;
+  if (idEl) idEl.value = "";
+  const statusEl = document.getElementById("travellerEditStatus");
+  if (statusEl) statusEl.textContent = "";
+
+  const delBtn = document.getElementById("travellerDeleteBtn");
+  if (delBtn) delBtn.disabled = true;
+}
+
+function populateTravellerEditFromRow(row) {
+  selectedTravellerRow = row;
+  const idEl = document.getElementById("travellerEditId");
+  if (idEl) idEl.value = String(row?.Id ?? row?.id ?? "");
+
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = v || "";
+  };
+
+  setVal("travellerEditFullName", getOsField(row, ["FullName", "Name", "TravellerName"]));
+  setVal("travellerEditPassportNumber", getOsField(row, ["PassportNumber", "PassportNo"]));
+  setVal(
+    "travellerEditPassportExpiry",
+    toDateInputValue(getOsField(row, ["PassportExpiry", "PassportExpire"]))
+  );
+  setVal("travellerEditDateOfBirth", toDateInputValue(getOsField(row, ["DateOfBirth", "DOB"])));
+  setVal("travellerEditNationality", getOsField(row, ["Nationality", "nationality"]));
+  setVal("travellerEditSeatPreference", getOsField(row, ["SeatPreference", "seatPreference"]));
+  setVal("travellerEditMealPreference", getOsField(row, ["MealPreference", "mealPreference"]));
+  setVal(
+    "travellerEditEmergencyContactName",
+    getOsField(row, ["EmergencyContactName", "EmergencyContact", "emergencyContactName"])
+  );
+  setVal(
+    "travellerEditEmergencyContactPhone",
+    getOsField(row, ["EmergencyContactPhone", "emergencyContactPhone", "EmergencyPhone"])
+  );
+  setVal("travellerEditRelationship", getOsField(row, ["Relationship", "relationship"]));
+
+  const wrap = document.getElementById("travellerEditWrap");
+  if (wrap) wrap.hidden = false;
+
+  const delBtn = document.getElementById("travellerDeleteBtn");
+  if (delBtn) delBtn.disabled = false;
+}
+
+function getTravellerEditPayload() {
+  const customerID = Number(document.getElementById("travellerCustomerID")?.value ?? 0);
+  const traveller_profile_id = Number(document.getElementById("travellerEditId")?.value ?? 0);
+
+  const required = {
+    fullName: document.getElementById("travellerEditFullName")?.value?.trim() || "",
+    passportNumber: document.getElementById("travellerEditPassportNumber")?.value?.trim() || "",
+    passportExpiry: document.getElementById("travellerEditPassportExpiry")?.value?.trim() || "",
+  };
+
+  const payload = selectedTravellerRow ? { ...selectedTravellerRow } : {};
+  payload.CustomerID = customerID;
+  if (traveller_profile_id && traveller_profile_id > 0) {
+    payload.Id = traveller_profile_id;
+    payload.TravellerProfileId = traveller_profile_id;
+  }
+
+  payload.FullName = required.fullName;
+  payload.PassportNumber = required.passportNumber;
+  payload.PassportExpiry = required.passportExpiry;
+
+  const optFields = [
+    ["DateOfBirth", "travellerEditDateOfBirth"],
+    ["Nationality", "travellerEditNationality"],
+    ["SeatPreference", "travellerEditSeatPreference"],
+    ["MealPreference", "travellerEditMealPreference"],
+    ["EmergencyContactName", "travellerEditEmergencyContactName"],
+    ["EmergencyContactPhone", "travellerEditEmergencyContactPhone"],
+    ["Relationship", "travellerEditRelationship"],
+  ];
+
+  optFields.forEach(([osKey, domId]) => {
+    const val = document.getElementById(domId)?.value?.trim() || "";
+    if (val !== "") payload[osKey] = val;
+  });
+
+  return { customerID, traveller_profile_id, required, payload };
+}
+
+function getTravellerCreatePayload() {
+  const customerID = Number(document.getElementById("travellerCustomerID")?.value ?? 0);
+
+  const required = {
+    fullName: document.getElementById("travellerEditFullName")?.value?.trim() || "",
+    passportNumber: document.getElementById("travellerEditPassportNumber")?.value?.trim() || "",
+    passportExpiry: document.getElementById("travellerEditPassportExpiry")?.value?.trim() || "",
+  };
+
+  const payload = {
+    CustomerID: customerID,
+    FullName: required.fullName,
+    PassportNumber: required.passportNumber,
+    PassportExpiry: required.passportExpiry,
+  };
+
+  const optFields = [
+    ["DateOfBirth", "travellerEditDateOfBirth"],
+    ["Nationality", "travellerEditNationality"],
+    ["SeatPreference", "travellerEditSeatPreference"],
+    ["MealPreference", "travellerEditMealPreference"],
+    ["EmergencyContactName", "travellerEditEmergencyContactName"],
+    ["EmergencyContactPhone", "travellerEditEmergencyContactPhone"],
+    ["Relationship", "travellerEditRelationship"],
+  ];
+
+  optFields.forEach(([osKey, domId]) => {
+    const val = document.getElementById(domId)?.value?.trim() || "";
+    if (val !== "") payload[osKey] = val;
+  });
+
+  return { customerID, required, payload };
+}
+
+function onTravellerCreateNew() {
+  selectedTravellerRow = null;
+
+  const wrap = document.getElementById("travellerEditWrap");
+  if (wrap) wrap.hidden = false;
+
+  const idEl = document.getElementById("travellerEditId");
+  if (idEl) idEl.value = "";
+
+  const statusEl = document.getElementById("travellerEditStatus");
+  if (statusEl) statusEl.textContent = "Creating a new traveller profile…";
+
+  // Clear input fields.
+  [
+    "travellerEditFullName",
+    "travellerEditPassportNumber",
+    "travellerEditPassportExpiry",
+    "travellerEditDateOfBirth",
+    "travellerEditNationality",
+    "travellerEditSeatPreference",
+    "travellerEditMealPreference",
+    "travellerEditEmergencyContactName",
+    "travellerEditEmergencyContactPhone",
+    "travellerEditRelationship",
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  const delBtn = document.getElementById("travellerDeleteBtn");
+  if (delBtn) delBtn.disabled = true;
+}
+
+async function onTravellerSave() {
+  const statusEl = document.getElementById("travellerEditStatus");
+  if (statusEl) statusEl.textContent = "";
+
+  const { customerID, traveller_profile_id, required, payload } = getTravellerEditPayload();
+  if (!customerID || customerID < 1) {
+    if (statusEl) statusEl.textContent = "Customer number is required.";
+    return;
+  }
+
+  if (!required.fullName || !required.passportNumber || !required.passportExpiry) {
+    if (statusEl) statusEl.textContent = "Full name + passport number + expiry are required.";
+    return;
+  }
+
+  const isCreate = !traveller_profile_id || traveller_profile_id < 1;
+  let out;
+
+  if (isCreate) {
+    const create = getTravellerCreatePayload();
+    if (!create.required.fullName || !create.required.passportNumber || !create.required.passportExpiry) {
+      if (statusEl) statusEl.textContent = "Full name + passport number + expiry are required.";
+      return;
+    }
+
+    out = await fetchJson(`${API_BASE}/travellerprofiles/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(create.payload),
+    });
+  } else {
+    out = await fetchJson(`${API_BASE}/travellerprofiles/update/${traveller_profile_id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  if (statusEl) statusEl.textContent = out.networkError
+    ? out.errorMessage
+    : `${isCreate ? "Create" : "Update"} response: ${JSON.stringify(out.body?.data ?? out.body ?? {}, null, 0)}`;
+
+  await loadTravellerProfiles();
+}
+
+async function onTravellerDelete() {
+  const statusEl = document.getElementById("travellerEditStatus");
+  if (statusEl) statusEl.textContent = "";
+
+  const traveller_profile_id = Number(document.getElementById("travellerEditId")?.value ?? 0);
+  const customerID = Number(document.getElementById("travellerCustomerID")?.value ?? 0);
+
+  if (!traveller_profile_id || traveller_profile_id < 1) {
+    if (statusEl) statusEl.textContent = "Select a traveller record first.";
+    return;
+  }
+
+  const ok = window.confirm("Delete this traveller profile? This cannot be undone in the demo UI.");
+  if (!ok) return;
+
+  const payload = { CustomerID: customerID, Id: traveller_profile_id, TravellerProfileId: traveller_profile_id };
+
+  const out = await fetchJson(`${API_BASE}/travellerprofiles/delete/${traveller_profile_id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (statusEl) {
+    statusEl.textContent = out.networkError
+      ? out.errorMessage
+      : `Delete response: ${JSON.stringify(out.body?.data ?? out.body ?? {}, null, 0)}`;
+  }
+
+  resetTravellerEdit();
+  await loadTravellerProfiles();
+}
+
+function setupTravellerProfilesUI() {
+  const customerInput = document.getElementById("travellerCustomerID");
+  const loadBtn = document.getElementById("loadTravellerProfilesBtn");
+  const listEl = document.getElementById("travellerProfilesList");
+  const createBtn = document.getElementById("travellerCreateBtn");
+
+  if (customerInput) {
+    const initialCustomer = Number(document.getElementById("customerID")?.value ?? 0);
+    if (initialCustomer) customerInput.value = String(initialCustomer);
+  }
+
+  if (loadBtn) {
+    loadBtn.addEventListener("click", () => loadTravellerProfiles());
+  }
+
+  if (createBtn) {
+    createBtn.addEventListener("click", () => onTravellerCreateNew());
+  }
+
+  if (customerInput) {
+    customerInput.addEventListener("change", () => loadTravellerProfiles());
+  }
+
+  // Keep tabs’ customerID in sync for convenience.
+  const bookingCustomerInput = document.getElementById("customerID");
+  if (bookingCustomerInput && customerInput) {
+    bookingCustomerInput.addEventListener("change", () => {
+      customerInput.value = bookingCustomerInput.value;
+      // Refresh saved traveller list + the selectors used in Trip tab.
+      void loadTravellerProfiles();
+    });
+  }
+
+  const leadSel = document.getElementById("leadTravellerSelect");
+  if (leadSel) {
+    leadSel.addEventListener("change", () => {
+      const leadId = Number(leadSel.value || 0);
+      const leadRow = latestTravellerRows.find(
+        (r) => Number(r?.Id ?? r?.id ?? 0) === leadId
+      );
+      const name = getOsField(leadRow, ["FullName", "Name", "TravellerName"]);
+      const passengerNameEl = document.getElementById("passengerName");
+      if (passengerNameEl && name) passengerNameEl.value = name;
+      const passengerPhoneEl = document.getElementById("passengerPhone");
+      const phone = getOsField(leadRow, [
+        "EmergencyContactPhone",
+        "EmergencyPhone",
+        "emergencyContactPhone",
+      ]);
+      if (passengerPhoneEl && passengerPhoneEl.value.trim() === "" && phone) {
+        passengerPhoneEl.value = phone;
+      }
+
+      refreshTripContactSummary();
+    });
+  }
+
+  if (listEl) {
+    listEl.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const action = btn.getAttribute("data-action");
+      const id = Number(btn.getAttribute("data-id") ?? 0);
+      if (action === "selectTraveller") {
+        const row = latestTravellerRows.find((r) => Number(r?.Id ?? r?.id ?? 0) === id);
+        if (row) populateTravellerEditFromRow(row);
+      }
+    });
+  }
+
+  const saveBtn = document.getElementById("travellerSaveBtn");
+  if (saveBtn) saveBtn.addEventListener("click", () => onTravellerSave());
+
+  const delBtn = document.getElementById("travellerDeleteBtn");
+  if (delBtn) delBtn.addEventListener("click", () => onTravellerDelete());
+}
+
 function initUI() {
   populateDemoProfileOptions();
   buildSeatMapOnce();
   updateSeatSelectionUI();
+
+  setupSegmentTabs();
+  setupLoyaltyPaymentTabs();
+  setupBookingFlowTabs();
+  setupTravellerProfilesUI();
+  refreshTripContactSummary();
 
   document.getElementById("demoProfile").addEventListener("change", applyDemoProfile);
   document.getElementById("loadDemoBtn").addEventListener("click", applyDemoProfile);
@@ -978,9 +1905,27 @@ function initUI() {
     .getElementById("hotelRoomType")
     .addEventListener("change", updateBreakfastAddonUI);
 
+  ["passengerName", "passengerEmail", "passengerPhone"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", refreshTripContactSummary);
+  });
+
+  document.getElementById("hotelSearchBtn")?.addEventListener("click", () => {
+    void searchHotels();
+  });
+
+  document.getElementById("hotelResults")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action='selectHotel']");
+    if (!btn) return;
+    const id = Number(btn.getAttribute("data-id") || 0);
+    if (!Number.isFinite(id) || id < 1) return;
+    void initHotelSelectionById(id);
+  });
+
   // Initial load
   refreshNotifications();
   updateBreakfastAddonUI();
+  const hotelId = Number(document.getElementById("hotelID")?.value || 0);
+  void initHotelSelectionById(hotelId > 0 ? hotelId : 1);
 
   // Load initial loyalty state for the default customer.
   const customerID = Number(document.getElementById("customerID").value || 0);
@@ -998,12 +1943,32 @@ function initUI() {
       document.getElementById("loyaltyTier").textContent = "-";
       refreshPricePreview();
     }
+    // Keep Trip-tab traveller selectors in sync with the account chosen.
+    if (document.getElementById("leadTravellerSelect")) {
+      void loadTravellerProfiles();
+    }
   });
 
   ["totalPrice", "discountCode", "coinsToSpendCents"].forEach((id) => {
     document.getElementById(id)?.addEventListener("input", refreshPricePreview);
     document.getElementById(id)?.addEventListener("change", refreshPricePreview);
   });
+
+  const btnNone = document.getElementById("coinsUseNoneBtn");
+  if (btnNone) {
+    btnNone.addEventListener("click", () => {
+      setCoinsToSpendCents(0);
+    });
+  }
+  const btnAll = document.getElementById("coinsUseAllBtn");
+  if (btnAll) {
+    btnAll.addEventListener("click", () => {
+      const cid = Number(document.getElementById("customerID")?.value || 0);
+      if (!hasAccountCustomerId(cid)) return;
+      const coinsAvail = Number(latestLoyalty?.coins ?? 0);
+      setCoinsToSpendCents(coinsAvail);
+    });
+  }
 
   document.getElementById("copyResultBtn").addEventListener("click", () => {
     clearError(document.getElementById("uiError"));

@@ -7,6 +7,8 @@ services:
       dockerfile: booking/Dockerfile
     ports:
       - "5101:5101"
+    env_file:
+      - .env
     environment:
       DB_URL: ${BOOKING_DB_URL:-mysql+pymysql://travel_user:travel_pass@booking-db:3306/travel_booking}
       FLIGHT_URL: http://flight:5102/flight
@@ -19,6 +21,8 @@ services:
       EXCHANGE_TYPE: topic
       TRAVELLER_PROFILE_BASE_URL: ${TRAVELLER_PROFILE_BASE_URL:-}
       TRAVELLER_PROFILE_REQUIRED: ${TRAVELLER_PROFILE_REQUIRED:-false}
+      TRAVELLER_PROFILE_UPDATE_PATH: ${TRAVELLER_PROFILE_UPDATE_PATH:-UpdateTravellerProfile}
+      TRAVELLER_PROFILE_DELETE_PATH: ${TRAVELLER_PROFILE_DELETE_PATH:-DeleteTravellerProfile}
       FX_API_ENABLED: ${FX_API_ENABLED:-false}
       FX_API_URL: ${FX_API_URL:-}
       SKIP_CATALOG_VALIDATION: ${SKIP_CATALOG_VALIDATION:-false}

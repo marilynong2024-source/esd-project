@@ -28,6 +28,13 @@ GET /byaccount/{customerID}
 ────────────────────────────────────────────────────────────────────────────
 
 Override base with env TRAVELLER_PROFILE_BASE_URL if the host/path ever changes.
+
+For update/delete:
+- Defaults assume the OutSystems operation names are `UpdateTravellerProfile`
+  and `DeleteTravellerProfile`.
+- If the operation names differ, override with env vars:
+  - `TRAVELLER_PROFILE_UPDATE_PATH`
+  - `TRAVELLER_PROFILE_DELETE_PATH`
 """
 
 from __future__ import annotations
@@ -116,3 +123,56 @@ def get_traveller_profile(customer_id: int, traveller_profile_id: int) -> dict[s
         if _row_id(row) == tid:
             return row
     return None
+
+
+def _update_path() -> str:
+    return os.environ.get("TRAVELLER_PROFILE_UPDATE_PATH", "UpdateTravellerProfile").strip()
+
+
+def _delete_path() -> str:
+    return os.environ.get("TRAVELLER_PROFILE_DELETE_PATH", "DeleteTravellerProfile").strip()
+
+
+def update_traveller_profile(data: dict[str, Any]) -> Any:
+    """
+    POST .../<UpdateTravellerProfile> (operation name configurable by env).
+
+    The OutSystems update action typically expects:
+    - CustomerID
+    - Id/TravellerProfileId
+    - FullName, PassportNumber, PassportExpiry, DateOfBirth, Nationality, ...
+    """
+    r = requests.post(
+        f"{_base_url()}/{_update_path()}",
+        json=data,
+        headers={"Content-Type": "application/json"},
+        timeout=20,
+    )
+    if r.status_code in (200, 201):
+        try:
+            return r.json()
+        except Exception:
+            return {"_raw": r.text}
+    return {"_httpStatus": r.status_code, "_raw": r.text[:500]}
+
+
+def delete_traveller_profile(data: dict[str, Any]) -> Any:
+    """
+    POST .../<DeleteTravellerProfile> (operation name configurable by env).
+
+    The OutSystems delete action typically expects:
+    - CustomerID
+    - Id/TravellerProfileId
+    """
+    r = requests.post(
+        f"{_base_url()}/{_delete_path()}",
+        json=data,
+        headers={"Content-Type": "application/json"},
+        timeout=20,
+    )
+    if r.status_code in (200, 201):
+        try:
+            return r.json()
+        except Exception:
+            return {"_raw": r.text}
+    return {"_httpStatus": r.status_code, "_raw": r.text[:500]}
