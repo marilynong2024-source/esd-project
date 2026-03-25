@@ -19,7 +19,10 @@ CREATE TABLE IF NOT EXISTS bookings (
   seatNumber VARCHAR(8) NULL,
   travellerProfileId INT NULL,
   travellerDisplayName VARCHAR(128) NULL,
-  travellerProfileIdsJson TEXT NULL
+  travellerProfileIdsJson TEXT NULL,
+  passengerName VARCHAR(200) NULL,
+  passengerEmail VARCHAR(255) NULL,
+  passengerPhone VARCHAR(40) NULL
 );
 
 -- Sample fake data (3 example bookings)
@@ -28,17 +31,21 @@ INSERT INTO bookings (
   customerID, flightID, hotelID, hotelRoomType, hotelIncludesBreakfast,
   departureTime, totalPrice, currency, fareType, loyaltyTier,
   hotelPaymentMode, status, refundPercentage, refundAmount,
-  seatNumber, travellerProfileId, travellerDisplayName, travellerProfileIdsJson
+  seatNumber, travellerProfileId, travellerDisplayName, travellerProfileIdsJson,
+  passengerName, passengerEmail, passengerPhone
 ) VALUES
   (1, 'SQ001', 1, 'STD', 0,
    '2026-05-01T10:00:00', 1200.00, 'SGD', 'Flexi', 'Gold',
-   'PrepaidInApp', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL),
+   'PrepaidInApp', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+   'Ava Chen', 'ava.chen@example.com', '+65 9123 4567'),
 
   (2, 'SQ001', 1, 'DLX', 1,
    '2026-06-15T09:30:00', 1500.00, 'SGD', 'Standard', 'Silver',
-   'PrepaidInApp', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL),
+   'PrepaidInApp', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+   'Ben Kumar', 'ben.kumar@example.com', '+65 8123 0000'),
 
   (3, 'SQ001', 1, 'STD', 0,
    '2026-04-20T18:45:00', 800.00, 'SGD', 'Saver', NULL,
-   'PayAtHotel', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL);
+   'PayAtHotel', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+   'Casey Tan', 'casey.tan@example.com', '+65 9000 1111');
 

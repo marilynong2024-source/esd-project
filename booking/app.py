@@ -58,7 +58,7 @@ def get_amqp_channel():
     return _amqp_channel
 
 
-def publish_event(routing_key: str, payload: dict):
+def publish_event(routing_key: str, payload: dict) -> bool:
     try:
         channel = get_amqp_channel()
         message = json.dumps(payload)
@@ -68,9 +68,10 @@ def publish_event(routing_key: str, payload: dict):
             body=message,
             properties=pika.BasicProperties(delivery_mode=2),
         )
+        return True
     except Exception as e:
-        # For demo purposes, we just log and continue; cancellation still succeeds.
-        print(f"Failed to publish AMQP event: {e}")
+        print(f"[booking] Failed to publish AMQP event: {e}", flush=True)
+        return False
 
 
 def _bad_request(message: str):
@@ -79,6 +80,16 @@ def _bad_request(message: str):
 
 def _conflict(message: str):
     return jsonify({"code": 409, "message": message}), 409
+
+
+def _optional_trimmed_str(data: dict, key: str, max_len: int) -> str | None:
+    raw = data.get(key)
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    return s[:max_len]
 
 
 class Booking(db.Model):
@@ -106,6 +117,9 @@ class Booking(db.Model):
     travellerProfileId = db.Column(db.Integer, nullable=True)  # first Id (legacy / convenience)
     travellerDisplayName = db.Column(db.String(128), nullable=True)  # summary; truncated
     travellerProfileIdsJson = db.Column(db.Text, nullable=True)  # JSON array of OutSystems Ids, e.g. [1,2,3]
+    passengerName = db.Column(db.String(200), nullable=True)
+    passengerEmail = db.Column(db.String(255), nullable=True)
+    passengerPhone = db.Column(db.String(40), nullable=True)
 
     def to_dict(self):
         t_ids: list[int] = []
@@ -138,6 +152,9 @@ class Booking(db.Model):
             "refundPercentage": self.refundPercentage,
             "refundAmount": self.refundAmount,
             "seatNumber": self.seatNumber,
+            "passengerName": self.passengerName,
+            "passengerEmail": self.passengerEmail,
+            "passengerPhone": self.passengerPhone,
         }
 
 
@@ -252,6 +269,8 @@ def create_booking():
         customer_id = int(data["customerID"])
         if customer_id < 0:
             return _bad_request("customerID must be non-negative")
+        if customer_id == 0:
+            coins_to_spend_cents = 0
 
         hotel_id = int(data["hotelID"])
         if hotel_id < 1:
@@ -293,6 +312,12 @@ def create_booking():
             json.dumps(traveller_ids_final) if traveller_ids_final else None
         )
         traveller_snap = snapshot_display_names(profile_rows)
+        passenger_name = _optional_trimmed_str(data, "passengerName", 200)
+        passenger_email = _optional_trimmed_str(data, "passengerEmail", 255)
+        passenger_phone = _optional_trimmed_str(data, "passengerPhone", 40)
+        display_name = traveller_snap
+        if not display_name and passenger_name:
+            display_name = passenger_name[:128]
 
         cat_err = validate_flight_and_hotel(flight_id, hotel_id)
         if cat_err:
@@ -312,8 +337,11 @@ def create_booking():
             hotelPaymentMode=hpm,
             seatNumber=seat_number,
             travellerProfileId=traveller_profile_id,
-            travellerDisplayName=traveller_snap,
+            travellerDisplayName=display_name,
             travellerProfileIdsJson=ids_json,
+            passengerName=passenger_name,
+            passengerEmail=passenger_email,
+            passengerPhone=passenger_phone,
         )
     except KeyError as e:
         return _bad_request(f"Missing required field: {e.args[0]!r}")
@@ -543,7 +571,7 @@ def cancel_booking(booking_id: int):
     if not t_ids_event and booking.travellerProfileId is not None:
         t_ids_event = [int(booking.travellerProfileId)]
 
-    publish_event(
+    published = publish_event(
         "booking.cancelled",
         {
             "bookingID": booking_id,
@@ -551,6 +579,9 @@ def cancel_booking(booking_id: int):
             "travellerProfileId": booking.travellerProfileId,
             "travellerProfileIds": t_ids_event,
             "travellerDisplayName": booking.travellerDisplayName,
+            "passengerName": booking.passengerName,
+            "passengerEmail": booking.passengerEmail,
+            "passengerPhone": booking.passengerPhone,
             "refundPercentage": percentage,
             "refundAmount": amount,
             "currency": booking.currency or "SGD",
@@ -559,6 +590,11 @@ def cancel_booking(booking_id: int):
             "cancelledAt": now.isoformat(),
         },
     )
+    if not published:
+        cancel_warnings.append(
+            "Could not publish booking.cancelled to RabbitMQ — check booking logs "
+            "and that the rabbitmq service is reachable (notification/Twilio will not run)."
+        )
 
     result = {
         "bookingID": booking_id,
@@ -607,6 +643,24 @@ def ensure_booking_columns():
                 "ALTER TABLE bookings ADD COLUMN travellerProfileIdsJson TEXT NULL"
                 if db.engine.dialect.name != "sqlite"
                 else "ALTER TABLE bookings ADD COLUMN travellerProfileIdsJson TEXT"
+            )
+        if "passengerName" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN passengerName VARCHAR(200) NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN passengerName VARCHAR(200)"
+            )
+        if "passengerEmail" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN passengerEmail VARCHAR(255) NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN passengerEmail VARCHAR(255)"
+            )
+        if "passengerPhone" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN passengerPhone VARCHAR(40) NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN passengerPhone VARCHAR(40)"
             )
         for stmt in alters:
             db.session.execute(text(stmt))

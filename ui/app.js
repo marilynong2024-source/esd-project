@@ -10,6 +10,9 @@ const DEMO_PROFILES = [
   {
     id: "ava",
     label: "Ava Chen — casual traveller (cust 1)",
+    passengerName: "Ava Chen",
+    passengerEmail: "ava.chen@example.com",
+    passengerPhone: "+65 9123 4567",
     customerID: 1,
     flightID: "SQ001",
     hotelID: 1,
@@ -25,10 +28,13 @@ const DEMO_PROFILES = [
   },
   {
     id: "ava_family",
-    label: "Ava — multi companion Ids (101, 102 — replace with your OutSystems Ids)",
+    label: "Ava + 2 companions (cust 1 — OS Ids 9, 10 after seed script)",
+    passengerName: "Ava Chen",
+    passengerEmail: "ava.chen@example.com",
+    passengerPhone: "+65 9123 4567",
     customerID: 1,
     flightID: "SQ001",
-    rawTravellerProfileIds: [101, 102],
+    rawTravellerProfileIds: [9, 10],
     hotelID: 1,
     hotelRoomType: "DLX",
     hotelIncludesBreakfast: true,
@@ -43,6 +49,9 @@ const DEMO_PROFILES = [
   {
     id: "ben",
     label: "Ben Kumar — business (cust 2)",
+    passengerName: "Ben Kumar",
+    passengerEmail: "ben.kumar@example.com",
+    passengerPhone: "+65 8123 0000",
     customerID: 2,
     flightID: "SQ002",
     hotelID: 1,
@@ -59,6 +68,9 @@ const DEMO_PROFILES = [
   {
     id: "airasia",
     label: "Casey — AirAsia AK123 (no online seat map)",
+    passengerName: "Casey Tan",
+    passengerEmail: "casey.tan@example.com",
+    passengerPhone: "+65 9000 1111",
     customerID: 3,
     flightID: "AK123",
     hotelID: 1,
@@ -75,6 +87,9 @@ const DEMO_PROFILES = [
   {
     id: "scoot",
     label: "Dana — Scoot TR789 (check-in only in demo)",
+    passengerName: "Dana Wong",
+    passengerEmail: "dana.wong@example.com",
+    passengerPhone: "+65 8444 2222",
     customerID: 4,
     flightID: "TR789",
     hotelID: 1,
@@ -91,6 +106,9 @@ const DEMO_PROFILES = [
   {
     id: "elena",
     label: "Elena — corporate (cust 5, discount code)",
+    passengerName: "Elena Ruiz",
+    passengerEmail: "elena.ruiz@corp-demo.sg",
+    passengerPhone: "+65 9333 8888",
     customerID: 5,
     flightID: "SQ001",
     hotelID: 1,
@@ -196,6 +214,15 @@ async function fetchJson(url, options = {}) {
       parseError = true;
       body = { _raw: text.slice(0, 500), _parseError: true };
     }
+  } else {
+    // Nginx/proxy or Flask occasionally yields no body; never leave body null (UI looked "empty").
+    body = {
+      _emptyBody: true,
+      code: 500,
+      message: res.ok
+        ? `HTTP ${res.status} but response body was empty — check booking container (docker compose logs booking) and nginx /api/booking/ proxy.`
+        : `HTTP ${res.status} with empty response body (check nginx/proxy and booking logs).`,
+    };
   }
   return { ok: res.ok, status: res.status, body, networkError: false, parseError };
 }
@@ -244,6 +271,11 @@ function codeDiscountPercent(code, projectedTier) {
  * List price from the form, then tier % off list, then promo % off that subtotal, then coins (dollars).
  * Avoids applying both tier and code as full % of list (e.g. 20+20=40% off), which felt like a glitch.
  */
+/** Customer IDs &gt; 0 are account holders with loyalty; 0 = guest (no coins / tier in this demo). */
+function hasAccountCustomerId(customerID) {
+  return Number(customerID) > 0;
+}
+
 function computeFinalPriceBreakdown() {
   const basePrice = Math.max(
     0,
@@ -266,13 +298,17 @@ function computeFinalPriceBreakdown() {
   const afterTier = basePrice * (1 - tierDiscountPct / 100);
   const afterCode = afterTier * (1 - codeDiscountPct / 100);
 
-  const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
-  const coinsToSpendRequestedCents = Math.max(
-    0,
-    Number(document.getElementById("coinsToSpendCents").value || 0)
-  );
-  const coinsToSpendCents = Math.min(coinsAvailableCents, coinsToSpendRequestedCents);
-  const coinsOffsetDollars = coinsToSpendCents / 100;
+  let coinsToSpendCents = 0;
+  let coinsOffsetDollars = 0;
+  if (hasAccountCustomerId(customerID)) {
+    const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
+    const coinsToSpendRequestedCents = Math.max(
+      0,
+      Number(document.getElementById("coinsToSpendCents").value || 0)
+    );
+    coinsToSpendCents = Math.min(coinsAvailableCents, coinsToSpendRequestedCents);
+    coinsOffsetDollars = coinsToSpendCents / 100;
+  }
   const finalPaid = Math.max(0, afterCode - coinsOffsetDollars);
 
   return {
@@ -514,6 +550,34 @@ function setTravellerProfileIdsInputFromDemo(p) {
   tpEl.value = "";
 }
 
+function updateCoinsOffsetUI() {
+  const cid = Number(document.getElementById("customerID")?.value || 0);
+  const wrap = document.getElementById("coinsOffsetWrap");
+  const input = document.getElementById("coinsToSpendCents");
+  if (!wrap || !input) return;
+  if (!hasAccountCustomerId(cid)) {
+    wrap.hidden = true;
+    input.value = "0";
+    input.disabled = true;
+  } else {
+    wrap.hidden = false;
+    input.disabled = false;
+  }
+}
+
+function updateBreakfastAddonUI() {
+  const room = document.getElementById("hotelRoomType")?.value;
+  const wrap = document.getElementById("breakfastAddonWrap");
+  const cb = document.getElementById("hotelIncludesBreakfast");
+  if (!wrap || !cb) return;
+  if (room === "DLX") {
+    wrap.hidden = true;
+    cb.checked = true;
+  } else {
+    wrap.hidden = false;
+  }
+}
+
 function populateDemoProfileOptions() {
   const sel = document.getElementById("demoProfile");
   if (!sel) return;
@@ -532,10 +596,17 @@ function applyDemoProfile() {
   if (!p) return;
 
   document.getElementById("customerID").value = p.customerID;
+  const pn = document.getElementById("passengerName");
+  const pe = document.getElementById("passengerEmail");
+  const pp = document.getElementById("passengerPhone");
+  if (pn) pn.value = p.passengerName ?? "";
+  if (pe) pe.value = p.passengerEmail ?? "";
+  if (pp) pp.value = p.passengerPhone ?? "";
   document.getElementById("flightID").value = p.flightID;
   document.getElementById("hotelID").value = p.hotelID;
   document.getElementById("hotelRoomType").value = p.hotelRoomType;
   document.getElementById("hotelIncludesBreakfast").checked = !!p.hotelIncludesBreakfast;
+  updateBreakfastAddonUI();
   document.getElementById("departureTime").value = p.departureTime;
   document.getElementById("totalPrice").value = p.totalPrice;
   document.getElementById("currency").value = p.currency;
@@ -543,6 +614,7 @@ function applyDemoProfile() {
   document.getElementById("discountCode").value = p.discountCode || "";
   document.getElementById("coinsToSpendCents").value = p.coinsToSpendCents ?? 0;
   setTravellerProfileIdsInputFromDemo(p);
+  updateCoinsOffsetUI();
 
   updateSeatSelectionUI();
   if (p.preferredSeat && getSeatPolicy(p.flightID).onlineSeatSelection) {
@@ -564,16 +636,24 @@ function applyDemoProfile() {
 function setManualDefaults() {
   document.getElementById("demoProfile").value = "";
   document.getElementById("customerID").value = 1;
+  const pn0 = document.getElementById("passengerName");
+  const pe0 = document.getElementById("passengerEmail");
+  const pp0 = document.getElementById("passengerPhone");
+  if (pn0) pn0.value = "Ava Chen";
+  if (pe0) pe0.value = "ava.chen@example.com";
+  if (pp0) pp0.value = "+65 9123 4567";
   document.getElementById("flightID").value = "SQ001";
   document.getElementById("hotelID").value = 1;
   document.getElementById("hotelRoomType").value = "STD";
   document.getElementById("hotelIncludesBreakfast").checked = false;
+  updateBreakfastAddonUI();
   document.getElementById("departureTime").value = "2026-05-01T10:00";
   document.getElementById("totalPrice").value = 1200;
   document.getElementById("currency").value = "SGD";
   document.getElementById("fareType").value = "Flexi";
   document.getElementById("discountCode").value = "";
   document.getElementById("coinsToSpendCents").value = 0;
+  updateCoinsOffsetUI();
   const tpEl = document.getElementById("travellerProfileIds");
   if (tpEl) tpEl.value = "";
   clearSeatSelection();
@@ -582,8 +662,22 @@ function setManualDefaults() {
 }
 
 function showResult(obj, meta = "") {
-  latestResult = obj;
-  document.getElementById("result").textContent = JSON.stringify(obj, null, 2);
+  latestResult = obj ?? null;
+  const el = document.getElementById("result");
+  if (!el) return;
+  let txt;
+  try {
+    txt = JSON.stringify(obj, null, 2);
+  } catch {
+    txt = JSON.stringify({ _stringifyError: true, value: String(obj) });
+  }
+  if (txt === undefined) {
+    txt = JSON.stringify({
+      _note: "Nothing to display — response was undefined.",
+      meta,
+    });
+  }
+  el.textContent = txt || "{ }";
   document.getElementById("resultStatus").textContent = meta;
 }
 
@@ -666,12 +760,25 @@ async function onCreateBookingSubmit(e) {
     }
   }
 
+  const passengerName = document.getElementById("passengerName").value.trim();
+  if (!passengerName) {
+    setError(createError, "Enter the lead traveller’s full name.");
+    createBtn.disabled = false;
+    return;
+  }
+  const passengerEmailRaw = document.getElementById("passengerEmail").value.trim();
+  const passengerPhoneRaw = document.getElementById("passengerPhone").value.trim();
+
+  const hotelRoomType = document.getElementById("hotelRoomType").value;
   const payload = {
     customerID: Number(document.getElementById("customerID").value),
+    passengerName,
     flightID: document.getElementById("flightID").value,
     hotelID: Number(document.getElementById("hotelID").value),
-    hotelRoomType: document.getElementById("hotelRoomType").value,
-    hotelIncludesBreakfast: document.getElementById("hotelIncludesBreakfast").checked,
+    hotelRoomType,
+    hotelIncludesBreakfast:
+      hotelRoomType === "DLX" ||
+      document.getElementById("hotelIncludesBreakfast").checked,
     departureTime: document.getElementById("departureTime").value,
     totalPrice: Number(document.getElementById("totalPrice").value),
     currency: document.getElementById("currency").value,
@@ -680,47 +787,18 @@ async function onCreateBookingSubmit(e) {
       ? document.getElementById("seatNumber").value.trim().toUpperCase()
       : null,
   };
+  if (passengerEmailRaw) payload.passengerEmail = passengerEmailRaw;
+  if (passengerPhoneRaw) payload.passengerPhone = passengerPhoneRaw;
   const tpIds = readTravellerProfileIdsFromInput();
   if (tpIds.length) {
     payload.travellerProfileIds = tpIds;
   }
 
   try {
-    // Compute discounts/coin offset client-side for the demo.
-    // Backend uses the final `totalPrice` you send here.
-    const basePrice = Number(document.getElementById("totalPrice").value);
-    const customerID = payload.customerID;
-
-    let projectedTier = "Bronze";
-    let tierDiscount = 0;
-    let codeDiscount = 0;
-
-    if (customerID) {
-      const bookingCount = Number(latestLoyalty?.bookingCount ?? 0);
-      projectedTier = computeProjectedTier(bookingCount + 1);
-      tierDiscount = tierDiscountPercent(projectedTier);
-      codeDiscount = codeDiscountPercent(
-        document.getElementById("discountCode").value,
-        projectedTier
-      );
-    }
-
-    const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
-    const coinsToSpendRequestedCents = Math.max(
-      0,
-      Number(document.getElementById("coinsToSpendCents").value || 0)
-    );
-    const coinsToSpendCents = Math.min(coinsAvailableCents, coinsToSpendRequestedCents);
-
-    const coinsOffsetValue = coinsToSpendCents / 100;
-    const tierDiscountValue = (basePrice * tierDiscount) / 100;
-    const codeDiscountValue = (basePrice * codeDiscount) / 100;
-    const finalPaid = Math.max(0, basePrice - tierDiscountValue - codeDiscountValue - coinsOffsetValue);
-
-    document.getElementById("computedTotalPrice").textContent = finalPaid.toFixed(2);
-
-    payload.totalPrice = finalPaid;
-    payload.coinsToSpendCents = coinsToSpendCents;
+    const breakdown = computeFinalPriceBreakdown();
+    refreshPricePreview();
+    payload.totalPrice = breakdown.finalPaid;
+    payload.coinsToSpendCents = breakdown.coinsToSpendCents;
 
     const out = await fetchJson(`${API_BASE}/booking`, {
       method: "POST",
@@ -730,7 +808,7 @@ async function onCreateBookingSubmit(e) {
 
     if (out.networkError) {
       setError(createError, out.errorMessage);
-      showResult({ error: out.errorMessage }, "Network error");
+      showResult({ error: out.errorMessage }, "Can't reach the server");
       return;
     }
 
@@ -739,22 +817,22 @@ async function onCreateBookingSubmit(e) {
 
     if (out.parseError && data?._parseError) {
       const msg =
-        "Server returned non-JSON (wrong URL or proxy). Expected JSON from POST /booking.";
+        "We didn't get a valid confirmation back — check the booking service URL and that Docker is running.";
       setError(createError, msg);
-      showResult(data, `POST /booking • HTTP ${httpStatus}`);
+      showResult(data, "Something went wrong");
       return;
     }
 
     if (isBookingWelcomePayload(data)) {
       const msg =
-        "Got the Booking API welcome page (GET /) instead of a booking. Use POST /booking only. Ensure Docker is up: http://localhost:5101/";
+        "Connected to the booking service homepage instead of the confirmation endpoint — start the booking API (e.g. Docker) and try again.";
       setError(createError, msg);
       showResult(
         {
           _help: msg,
           received: data,
         },
-        `Unexpected • HTTP ${httpStatus}`
+        "Unexpected response"
       );
       return;
     }
@@ -762,29 +840,29 @@ async function onCreateBookingSubmit(e) {
     if (!out.ok || (data && typeof data.code === "number" && data.code >= 400)) {
       const msg = data?.message || `Request failed (HTTP ${httpStatus})`;
       setError(createError, msg);
-      showResult(data ?? { error: msg }, `POST /booking • HTTP ${httpStatus}`);
+      showResult(data ?? { error: msg }, "Couldn't confirm trip");
       return;
     }
 
     if (isMissingBookingData(data)) {
       const msg =
-        "Response OK but missing booking data (expected code + data.id). Check Booking service.";
+        "Confirmation was incomplete. Check that the booking service is running.";
       setError(createError, msg);
       showResult(
         { _help: msg, received: data },
-        `POST /booking • HTTP ${httpStatus}`
+        "Incomplete confirmation"
       );
       return;
     }
 
-    showResult(data, `POST /booking • HTTP ${httpStatus}`);
-    document.getElementById("cancelBookingID").value = data.data.id;
+    showResult(data, "Trip confirmed");
+    document.getElementById("cancelBookingID").value = String(data.data.id);
 
     await updateLoyaltySummary(payload.customerID);
   } catch (err) {
     const msg = formatNetworkError(err);
     setError(createError, msg);
-    showResult({ error: msg }, "Error while creating booking");
+    showResult({ error: msg }, "Couldn't confirm trip");
   } finally {
     createBtn.disabled = false;
   }
@@ -798,8 +876,14 @@ async function onCancelBookingSubmit(e) {
   clearError(uiError);
   cancelBtn.disabled = true;
 
-  const id = document.getElementById("cancelBookingID").value;
+  const idRaw = document.getElementById("cancelBookingID").value.trim();
   const cancelSource = document.getElementById("cancelSource").value;
+  if (!idRaw || !/^\d+$/.test(idRaw) || Number(idRaw) < 1) {
+    setError(uiError, "Enter a valid booking reference (whole number from your confirmation).");
+    cancelBtn.disabled = false;
+    return;
+  }
+  const id = idRaw;
   try {
     const out = await fetchJson(`${API_BASE}/booking/cancel/${id}`, {
       method: "POST",
@@ -809,7 +893,7 @@ async function onCancelBookingSubmit(e) {
 
     if (out.networkError) {
       setError(uiError, out.errorMessage);
-      showResult({ error: out.errorMessage }, "Network error");
+      showResult({ error: out.errorMessage }, "Can't reach the server");
       return;
     }
 
@@ -817,41 +901,50 @@ async function onCancelBookingSubmit(e) {
     const httpStatus = out.status;
 
     if (out.parseError && data?._parseError) {
-      const msg = "Server returned non-JSON for cancel. Check Booking API.";
+      const msg = "We didn't get a valid response for cancellation — check the booking service.";
       setError(uiError, msg);
-      showResult(data, `POST /booking/cancel/${id} (${cancelSource}) • HTTP ${httpStatus}`);
+      showResult(data, "Something went wrong");
       return;
     }
 
     if (isBookingWelcomePayload(data)) {
       const msg =
-        "Got welcome JSON instead of cancel response. Wrong URL or proxy — use POST /booking/cancel/{id}.";
+        "Couldn't complete cancellation — wrong service or URL. Check the booking app and proxy.";
       setError(uiError, msg);
-      showResult({ _help: msg, received: data }, `Unexpected • HTTP ${httpStatus}`);
+      showResult({ _help: msg, received: data }, "Unexpected response");
       return;
     }
 
     if (!out.ok || (data && typeof data.code === "number" && data.code >= 400)) {
-      const msg = data?.message || `Cancel failed (HTTP ${httpStatus})`;
+      let msg =
+        (data && typeof data.message === "string" && data.message.trim() !== ""
+          ? data.message
+          : null) || `Cancel failed (HTTP ${httpStatus})`;
+      if (
+        httpStatus === 404 &&
+        (String(msg).toLowerCase().includes("not found") || data?.code === 404)
+      ) {
+        msg = `${msg} — use the booking reference from confirmation, not your customer number.`;
+      }
       setError(uiError, msg);
       showResult(
         data ?? { error: msg },
-        `POST /booking/cancel/${id} (${cancelSource}) • HTTP ${httpStatus}`
+        "Couldn't cancel"
       );
       return;
     }
 
     if (!data?.data) {
-      const msg = "Cancel response missing data payload.";
+      const msg = "Cancellation response was incomplete.";
       setError(uiError, msg);
       showResult(
         { _help: msg, received: data },
-        `POST /booking/cancel/${id} (${cancelSource}) • HTTP ${httpStatus}`
+        "Incomplete response"
       );
       return;
     }
 
-    showResult(data, `POST /booking/cancel/${id} (${cancelSource}) • HTTP ${httpStatus}`);
+    showResult(data, "Cancellation processed");
 
     await refreshNotifications();
 
@@ -862,7 +955,7 @@ async function onCancelBookingSubmit(e) {
   } catch (err) {
     const msg = formatNetworkError(err);
     setError(uiError, msg);
-    showResult({ error: msg }, "Error while cancelling booking");
+    showResult({ error: msg }, "Couldn't cancel");
   } finally {
     cancelBtn.disabled = false;
   }
@@ -877,21 +970,27 @@ function initUI() {
   document.getElementById("loadDemoBtn").addEventListener("click", applyDemoProfile);
   document.getElementById("newManualBtn").addEventListener("click", () => {
     setManualDefaults();
-    showResult({ info: "Manual mode ready. Edit fields and click Create Booking." }, "Manual entry");
+    showResult({ info: "Ready — edit the form, then confirm & pay when done." }, "Ready to edit");
   });
   document.getElementById("flightID").addEventListener("input", updateSeatSelectionUI);
   document.getElementById("flightID").addEventListener("change", updateSeatSelectionUI);
+  document
+    .getElementById("hotelRoomType")
+    .addEventListener("change", updateBreakfastAddonUI);
 
   // Initial load
   refreshNotifications();
+  updateBreakfastAddonUI();
 
   // Load initial loyalty state for the default customer.
   const customerID = Number(document.getElementById("customerID").value || 0);
+  updateCoinsOffsetUI();
   if (customerID) updateLoyaltySummary(customerID);
   else refreshPricePreview();
 
   document.getElementById("customerID").addEventListener("change", () => {
     const id = Number(document.getElementById("customerID").value || 0);
+    updateCoinsOffsetUI();
     if (id) updateLoyaltySummary(id);
     else {
       latestLoyalty = null;

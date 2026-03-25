@@ -23,23 +23,23 @@
       </a>
       <nav class="site-nav" aria-label="Primary">
         <span class="site-nav__link site-nav__link--active">Book a package</span>
-        <span class="site-nav__hint">Manage trip (demo: use booking ID)</span>
+        <span class="site-nav__hint">Need to cancel? Use the booking reference after you confirm.</span>
       </nav>
     </div>
   </header>
 
   <section class="hero" aria-labelledby="hero-heading">
     <div class="hero__content">
-      <p class="hero__eyebrow">Microservices course demo · Docker backend</p>
-      <h1 id="hero-heading">Shape your trip in one place</h1>
+      <p class="hero__eyebrow">Horizon Packages</p>
+      <h1 id="hero-heading">Book flight + hotel in a few steps</h1>
       <p class="hero__lede">
-        Pick flight and hotel, add loyalty perks, then confirm—same flows as our
-        <strong>REST booking service</strong>, <strong>loyalty</strong>, and <strong>payment</strong> stack under the hood.
+        Choose your flights and stay, apply loyalty perks if you have an account, then confirm.
+        Your <strong>confirmation and wallet</strong> stay on the right so you always know where you are.
       </p>
       <ul class="hero__trust" role="list">
-        <li>Catalog-validated flight &amp; hotel IDs</li>
-        <li>Seat map when the airline allows online selection</li>
-        <li>Real JSON responses in the receipt panel →</li>
+        <li>Flights and hotels matched from our live catalog</li>
+        <li>Optional seat map when the airline allows online selection</li>
+        <li>After you pay, your reference and receipt appear in the summary panel</li>
       </ul>
     </div>
     <div class="hero__art" aria-hidden="true">
@@ -51,52 +51,105 @@
     </div>
   </section>
 
+  <nav class="booking-flow" aria-label="How booking works">
+    <ol class="booking-flow__list">
+      <li class="booking-flow__item">
+        <a class="booking-flow__link" href="#step-book"><span class="booking-flow__num" aria-hidden="true">1</span> Plan &amp; pay</a>
+      </li>
+      <li class="booking-flow__item booking-flow__item--line" aria-hidden="true"></li>
+      <li class="booking-flow__item">
+        <a class="booking-flow__link" href="#step-manage"><span class="booking-flow__num" aria-hidden="true">2</span> Change or cancel</a>
+      </li>
+      <li class="booking-flow__item booking-flow__item--line" aria-hidden="true"></li>
+      <li class="booking-flow__item">
+        <a class="booking-flow__link" href="#step-receipt"><span class="booking-flow__num" aria-hidden="true">3</span> Your summary</a>
+      </li>
+    </ol>
+  </nav>
+
   <main class="site-main">
     <div class="col col--booking">
-      <section class="card card--package">
+      <section id="step-book" class="card card--package">
         <div class="card-header">
           <div class="card-header__titles">
-            <h2>Build your package</h2>
-            <p class="card-sub">Flight, hotel, dates, and loyalty—sent to <code>POST /booking</code></p>
+            <h2>Plan your trip</h2>
+            <p class="card-sub">Start with who is travelling, then flight, hotel, and dates. Confirm at the bottom when you&rsquo;re ready.</p>
           </div>
-          <span class="pill pill--step">Step 1 · Book</span>
         </div>
 
         <form id="createForm" class="form-grid">
           <label class="form-grid-1col form-label--demo">
-            Quick-start traveller profile (for class demo)
+            Quick example (optional)
             <select id="demoProfile">
-              <option value="">— Custom trip —</option>
+              <option value="">— Build my own —</option>
             </select>
           </label>
           <div class="actions-row form-grid-1col">
-            <button type="button" class="btn-secondary" id="loadDemoBtn">Load profile</button>
-            <button type="button" class="btn-secondary" id="newManualBtn">Clear · manual entry</button>
+            <button type="button" class="btn-secondary" id="loadDemoBtn">Load example</button>
+            <button type="button" class="btn-secondary" id="newManualBtn">Clear &amp; start fresh</button>
           </div>
 
           <label>
-            Customer ID
+            Account / customer number
             <input type="number" id="customerID" value="1" required />
           </label>
 
+          <p class="section-title form-grid-1col" style="margin: 0">Lead traveller</p>
+          <label class="form-grid-1col">
+            Full name (as on travel ID)
+            <input
+              type="text"
+              id="passengerName"
+              name="passengerName"
+              required
+              autocomplete="name"
+              value="Ava Chen"
+              placeholder="e.g. Ava Chen"
+            />
+          </label>
           <label>
-            Traveller / companion profile IDs (OutSystems)
+            Email
+            <input
+              type="email"
+              id="passengerEmail"
+              name="passengerEmail"
+              autocomplete="email"
+              value="ava.chen@example.com"
+              placeholder="you@example.com"
+            />
+          </label>
+          <label>
+            Mobile
+            <input
+              type="tel"
+              id="passengerPhone"
+              name="passengerPhone"
+              autocomplete="tel"
+              value="+65 9123 4567"
+              placeholder="+65 …"
+            />
+          </label>
+
+          <label>
+            Companion profile IDs (optional)
             <input
               type="text"
               id="travellerProfileIds"
               value=""
-              placeholder="Optional — e.g. 101, 102 (comma-separated; must exist on GET …/byaccount/{customerID})"
+              placeholder="e.g. 101, 102 — comma-separated, linked to the account above"
               autocomplete="off"
             />
           </label>
-          <p class="muted form-grid-1col" style="margin:-8px 0 4px;">
-            Each number is an OutSystems <strong>Id</strong> from the customer&rsquo;s saved traveller list (dependents, colleagues).
-            You can attach <strong>several</strong> companions to the same flight/hotel package; passport details stay in OutSystems.
-            Seat map below is still <strong>one seat</strong> for the lead passenger in this demo.
-          </p>
+          <details class="advanced-details form-grid-1col">
+            <summary>About companion IDs &amp; demo setup</summary>
+            <p class="muted advanced-details__body">
+              Each number is a saved traveller ID from the account&rsquo;s list (e.g. dependents). Several companions can share the same package.
+              In this demo, the seat map applies to the lead traveller only. Course setups may preload profiles via the traveller service.
+            </p>
+          </details>
 
           <label>
-            Flight ID
+            Flight code
             <input type="text" id="flightID" value="SQ001" required placeholder="e.g. SQ001, AK123" />
           </label>
 
@@ -125,7 +178,7 @@
           </div>
 
           <label>
-            Hotel ID
+            Hotel reference
             <input type="number" id="hotelID" value="1" required />
           </label>
 
@@ -152,16 +205,16 @@
             <input type="text" id="discountCode" placeholder="SILVER10 / GOLD15 / PLAT20" />
           </label>
 
-          <label>
-            Coins to offset payment (in cents)
+          <label id="coinsOffsetWrap">
+            Pay with loyalty coins (amount in cents)
             <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
+            <span class="muted">Signed-in accounts only (customer number above &gt; 0). Guests cannot use coins.</span>
           </label>
 
           <div class="muted">
-            <strong>List price</strong> is the field above. We apply <strong>loyalty tier %</strong> first,
-            then <strong>promo code %</strong> on that amount, then <strong>coins</strong> (S$0.01 per cent).
-            The value sent to the API as <code>totalPrice</code> is the final paid amount below.
-            <div>Final paid total: <strong id="computedTotalPrice">-</strong></div>
+            <strong>How your total is calculated:</strong> we apply your <strong>tier discount</strong> first,
+            then your <strong>promo code</strong>, then <strong>coins</strong> (1 cent of coin ≈ S$0.01 off). The number we charge is:
+            <div>Estimated amount to pay: <strong id="computedTotalPrice">-</strong></div>
           </div>
 
           <label>
@@ -178,69 +231,81 @@
             </select>
           </label>
 
-          <label class="form-grid-1col">
+          <label class="form-grid-1col" id="breakfastAddonWrap">
             Hotel extras
             <span class="inline-checkbox">
               <input type="checkbox" id="hotelIncludesBreakfast" />
               <span>Add breakfast package</span>
             </span>
+            <span class="muted">Only for <strong>Standard</strong> rooms. Deluxe already includes breakfast.</span>
           </label>
 
           <div class="form-grid-1col form-submit-wrap">
             <button type="submit" class="btn-primary" id="createBtn">
               <span aria-hidden="true">✓</span>
-              <span>Confirm package &amp; pay</span>
+              <span>Confirm &amp; pay</span>
             </button>
-            <div class="muted">
-              Confirms via <code>POST /booking</code>. Production: OutSystems would supply tier, coins, and traveller payloads.
-            </div>
+            <p class="muted form-after-submit-hint">
+              Next: check <strong>Your summary</strong> on the right for your confirmation. If you need to cancel, note the <strong>booking reference</strong> for step 2.
+            </p>
+            <details class="advanced-details">
+              <summary>For developers &amp; instructors</summary>
+              <p class="muted advanced-details__body">
+                Submits to <code>POST /booking</code>. Tier, coins, and companion IDs mirror what a full stack would send from
+                OutSystems or loyalty services.
+              </p>
+            </details>
           </div>
         </form>
 
         <div id="createError" class="alert" role="alert"></div>
       </section>
 
-      <section class="card card--manage">
+      <section id="step-manage" class="card card--manage">
         <div class="card-header">
           <div class="card-header__titles">
-            <h2>Change or cancel a trip</h2>
-            <p class="card-sub">Refunds follow policy: customer vs airline vs hotel</p>
+            <h2>Change or cancel</h2>
+            <p class="card-sub">Use the booking reference from your confirmation. Refunds depend on who initiates and how far out the trip is.</p>
           </div>
-          <span class="pill pill--step">Step 2 · Manage</span>
         </div>
 
         <form id="cancelForm" class="form-grid-1col">
           <label>
-            Booking ID
-            <input type="number" id="cancelBookingID" required />
+            Booking reference
+            <input type="number" id="cancelBookingID" min="1" step="1" required placeholder="From your confirmation (not your customer number)" />
           </label>
+          <p class="muted form-grid-1col" style="margin:-6px 0 4px;">
+            This is the booking record ID from after you pay — it can differ from your account number.
+          </p>
           <label>
-            Cancel Source
+            Who is cancelling?
             <select id="cancelSource">
-              <option value="customer" selected>Customer</option>
+              <option value="customer" selected>You (traveller)</option>
               <option value="airline">Airline</option>
               <option value="hotel">Hotel</option>
             </select>
           </label>
           <button type="submit" class="btn-secondary" id="cancelBtn">
             <span aria-hidden="true">↩</span>
-            <span>Request cancellation &amp; refund</span>
+            <span>Submit cancellation request</span>
           </button>
-          <div class="muted">
-            <code>POST /booking/cancel/{id}</code> · Customer cancellations: hotel portion may refund if 7+ days before departure (demo rules).
-          </div>
+          <details class="advanced-details">
+            <summary>Technical note</summary>
+            <p class="muted advanced-details__body">
+              Calls <code>POST /booking/cancel/{id}</code>. Demo rules: customer-led hotel refunds may apply 7+ days before departure.
+            </p>
+          </details>
         </form>
       </section>
     </div>
 
     <div class="col col--sidebar">
-      <section class="card card--receipt">
+      <section id="step-receipt" class="card card--receipt">
         <div class="card-header">
           <div class="card-header__titles">
-            <h2>Receipt &amp; loyalty</h2>
-            <p class="card-sub">Live responses for your demo narrative</p>
+            <h2>Your summary</h2>
+            <p class="card-sub">Wallet, confirmation, and any system messages — stay on this panel as you work through steps 1 and 2.</p>
           </div>
-          <span class="pill pill--step">Step 3 · Inspect</span>
         </div>
 
         <div class="loyalty-panel">
@@ -255,20 +320,21 @@
         </div>
         </div>
 
-        <div class="section-title section-title--spaced">Booking confirmation</div>
+        <div class="section-title section-title--spaced">Confirmation details</div>
         <div class="result-header">
-          <span class="result-header__label">Latest API response</span>
+          <span class="result-header__label">Status</span>
           <span id="resultStatus" class="muted"></span>
         </div>
 
         <div class="actions-row">
-          <button type="button" id="copyResultBtn" class="btn-secondary">Copy JSON</button>
-          <button type="button" id="refreshNotifBtn" class="btn-secondary">Refresh queue</button>
+          <button type="button" id="copyResultBtn" class="btn-secondary">Copy full details</button>
+          <button type="button" id="refreshNotifBtn" class="btn-secondary">Refresh messages</button>
         </div>
 
-        <pre id="result" class="code-block" aria-label="Booking API JSON">{ }</pre>
+        <pre id="result" class="code-block" aria-label="Latest confirmation response">{ }</pre>
 
-        <div class="section-title section-title--spaced">Trip messages (RabbitMQ)</div>
+        <div class="section-title section-title--spaced">Trip updates</div>
+        <p class="muted section-hint">Background notifications (shown as structured data for class demos).</p>
         <pre id="notifications" class="code-block code-block--compact" aria-label="Notification log">{ }</pre>
 
         <div id="uiError" class="alert" role="alert"></div>
@@ -277,7 +343,13 @@
   </main>
 
   <footer class="site-footer">
-    <p><strong>ESD microservices project</strong> — UI proxied at <code>/api/</code> (nginx). Marks: functionality first; this layout is for clarity in demos.</p>
+    <p>Horizon Packages · Course demo environment</p>
+    <details class="advanced-details advanced-details--footer">
+      <summary>Infrastructure &amp; API notes</summary>
+      <p class="muted advanced-details__body">
+        UI talks to services via <code>/api/</code> (nginx). Run the stack with Docker to use live booking, loyalty, and notifications.
+      </p>
+    </details>
   </footer>
 
   <script src="app.js" defer></script>

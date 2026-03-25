@@ -23,6 +23,7 @@ Docker Compose reads a **`.env`** file in the project root (same folder as `dock
    - **`BOOKING_DB_URL`** — MySQL connection for the Booking service (default matches `booking-db` in Compose).
    - **`TRAVELLER_PROFILE_BASE_URL`** — teammate’s Traveller Profile base (**no trailing slash**). Exact routes and Create JSON sample: **`travellerprofile/outsystems_client.py`**. Booking only uses **`GET .../byaccount/{customerID}`** and matches **`Id`** to `travellerProfileId`.
    - **`TRAVELLER_PROFILE_REQUIRED`** — `true` to reject bookings if the profile cannot be loaded or does not match `customerID`.
+   - Optional: **`python travellerprofile/seed_outsystems_demo.py`** — creates sample companion rows in OutSystems for **customer IDs 1–5** (multiple people per account) via **`CreateTravellerProfile`**; uses `TRAVELLER_PROFILE_BASE_URL` if set, otherwise the default in that script.
    - **`FX_API_ENABLED`** — `true` to call **exchangerate.host** on create booking and return an **`fxQuote`** object (external API for reports/demos).
    - **`SMU_NOTIFICATION_*`** — optional SMU Lab **SendEmail** after `booking.cancelled` (see `notification/smu_integration.py`).
    - **`TWILIO_*`** — optional **SMS** via Twilio on the same event (see `notification/twilio_integration.py`). Use a trial account + verified `TWILIO_TO_NUMBER` for class demos.

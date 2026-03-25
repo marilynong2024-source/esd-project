@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import threading
+import time
 import pika
 import json
 
@@ -80,27 +81,47 @@ def start_amqp_consumer():
             heartbeat=300,
             blocked_connection_timeout=300,
         )
-        connection = pika.BlockingConnection(params)
-        channel = connection.channel()
-        channel.exchange_declare(
-            exchange=exchange_name, exchange_type=exchange_type, durable=True
-        )
-        channel.queue_declare(queue=queue_name, durable=True)
-        channel.queue_bind(
-            exchange=exchange_name,
-            queue=queue_name,
-            routing_key="booking.cancelled",
-        )
-        channel.basic_consume(queue=queue_name, on_message_callback=callback)
-        print("[notification] Waiting for AMQP messages...")
-        channel.start_consuming()
+        for attempt in range(1, 61):
+            try:
+                connection = pika.BlockingConnection(params)
+                channel = connection.channel()
+                channel.exchange_declare(
+                    exchange=exchange_name, exchange_type=exchange_type, durable=True
+                )
+                channel.queue_declare(queue=queue_name, durable=True)
+                channel.queue_bind(
+                    exchange=exchange_name,
+                    queue=queue_name,
+                    routing_key="booking.cancelled",
+                )
+                channel.basic_consume(queue=queue_name, on_message_callback=callback)
+                print("[notification] Waiting for AMQP messages...", flush=True)
+                channel.start_consuming()
+                return
+            except Exception as e:
+                print(
+                    f"[notification] AMQP setup failed ({attempt}/60): {e}",
+                    flush=True,
+                )
+                time.sleep(2)
+        print("[notification] AMQP consumer stopped after max retries.", flush=True)
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
 
 
+def _should_start_amqp_consumer() -> bool:
+    """Avoid starting the consumer twice with Flask's debug reloader parent process."""
+    debug = os.environ.get("FLASK_DEBUG", "").strip().lower() in ("1", "true", "yes")
+    if not debug:
+        return True
+    return os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+
+
 if __name__ == "__main__":
-    start_amqp_consumer()
-    app.run(host="0.0.0.0", port=5106, debug=True)
+    if _should_start_amqp_consumer():
+        start_amqp_consumer()
+    debug = os.environ.get("FLASK_DEBUG", "").strip().lower() in ("1", "true", "yes")
+    app.run(host="0.0.0.0", port=5106, debug=debug)
 
 

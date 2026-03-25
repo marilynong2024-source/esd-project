@@ -44,6 +44,12 @@
   left: 12px;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   font-family: var(--font);
   margin: 0;
@@ -262,6 +268,124 @@ body {
   margin-top: 10px;
   font-size: 0.75rem;
   opacity: 0.85;
+}
+
+/* ——— Booking flow (guided steps) ——— */
+.booking-flow {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px 12px;
+}
+
+.booking-flow__list {
+  list-style: none;
+  margin: 0;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.booking-flow__item {
+  margin: 0;
+}
+
+.booking-flow__item--line {
+  flex: 1 1 20px;
+  max-width: 48px;
+  min-width: 20px;
+  height: 2px;
+  background: var(--border);
+  border-radius: 1px;
+  opacity: 0.85;
+}
+
+@media (max-width: 640px) {
+  .booking-flow__item--line {
+    display: none;
+  }
+}
+
+.booking-flow__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.booking-flow__link:hover,
+.booking-flow__link:focus-visible {
+  background: rgba(13, 148, 136, 0.12);
+  color: var(--ocean-dark);
+  outline: none;
+}
+
+.booking-flow__num {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--hero-gradient);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+#step-book,
+#step-manage,
+#step-receipt {
+  scroll-margin-top: 100px;
+}
+
+.advanced-details {
+  margin: 0;
+}
+
+.advanced-details summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ocean-dark);
+  list-style: none;
+}
+
+.advanced-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-details__body {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.advanced-details--footer {
+  margin-top: 10px;
+}
+
+.section-hint {
+  margin: -4px 0 10px;
+  font-size: 0.8125rem;
+}
+
+.form-after-submit-hint {
+  margin: 12px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 
 /* ——— Main grid ——— */
@@ -849,6 +973,12 @@ button.seat--zone-exit_row.seat--window {
   border-top: 1px solid var(--border);
   font-size: 0.8125rem;
   color: var(--muted);
+}
+
+.site-footer > p:first-child {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .site-footer code {

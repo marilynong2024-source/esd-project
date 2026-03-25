@@ -81,8 +81,13 @@ def send_sms_for_amqp_event(
     pct = event_payload.get("refundPercentage")
     amt = event_payload.get("refundAmount")
     cur = event_payload.get("currency") or "SGD"
+    who = (
+        event_payload.get("passengerName")
+        or event_payload.get("travellerDisplayName")
+        or "Guest"
+    )
     body = (
-        f"[Travel demo] {routing_key} booking #{bid}. "
+        f"[Travel demo] {routing_key} booking #{bid} ({who}). "
         f"Refund {pct}% (~{cur} {amt})."
     )
 
