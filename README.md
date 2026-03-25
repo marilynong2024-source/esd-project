@@ -13,12 +13,29 @@ Travel package booking demo using a **microservices architecture**:
 
 All services are implemented in Python Flask and are started together with Docker Compose.
 
+## Configuration (submission / `.env`)
+
+Docker Compose reads a **`.env`** file in the project root (same folder as `docker-compose.yml`) for `${VAR}` substitution. **Do not commit secrets.**
+
+1. Copy the template and edit:
+   - `copy .env.example .env` (Windows PowerShell: `Copy-Item .env.example .env`)
+2. Typical variables:
+   - **`BOOKING_DB_URL`** — MySQL connection for the Booking service (default matches `booking-db` in Compose).
+   - **`TRAVELLER_PROFILE_BASE_URL`** — teammate’s Traveller Profile base (**no trailing slash**). Exact routes and Create JSON sample: **`travellerprofile/outsystems_client.py`**. Booking only uses **`GET .../byaccount/{customerID}`** and matches **`Id`** to `travellerProfileId`.
+   - **`TRAVELLER_PROFILE_REQUIRED`** — `true` to reject bookings if the profile cannot be loaded or does not match `customerID`.
+   - **`FX_API_ENABLED`** — `true` to call **exchangerate.host** on create booking and return an **`fxQuote`** object (external API for reports/demos).
+   - **`SMU_NOTIFICATION_*`** — optional SMU Lab **SendEmail** after `booking.cancelled` (see `notification/smu_integration.py`).
+   - **`TWILIO_*`** — optional **SMS** via Twilio on the same event (see `notification/twilio_integration.py`). Use a trial account + verified `TWILIO_TO_NUMBER` for class demos.
+
+MySQL credentials for the `booking-db` container can be overridden with `MYSQL_*` variables; if you change them, update `BOOKING_DB_URL` to match.
+
 ## How to run locally
 
 1. Install Docker Desktop (includes Docker Compose).
 2. Open a terminal and go to the project folder:
    - `cd c:\ESD\esd-project`
-3. Build and start all services:
+3. (Optional) Create `.env` from `.env.example` and set OutSystems / FX / SMU as needed.
+4. Build and start all services:
    - `docker compose up --build`
 4. Once everything is up:
    - **Test UI:** `http://localhost:8080` — the page calls APIs **through nginx** at `/api/booking`, `/api/loyalty`, `/api/notification` (same origin; see `nginx/ui.conf`). The UI includes **demo customer profiles** and a **seat map** for `SQ*` flights; carriers like `AK`/`TR` show “check-in only” in the demo.
@@ -31,7 +48,6 @@ All services are implemented in Python Flask and are started together with Docke
   - `POST /booking` (Booking service, port 5101)  
   - Body (JSON, main fields):  
     - `customerID` (from OutSystems Customer Account)  
-    - `travellerProfileIDs` (comma-separated string or array of traveller profile IDs from OutSystems TravellerProfileService)  
     - `flightID` (e.g. `SQ001`)  
     - `hotelID` (e.g. `1`)  
     - `hotelRoomType` (e.g. `STD` or `DLX`)  
@@ -42,6 +58,12 @@ All services are implemented in Python Flask and are started together with Docke
     - `fareType` (`Saver|Standard|Flexi`)  
     - `loyaltyTier` (e.g. `Bronze|Silver|Gold|Platinum|null`)  
     - `hotelPaymentMode` (`PrepaidInApp` or `PayAtHotel`)
+    - `travellerProfileIds` (optional JSON array of integers — multiple **companion** rows from OutSystems `GET …/byaccount/{customerID}`, each value is that row’s **`Id`**)  
+    - `travellerProfileId` (optional single integer — legacy convenience; merged with `travellerProfileIds` if both sent)  
+    - Profiles are validated when `TRAVELLER_PROFILE_BASE_URL` is set; responses include **`travellerProfileIds`** on the booking.
+    - `seatNumber` (optional — SQ seat map in demo UI)
+
+  Response may include **`fxQuote`** if `FX_API_ENABLED=true` (external FX snapshot).
 - **Get booking**  
   - `GET /booking/{id}`
 - **Cancel booking + refund**  
@@ -72,28 +94,44 @@ Other microservices expose:
   - Binds queue `Notification` with routing key `booking.cancelled`.
   - Appends received events into an in‑memory list exposed via `GET /notifications`.
 
-## Refund & loyalty logic (short version)
+## Refund & loyalty logic (short version — matches current `booking/app.py`)
 
-- Refund rules:
-  - `POST /booking/cancel/{id}` accepts optional `{ "cancelSource": "customer|airline|hotel" }`.
-  - Customer cancellation: if `>= 30` days before departure, full refund.
-  - Otherwise, customer-side flight refund is generally 0 (or fare-rule dependent for refundable big-airline tickets), while hotel uses the 7-day rule.
-  - Airline cancellation: full package refund in this demo.
-  - Hotel cancellation: full hotel-side refund in this demo.
-- Loyalty:
-  - `$1` spent = `1` tier point.
-  - Loyalty service stores **points + tier** and auto‑upgrades tier based on thresholds.
-  - Booking calls **Loyalty** to earn points on create and adjust (deduct) after refund.
-- Tier‑based discounts and promo codes:
-  - Tiers (Bronze → Silver → Gold → Platinum) grant percentage discounts (e.g. Silver 10%, Gold 15%, Platinum 20%).
-  - UI/OutSystems can also accept **promo codes** (e.g. `SILVER10`, `GOLD15`, `PLAT20`) that apply extra percentage discount only if the customer’s tier is high enough.
-  - The effective amount sent as `totalPrice` is the net after tier discount, promo code and any loyalty coins used.
-- Refund:
-  - Calculated percentage uses fare type, timing and loyalty tier uplift.
-  - Refund amount is applied to the **refundable portion** of `totalPrice` (taking hotel payment mode into account).
-  - For full refunds, you can explain that both cash and loyalty benefits for that booking are reversed.
+**Create booking (`POST /booking`)**  
+- **Catalog check:** `GET` Flight and Hotel services (`FLIGHT_URL`, `HOTEL_URL`) so bogus IDs fail fast; disable with `SKIP_CATALOG_VALIDATION=true` if needed.  
+- Persists the bundle in **MySQL**; calls **Loyalty** `POST /loyalty/earn` (coins + booking-count tier).  
+- **Payment on create** is **not** implemented — only **refund** calls Payment today; say so in report or add `POST /payment` after insert if you want parity.  
+- Optional: **OutSystems** `travellerProfileId`; optional **FX** (`FX_API_ENABLED=true`).
 
-For a more detailed, story‑style explanation (flows, loyalty coins, guest vs logged‑in user, partial cancellation rules), see `TEAM_GUIDE.md`.
+**Cancel (`POST /booking/cancel/{id}`)** with optional body `{ "cancelSource": "customer" | "airline" | "hotel" }` (default `customer`):
+
+- Package split for refund math: **60% flight / 40% hotel** if `hotelPaymentMode` is `PrepaidInApp`; if `PayAtHotel`, treat **100%** as flight-side for this demo.
+- **Customer** cancel: flight refund **0**; hotel refund **full hotel component** only if **≥ 7 days** before departure, else **0**.
+- **Airline** cancel: **full** package refund.
+- **Hotel** cancel: **hotel component** only (flight **0**).
+- `refundPercentage` stored is the **overall % of package** that was refunded (derived from amounts).
+- Then: **Payment** `POST /payment/refund`; **Loyalty** `POST /loyalty/adjust`; **RabbitMQ** `booking.cancelled`.
+
+**Loyalty (atomic service)**  
+- **Tier** from **completed booking count** (Bronze / Silver / Gold / Platinum).  
+- **Coins** (cents) earned per `$1` by tier rate; UI may send `coinsToSpendCents`; cancel **reverses** earn and restores spent coins.
+
+**UI pricing**  
+- Tier + promo-code + coins logic is applied in the **browser**; the booking service receives the **final** `totalPrice` (and coins spent).
+
+For narrative detail, see `TEAM_GUIDE.md`.
+
+## Architecture notes & gap mitigations (for report / slides)
+
+| Topic | In code now | If you cannot change it further |
+|--------|-------------|---------------------------------|
+| **SOA / sequence diagrams** | Draw your own from this README + `TEAM_GUIDE.md` (there is no `diagrams.md`). | Export from report; keep **one** technical overview consistent with **actual** calls (catalog GET on create, loyalty, cancel → payment + MQ). |
+| **Flight / Hotel** | Booking **calls atomic GET** before insert when URLs are set. | Mention inventory/seat **dec**rement as a future enhancement if not modelled. |
+| **Payment on book** | Refund path only. | State **assumption**: “charge deferred / simulated” **or** add one `POST /payment` after `commit` in `create_booking`. |
+| **OutSystems** | Env + `byaccount` validation. | Demo live OS + put REST appendix + screenshot; align **CustomerID** with UI `customerID`. |
+| **External API** | FX (`FX_API_ENABLED`) + SMU email (`SMU_NOTIFICATION_*`). | Prefer **recorded video** if live keys/network fail in class. |
+| **BTL** | nginx proxy, SMU/FX, seat/companion rules — **confirm with instructor** what counts. | One slide: **why** the BTL helps **your** scenario. |
+| **Tests / CI** | None in repo. | Add **Postman/curl** list in report appendix or a `scripts/smoke.sh` — marks for professionalism. |
+| **Secrets** | Use `.env` (not committed). | Submit `.env.example` only; never real keys on eLearn. |
 
 ## Database scripts (schema + dummy data)
 

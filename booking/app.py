@@ -5,11 +5,16 @@ import os
 import requests
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text, inspect
+import sqlalchemy.exc as sa_exc
 import pika
 import json
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from travellerprofile.outsystems_client import get_profiles_by_account
+
+from traveller_os import (
+    validate_travellers_for_booking,
+    snapshot_display_names,
+)
+from fx_quote import optional_fx_snapshot
+from catalog_validate import validate_flight_and_hotel
 
 app = Flask(__name__)
 CORS(app)
@@ -68,6 +73,14 @@ def publish_event(routing_key: str, payload: dict):
         print(f"Failed to publish AMQP event: {e}")
 
 
+def _bad_request(message: str):
+    return jsonify({"code": 400, "message": message}), 400
+
+
+def _conflict(message: str):
+    return jsonify({"code": 409, "message": message}), 409
+
+
 class Booking(db.Model):
     __tablename__ = "bookings"
 
@@ -89,11 +102,28 @@ class Booking(db.Model):
     refundAmount = db.Column(db.Float, nullable=True)
     # Flight seat (demo): only meaningful when airline allows online seat selection (e.g. SQ).
     seatNumber = db.Column(db.String(8), nullable=True)
+    # OutSystems Traveller Profile: companion/co-traveller records (not the customer account row).
+    travellerProfileId = db.Column(db.Integer, nullable=True)  # first Id (legacy / convenience)
+    travellerDisplayName = db.Column(db.String(128), nullable=True)  # summary; truncated
+    travellerProfileIdsJson = db.Column(db.Text, nullable=True)  # JSON array of OutSystems Ids, e.g. [1,2,3]
 
     def to_dict(self):
+        t_ids: list[int] = []
+        if self.travellerProfileIdsJson:
+            try:
+                raw = json.loads(self.travellerProfileIdsJson)
+                if isinstance(raw, list):
+                    t_ids = [int(x) for x in raw if x is not None]
+            except (ValueError, TypeError, json.JSONDecodeError):
+                t_ids = []
+        if not t_ids and self.travellerProfileId is not None:
+            t_ids = [int(self.travellerProfileId)]
         return {
             "id": self.id,
             "customerID": self.customerID,
+            "travellerProfileId": self.travellerProfileId,
+            "travellerProfileIds": t_ids,
+            "travellerDisplayName": self.travellerDisplayName,
             "flightID": self.flightID,
             "hotelID": self.hotelID,
             "hotelRoomType": self.hotelRoomType,
@@ -165,54 +195,139 @@ def index():
     }), 200
 
 
+def _parse_traveller_profile_ids(data: dict) -> tuple[list[int], str | None]:
+    """Accept travellerProfileIds (array) and/or legacy travellerProfileId (single)."""
+    ids: list[int] = []
+    raw_multi = data.get("travellerProfileIds")
+    if raw_multi is not None:
+        if not isinstance(raw_multi, list):
+            return [], "travellerProfileIds must be a JSON array of positive integers"
+        for x in raw_multi:
+            try:
+                i = int(x)
+                if i <= 0:
+                    return [], "Each travellerProfileIds entry must be a positive integer"
+                ids.append(i)
+            except (TypeError, ValueError):
+                return [], "travellerProfileIds must be a JSON array of positive integers"
+
+    raw_tp = data.get("travellerProfileId")
+    if raw_tp not in (None, ""):
+        try:
+            one = int(raw_tp)
+            if one <= 0:
+                return [], "travellerProfileId must be a positive integer"
+            if one not in ids:
+                ids.insert(0, one)
+        except (TypeError, ValueError):
+            return [], "travellerProfileId must be a positive integer"
+
+    if len(ids) > 24:
+        return [], "At most 24 traveller profile Ids per booking (demo limit)"
+
+    seen: set[int] = set()
+    unique: list[int] = []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            unique.append(i)
+    return unique, None
+
+
 @app.route("/booking", methods=["POST"])
 def create_booking():
-    data = request.get_json() or {}
+    if not request.is_json:
+        return _bad_request("Content-Type must be application/json")
+    data = request.get_json(silent=True)
+    if data is None or not isinstance(data, dict):
+        return _bad_request("Request body must be a valid JSON object")
 
-    # Validate traveller profiles (optional)
-    traveller_profile_ids = data.get("travellerProfileIDs")
-    if traveller_profile_ids:
-        profiles = get_profiles_by_account(data.get("customerID"))
-        if profiles is None:
-            return jsonify({"code": 502, "message": "Traveller profile service unavailable"}), 502
-
-        valid_ids = [str(p.get("id")) for p in profiles if p.get("id")]
-        provided_ids = (
-            traveller_profile_ids.split(",")
-            if isinstance(traveller_profile_ids, str)
-            else [str(tid) for tid in traveller_profile_ids]
-        )
-
-        if not provided_ids or not all(pid in valid_ids for pid in provided_ids):
-            return jsonify({"code": 400, "message": "Invalid traveller profile IDs"}), 400
+    warnings: list[str] = []
 
     try:
         coins_to_spend_cents = int(max(0, int(data.get("coinsToSpendCents", 0) or 0)))
         seat_raw = data.get("seatNumber")
         seat_number = (str(seat_raw).strip().upper() if seat_raw else None) or None
 
+        customer_id = int(data["customerID"])
+        if customer_id < 0:
+            return _bad_request("customerID must be non-negative")
+
+        hotel_id = int(data["hotelID"])
+        if hotel_id < 1:
+            return _bad_request("hotelID must be a positive integer")
+
+        flight_id = str(data["flightID"]).strip()
+        if not flight_id or len(flight_id) > 20:
+            return _bad_request("flightID must be a non-empty string (max 20 characters)")
+
+        try:
+            total_price = float(data["totalPrice"])
+        except (TypeError, ValueError):
+            return _bad_request("totalPrice must be a number")
+        if total_price < 0 or total_price > 1e9:
+            return _bad_request("totalPrice must be between 0 and 1e9")
+
+        departure_time = str(data["departureTime"]).strip()
+        if not departure_time:
+            return _bad_request("departureTime is required")
+
+        currency = str(data.get("currency") or "SGD").strip()[:8] or "SGD"
+        fare_type = str(data.get("fareType") or "Saver").strip()[:20] or "Saver"
+        hpm = str(data.get("hotelPaymentMode") or "PrepaidInApp").strip()
+        if hpm not in ("PrepaidInApp", "PayAtHotel"):
+            return _bad_request("hotelPaymentMode must be PrepaidInApp or PayAtHotel")
+
+        traveller_ids, tid_err = _parse_traveller_profile_ids(data)
+        if tid_err:
+            return _bad_request(tid_err)
+
+        profile_rows, profile_err, _, traveller_ids_final = (
+            validate_travellers_for_booking(customer_id, traveller_ids)
+        )
+        if profile_err:
+            return jsonify({"code": 400, "message": profile_err}), 400
+
+        traveller_profile_id = traveller_ids_final[0] if traveller_ids_final else None
+        ids_json = (
+            json.dumps(traveller_ids_final) if traveller_ids_final else None
+        )
+        traveller_snap = snapshot_display_names(profile_rows)
+
+        cat_err = validate_flight_and_hotel(flight_id, hotel_id)
+        if cat_err:
+            return _bad_request(cat_err)
+
         booking = Booking(
-            customerID=data["customerID"],
-            flightID=data["flightID"],
-            hotelID=data["hotelID"],
+            customerID=customer_id,
+            flightID=flight_id,
+            hotelID=hotel_id,
             hotelRoomType=data.get("hotelRoomType"),
             hotelIncludesBreakfast=bool(data.get("hotelIncludesBreakfast", False)),
-            departureTime=data["departureTime"],
-            totalPrice=data["totalPrice"],
-            currency=data.get("currency", "SGD"),
-            fareType=data.get("fareType", "Saver"),
+            departureTime=departure_time,
+            totalPrice=total_price,
+            currency=currency,
+            fareType=fare_type,
             loyaltyTier=data.get("loyaltyTier"),
-            hotelPaymentMode=data.get("hotelPaymentMode", "PrepaidInApp"),
+            hotelPaymentMode=hpm,
             seatNumber=seat_number,
+            travellerProfileId=traveller_profile_id,
+            travellerDisplayName=traveller_snap,
+            travellerProfileIdsJson=ids_json,
         )
     except KeyError as e:
-        return jsonify({"code": 400, "message": f"Missing field: {e}"}), 400
+        return _bad_request(f"Missing required field: {e.args[0]!r}")
 
-    db.session.add(booking)
-    db.session.commit()
+    try:
+        db.session.add(booking)
+        db.session.commit()
+    except sa_exc.SQLAlchemyError as e:
+        db.session.rollback()
+        print(f"[booking] DB error on create: {e}")
+        return jsonify(
+            {"code": 500, "message": "Could not save booking (database error)"}
+        ), 500
 
-    # Loyalty: earn coins based on booking amount.
-    # Guest bookings (customerID == 0 or None) do not earn loyalty benefits.
     if booking.customerID:
         loyalty_url = os.environ.get("LOYALTY_URL", "http://localhost:5105/loyalty")
         try:
@@ -221,33 +336,47 @@ def create_booking():
                 "amount": float(booking.totalPrice),
                 "coinsToSpendCents": coins_to_spend_cents,
             }
-            earn_resp = requests.post(f"{loyalty_url}/earn", json=earn_payload, timeout=3)
-            earn_data = earn_resp.json()
+            earn_resp = requests.post(
+                f"{loyalty_url}/earn", json=earn_payload, timeout=5
+            )
+            if not earn_resp.ok:
+                warnings.append(
+                    f"Loyalty service returned HTTP {earn_resp.status_code} for /earn"
+                )
+                earn_data = {}
+            else:
+                try:
+                    earn_data = earn_resp.json()
+                except ValueError:
+                    warnings.append("Loyalty service returned non-JSON for /earn")
+                    earn_data = {}
             if (
                 earn_data
                 and earn_data.get("code") == 200
                 and earn_data.get("data")
                 and earn_data["data"].get("tier")
             ):
-                # Persist the tier that the loyalty service computed after booking completion.
                 booking.loyaltyTier = earn_data["data"]["tier"]
-                db.session.commit()
+                try:
+                    db.session.commit()
+                except sa_exc.SQLAlchemyError as e:
+                    db.session.rollback()
+                    warnings.append("Could not persist loyalty tier on booking")
+                    print(f"[booking] loyalty tier commit: {e}")
                 if earn_data["data"].get("coinsSpent") is not None:
-                    # Save how many cents were actually spent so cancellation can restore them.
-                    COINS_SPENT_BY_BOOKING[booking.id] = int(earn_data["data"]["coinsSpent"])
-        except Exception as e:
-            # Non-fatal for demo purposes.
-            print(f"Failed to call loyalty earn: {e}")
+                    COINS_SPENT_BY_BOOKING[booking.id] = int(
+                        earn_data["data"]["coinsSpent"]
+                    )
+        except requests.RequestException as e:
+            warnings.append(f"Loyalty service unreachable: {e}")
 
-    return jsonify({"code": 201, "data": booking.to_dict()}), 201
-
-
-@app.route("/booking/profiles/<int:customer_id>", methods=["GET"])
-def get_booking_profiles(customer_id: int):
-    profiles = get_profiles_by_account(customer_id)
-    if profiles is None:
-        return jsonify({"code": 404, "message": "No traveller profiles found for customer"}), 404
-    return jsonify({"code": 200, "data": profiles}), 200
+    out: dict = {"code": 201, "data": booking.to_dict()}
+    if warnings:
+        out["warnings"] = warnings
+    fx = optional_fx_snapshot(booking.currency or "SGD")
+    if fx is not None:
+        out["fxQuote"] = fx
+    return jsonify(out), 201
 
 
 @app.route("/booking/<int:booking_id>", methods=["GET"])
@@ -264,6 +393,9 @@ def cancel_booking(booking_id: int):
     if not booking:
         return jsonify({"code": 404, "message": "Booking not found"}), 404
 
+    if str(booking.status or "").upper() == "CANCELLED":
+        return _conflict("Booking is already cancelled")
+
     try:
         departure_time = datetime.fromisoformat(booking.departureTime)
     except Exception:
@@ -275,9 +407,20 @@ def cancel_booking(booking_id: int):
     now = datetime.utcnow()
     total_price = float(booking.totalPrice or 0)
     days_before_departure = (departure_time - now).days
-    req = request.get_json(silent=True) or {}
-    # Who caused the cancellation: "customer" (default), "airline", or "hotel".
+    raw_body = request.get_json(silent=True)
+    if raw_body is None:
+        req = {}
+    elif not isinstance(raw_body, dict):
+        return _bad_request("Request body must be a JSON object if provided")
+    else:
+        req = raw_body
+
     cancel_source = (req.get("cancelSource") or "customer").strip().lower()
+    allowed_sources = frozenset({"customer", "airline", "hotel"})
+    if cancel_source not in allowed_sources:
+        return _bad_request(
+            f"cancelSource must be one of: {', '.join(sorted(allowed_sources))}"
+        )
 
     # Simple package split for demo logic:
     # - If hotel is prepaid in app, assume 60% flight + 40% hotel.
@@ -310,22 +453,57 @@ def cancel_booking(booking_id: int):
 
     percentage = int(round((amount / total_price) * 100)) if total_price > 0 else 0
 
-    # Call payment refund microservice
-    payment_url = os.environ.get("PAYMENT_URL", "http://localhost:5104/payment/refund")
+    payment_url = os.environ.get(
+        "PAYMENT_URL", "http://localhost:5104/payment/refund"
+    )
     refund_payload = {"bookingID": booking_id, "refundAmount": amount}
     try:
-        payment_resp = requests.post(payment_url, json=refund_payload, timeout=5)
+        payment_resp = requests.post(
+            payment_url, json=refund_payload, timeout=10
+        )
+    except requests.RequestException as e:
+        return jsonify(
+            {"code": 503, "message": f"Payment service unreachable: {e}"}
+        ), 503
+
+    if not payment_resp.ok:
+        return jsonify(
+            {
+                "code": 502,
+                "message": "Payment service did not accept the refund request",
+                "upstreamStatus": payment_resp.status_code,
+                "upstreamBody": (payment_resp.text or "")[:500],
+            }
+        ), 502
+
+    try:
         payment_data = payment_resp.json()
-    except Exception as e:
-        return jsonify({"code": 500, "message": f"Error calling payment service: {e}"}), 500
+    except ValueError:
+        return jsonify(
+            {
+                "code": 502,
+                "message": "Payment service returned a non-JSON body",
+                "upstreamBody": (payment_resp.text or "")[:500],
+            }
+        ), 502
 
     booking.status = "CANCELLED"
     booking.refundPercentage = percentage
     booking.refundAmount = amount
-    db.session.commit()
+    try:
+        db.session.commit()
+    except sa_exc.SQLAlchemyError as e:
+        db.session.rollback()
+        print(f"[booking] DB error after refund for booking {booking_id}: {e}")
+        return jsonify(
+            {
+                "code": 500,
+                "message": "Refund was sent to Payment but updating the booking in the database failed — flag for manual check",
+                "payment": payment_data,
+            }
+        ), 500
 
-    # Loyalty: adjust after cancellation.
-    # Decrement bookingCount and deduct the coins earned for this specific booking.
+    cancel_warnings: list[str] = []
     if booking.customerID:
         loyalty_url = os.environ.get("LOYALTY_URL", "http://localhost:5105/loyalty")
         try:
@@ -335,19 +513,47 @@ def cancel_booking(booking_id: int):
                 "bookingTier": booking.loyaltyTier,
                 "coinsSpentCents": int(COINS_SPENT_BY_BOOKING.get(booking_id, 0) or 0),
             }
-            requests.post(f"{loyalty_url}/adjust", json=adjust_payload, timeout=3)
+            adj_resp = requests.post(
+                f"{loyalty_url}/adjust", json=adjust_payload, timeout=5
+            )
+            if not adj_resp.ok:
+                cancel_warnings.append(
+                    f"Loyalty service returned HTTP {adj_resp.status_code} for /adjust"
+                )
+            else:
+                try:
+                    adj_resp.json()
+                except ValueError:
+                    cancel_warnings.append(
+                        "Loyalty service returned non-JSON for /adjust"
+                    )
             COINS_SPENT_BY_BOOKING.pop(booking_id, None)
-        except Exception as e:
-            print(f"Failed to call loyalty adjust: {e}")
+        except requests.RequestException as e:
+            cancel_warnings.append(f"Loyalty adjust unreachable: {e}")
 
     # Publish cancellation event for async processing (e.g. notification)
+    t_ids_event: list[int] = []
+    if booking.travellerProfileIdsJson:
+        try:
+            raw = json.loads(booking.travellerProfileIdsJson)
+            if isinstance(raw, list):
+                t_ids_event = [int(x) for x in raw if x is not None]
+        except (ValueError, TypeError, json.JSONDecodeError):
+            t_ids_event = []
+    if not t_ids_event and booking.travellerProfileId is not None:
+        t_ids_event = [int(booking.travellerProfileId)]
+
     publish_event(
         "booking.cancelled",
         {
             "bookingID": booking_id,
             "customerID": booking.customerID,
+            "travellerProfileId": booking.travellerProfileId,
+            "travellerProfileIds": t_ids_event,
+            "travellerDisplayName": booking.travellerDisplayName,
             "refundPercentage": percentage,
             "refundAmount": amount,
+            "currency": booking.currency or "SGD",
             "fareType": booking.fareType,
             "loyaltyTier": booking.loyaltyTier,
             "cancelledAt": now.isoformat(),
@@ -364,7 +570,10 @@ def cancel_booking(booking_id: int):
         "currency": booking.currency or "SGD",
         "payment": payment_data,
     }
-    return jsonify({"code": 200, "data": result}), 200
+    out = {"code": 200, "data": result}
+    if cancel_warnings:
+        out["warnings"] = cancel_warnings
+    return jsonify(out), 200
 
 
 def ensure_booking_columns():
@@ -374,16 +583,36 @@ def ensure_booking_columns():
         if not inspector.has_table("bookings"):
             return
         cols = {c["name"] for c in inspector.get_columns("bookings")}
+        alters = []
         if "seatNumber" not in cols:
-            dialect = db.engine.dialect.name
-            if dialect == "sqlite":
-                db.session.execute(text("ALTER TABLE bookings ADD COLUMN seatNumber VARCHAR(8)"))
-            else:
-                db.session.execute(
-                    text("ALTER TABLE bookings ADD COLUMN seatNumber VARCHAR(8) NULL")
-                )
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN seatNumber VARCHAR(8) NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN seatNumber VARCHAR(8)"
+            )
+        if "travellerProfileId" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN travellerProfileId INT NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN travellerProfileId INTEGER"
+            )
+        if "travellerDisplayName" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN travellerDisplayName VARCHAR(128) NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN travellerDisplayName VARCHAR(128)"
+            )
+        if "travellerProfileIdsJson" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN travellerProfileIdsJson TEXT NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN travellerProfileIdsJson TEXT"
+            )
+        for stmt in alters:
+            db.session.execute(text(stmt))
+        if alters:
             db.session.commit()
-            print("Migrated: added bookings.seatNumber")
+            print(f"Migrated bookings columns: {len(alters)} statement(s)")
     except Exception as e:
         db.session.rollback()
         print(f"ensure_booking_columns (non-fatal): {e}")

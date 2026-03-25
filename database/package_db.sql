@@ -16,7 +16,10 @@ CREATE TABLE IF NOT EXISTS bookings (
   status VARCHAR(20) DEFAULT 'CONFIRMED',
   refundPercentage INT,
   refundAmount DOUBLE,
-  seatNumber VARCHAR(8) NULL
+  seatNumber VARCHAR(8) NULL,
+  travellerProfileId INT NULL,
+  travellerDisplayName VARCHAR(128) NULL,
+  travellerProfileIdsJson TEXT NULL
 );
 
 -- Sample fake data (3 example bookings)
@@ -24,17 +27,18 @@ CREATE TABLE IF NOT EXISTS bookings (
 INSERT INTO bookings (
   customerID, flightID, hotelID, hotelRoomType, hotelIncludesBreakfast,
   departureTime, totalPrice, currency, fareType, loyaltyTier,
-  hotelPaymentMode, status, refundPercentage, refundAmount
+  hotelPaymentMode, status, refundPercentage, refundAmount,
+  seatNumber, travellerProfileId, travellerDisplayName, travellerProfileIdsJson
 ) VALUES
   (1, 'SQ001', 1, 'STD', 0,
    '2026-05-01T10:00:00', 1200.00, 'SGD', 'Flexi', 'Gold',
-   'PrepaidInApp', 'CONFIRMED', NULL, NULL),
+   'PrepaidInApp', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL),
 
   (2, 'SQ001', 1, 'DLX', 1,
    '2026-06-15T09:30:00', 1500.00, 'SGD', 'Standard', 'Silver',
-   'PrepaidInApp', 'CONFIRMED', NULL, NULL),
+   'PrepaidInApp', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL),
 
   (3, 'SQ001', 1, 'STD', 0,
    '2026-04-20T18:45:00', 800.00, 'SGD', 'Saver', NULL,
-   'PayAtHotel', 'CONFIRMED', NULL, NULL);
+   'PayAtHotel', 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL);
 

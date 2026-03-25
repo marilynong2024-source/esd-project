@@ -186,7 +186,7 @@
   - Prepares live demo steps and ensures everything is visible and clear.
 
 - **Member E – Diagrams & Report**
-  - Uses `diagrams.md` and this guide to produce final PowerPoint diagrams and report sections.
+  - Uses `README.md` (technical behaviour) and this guide to produce final PowerPoint diagrams and report sections.
 
 ---
 
@@ -242,7 +242,7 @@ This section summarises the **business flow** and policies you will implement ac
 
 1. **Log in / Create account**
    - Customer account profile is stored in the **Account** microservice (Python) and/or mirrored in an OutSystems atomic MS.
-   - Traveller profiles (for different people the customer can book for) are managed as a separate **Traveller Profile** atomic MS in OutSystems.
+   - **Traveller profiles** — a per-customer list of saved **companions / co-travellers** (people they fly with: family, colleagues, etc.), usually with passenger data such as legal name, DOB, nationality, **passport** number/expiry — are managed in a separate **Traveller Profile** atomic MS in OutSystems (not the same as the account login row).
 2. **Start search**
    - Inputs: origin, destination, travel dates, hotel check‑in/check‑out, number of travellers.
    - System returns a **cheapest baseline bundle** (basic flight + basic hotel).
@@ -257,7 +257,7 @@ This section summarises the **business flow** and policies you will implement ac
      - Simple placeholder image/icon is shown for hotels (more images are a future enhancement).
    - **Filters**: customer can filter by price, rating or other basic attributes.
 4. **Add travellers**
-   - UI provides a “+” icon to add multiple traveller profiles (stored in the OutSystems Traveller Profile atomic MS).
+   - Customer picks one or more saved companion profiles from OutSystems (each row = someone they’ve travelled with before, with passport-style details on file). The demo HTML UI may only send one `travellerProfileId` per booking; OutSystems holds the full list and attributes.
 5. **Payment + loyalty**
    - Show price breakdown (flight + hotel) and loyalty info:
      - **Coins** are stored in cents (cents earned per $1 spent):
@@ -420,5 +420,6 @@ Apply rules in this order:
 
 #### 9.5 Traveller Profile in OutSystems
 
-- Traveller Profile stays as an OutSystems atomic microservice for storing passenger details (minimal error handling).
+- Owned as an **OutSystems atomic** module by a teammate. **Five** REST endpoints exist there; this repo’s Python integration documents the **three** used for demos/scripts in `travellerprofile/outsystems_client.py` (`CreateTravellerProfile`, `GetAllTravellerProfiles`, `byaccount/{customerID}`). For the other two operations, use the teammate’s OutSystems / Service Studio definition as the source of truth.
+- **Booking** (Docker) only calls **`byaccount/{customerID}`** and ties `travellerProfileId` to the row **`Id`**; it snapshots `FullName` + masked passport when `TRAVELLER_PROFILE_BASE_URL` is set.
 

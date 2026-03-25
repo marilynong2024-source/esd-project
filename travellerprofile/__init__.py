@@ -1,1 +1,1 @@
-# Traveller Profile Client Package
+# Traveller Profile client — OutSystems atomic MS for companion / co-traveller passenger records (e.g. passport on file).

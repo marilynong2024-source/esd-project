@@ -24,6 +24,23 @@ const DEMO_PROFILES = [
     preferredSeat: "11D",
   },
   {
+    id: "ava_family",
+    label: "Ava — multi companion Ids (101, 102 — replace with your OutSystems Ids)",
+    customerID: 1,
+    flightID: "SQ001",
+    rawTravellerProfileIds: [101, 102],
+    hotelID: 1,
+    hotelRoomType: "DLX",
+    hotelIncludesBreakfast: true,
+    departureTime: "2026-05-01T10:00",
+    totalPrice: 1800,
+    currency: "SGD",
+    fareType: "Flexi",
+    discountCode: "",
+    coinsToSpendCents: 0,
+    preferredSeat: "11A",
+  },
+  {
     id: "ben",
     label: "Ben Kumar — business (cust 2)",
     customerID: 2,
@@ -223,6 +240,59 @@ function codeDiscountPercent(code, projectedTier) {
   return 0;
 }
 
+/**
+ * List price from the form, then tier % off list, then promo % off that subtotal, then coins (dollars).
+ * Avoids applying both tier and code as full % of list (e.g. 20+20=40% off), which felt like a glitch.
+ */
+function computeFinalPriceBreakdown() {
+  const basePrice = Math.max(
+    0,
+    Number(document.getElementById("totalPrice").value) || 0
+  );
+  const customerID = Number(document.getElementById("customerID").value || 0);
+
+  let tierDiscountPct = 0;
+  let codeDiscountPct = 0;
+  if (customerID) {
+    const bookingCount = Number(latestLoyalty?.bookingCount ?? 0);
+    const projectedTier = computeProjectedTier(bookingCount + 1);
+    tierDiscountPct = tierDiscountPercent(projectedTier);
+    codeDiscountPct = codeDiscountPercent(
+      document.getElementById("discountCode").value,
+      projectedTier
+    );
+  }
+
+  const afterTier = basePrice * (1 - tierDiscountPct / 100);
+  const afterCode = afterTier * (1 - codeDiscountPct / 100);
+
+  const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
+  const coinsToSpendRequestedCents = Math.max(
+    0,
+    Number(document.getElementById("coinsToSpendCents").value || 0)
+  );
+  const coinsToSpendCents = Math.min(coinsAvailableCents, coinsToSpendRequestedCents);
+  const coinsOffsetDollars = coinsToSpendCents / 100;
+  const finalPaid = Math.max(0, afterCode - coinsOffsetDollars);
+
+  return {
+    basePrice,
+    tierDiscountPct,
+    codeDiscountPct,
+    afterTier,
+    afterCode,
+    coinsToSpendCents,
+    finalPaid,
+  };
+}
+
+function refreshPricePreview() {
+  const el = document.getElementById("computedTotalPrice");
+  if (!el) return;
+  const { finalPaid } = computeFinalPriceBreakdown();
+  el.textContent = Number.isFinite(finalPaid) ? finalPaid.toFixed(2) : "-";
+}
+
 function extractAirlineCode(flightId) {
   const m = String(flightId || "")
     .trim()
@@ -408,6 +478,42 @@ function updateSeatSelectionUI() {
   }
 }
 
+function readTravellerProfileIdsFromInput() {
+  const el = document.getElementById("travellerProfileIds");
+  if (!el) return [];
+  const raw = String(el.value || "").trim();
+  if (!raw) return [];
+  const parts = raw.split(/[\s,]+/).filter(Boolean);
+  const ids = [];
+  for (const p of parts) {
+    const n = parseInt(p, 10);
+    if (Number.isFinite(n) && n > 0) ids.push(n);
+  }
+  return ids;
+}
+
+function setTravellerProfileIdsInputFromDemo(p) {
+  const tpEl = document.getElementById("travellerProfileIds");
+  if (!tpEl) return;
+  if (Array.isArray(p.rawTravellerProfileIds) && p.rawTravellerProfileIds.length) {
+    tpEl.value = p.rawTravellerProfileIds.join(", ");
+    return;
+  }
+  if (Array.isArray(p.travellerProfileIds) && p.travellerProfileIds.length) {
+    tpEl.value = p.travellerProfileIds.join(", ");
+    return;
+  }
+  if (
+    p.travellerProfileId !== undefined &&
+    p.travellerProfileId !== null &&
+    p.travellerProfileId !== ""
+  ) {
+    tpEl.value = String(p.travellerProfileId);
+    return;
+  }
+  tpEl.value = "";
+}
+
 function populateDemoProfileOptions() {
   const sel = document.getElementById("demoProfile");
   if (!sel) return;
@@ -419,41 +525,6 @@ function populateDemoProfileOptions() {
   });
 }
 
-async function fetchTravellerProfiles(customerID) {
-  const row = document.getElementById("travellerProfileRow");
-  const select = document.getElementById("travellerProfileIDs");
-  if (!row || !select) return; // tolerant if element is missing
-
-  row.hidden = true;
-  select.innerHTML = "";
-
-  if (!customerID) return;
-
-  try {
-    const resp = await fetch(`${API_BASE}/booking/profiles/${customerID}`);
-    if (!resp.ok) return;
-    const payload = await resp.json();
-    if (!payload || payload.code !== 200 || !Array.isArray(payload.data)) return;
-
-    const profiles = payload.data;
-    if (!profiles.length) return;
-
-    for (const profile of profiles) {
-      const opt = document.createElement("option");
-      opt.value = String(profile.id ?? profile.travellerProfileId ?? profile.travellerID ?? profile.profileID ?? "");
-      opt.textContent = profile.name || profile.fullName || `Profile ${opt.value}`;
-      if (!opt.value) continue;
-      select.appendChild(opt);
-    }
-
-    if (select.children.length) {
-      row.hidden = false;
-    }
-  } catch (error) {
-    console.error("Failed to load traveller profiles", error);
-  }
-}
-
 function applyDemoProfile() {
   const sel = document.getElementById("demoProfile");
   if (!sel || !sel.value) return;
@@ -463,7 +534,6 @@ function applyDemoProfile() {
   document.getElementById("customerID").value = p.customerID;
   document.getElementById("flightID").value = p.flightID;
   document.getElementById("hotelID").value = p.hotelID;
-  fetchTravellerProfiles(p.customerID);
   document.getElementById("hotelRoomType").value = p.hotelRoomType;
   document.getElementById("hotelIncludesBreakfast").checked = !!p.hotelIncludesBreakfast;
   document.getElementById("departureTime").value = p.departureTime;
@@ -472,6 +542,7 @@ function applyDemoProfile() {
   document.getElementById("fareType").value = p.fareType;
   document.getElementById("discountCode").value = p.discountCode || "";
   document.getElementById("coinsToSpendCents").value = p.coinsToSpendCents ?? 0;
+  setTravellerProfileIdsInputFromDemo(p);
 
   updateSeatSelectionUI();
   if (p.preferredSeat && getSeatPolicy(p.flightID).onlineSeatSelection) {
@@ -482,6 +553,12 @@ function applyDemoProfile() {
 
   const cid = Number(p.customerID);
   if (cid) updateLoyaltySummary(cid);
+  else {
+    latestLoyalty = null;
+    document.getElementById("loyaltyCoins").textContent = "-";
+    document.getElementById("loyaltyTier").textContent = "-";
+    refreshPricePreview();
+  }
 }
 
 function setManualDefaults() {
@@ -497,8 +574,11 @@ function setManualDefaults() {
   document.getElementById("fareType").value = "Flexi";
   document.getElementById("discountCode").value = "";
   document.getElementById("coinsToSpendCents").value = 0;
+  const tpEl = document.getElementById("travellerProfileIds");
+  if (tpEl) tpEl.value = "";
   clearSeatSelection();
   updateSeatSelectionUI();
+  void updateLoyaltySummary(1);
 }
 
 function showResult(obj, meta = "") {
@@ -523,6 +603,7 @@ async function updateLoyaltySummary(customerID) {
     latestLoyalty = null;
     document.getElementById("loyaltyCoins").textContent = "-";
     document.getElementById("loyaltyTier").textContent = "-";
+    refreshPricePreview();
     return;
   }
   const data = out.body;
@@ -530,6 +611,7 @@ async function updateLoyaltySummary(customerID) {
   document.getElementById("loyaltyCoins").textContent =
     data.data.coins ?? data.data.points ?? "-";
   document.getElementById("loyaltyTier").textContent = data.data.tier;
+  refreshPricePreview();
 }
 
 async function refreshNotifications() {
@@ -598,10 +680,9 @@ async function onCreateBookingSubmit(e) {
       ? document.getElementById("seatNumber").value.trim().toUpperCase()
       : null,
   };
-
-  const selectedTravelerOptions = Array.from(document.getElementById("travellerProfileIDs")?.selectedOptions || []);
-  if (selectedTravelerOptions.length) {
-    payload.travellerProfileIDs = selectedTravelerOptions.map((opt) => opt.value);
+  const tpIds = readTravellerProfileIdsFromInput();
+  if (tpIds.length) {
+    payload.travellerProfileIds = tpIds;
   }
 
   try {
@@ -806,23 +887,23 @@ function initUI() {
 
   // Load initial loyalty state for the default customer.
   const customerID = Number(document.getElementById("customerID").value || 0);
-  if (customerID) {
-    updateLoyaltySummary(customerID);
-    fetchTravellerProfiles(customerID);
-  }
+  if (customerID) updateLoyaltySummary(customerID);
+  else refreshPricePreview();
 
   document.getElementById("customerID").addEventListener("change", () => {
     const id = Number(document.getElementById("customerID").value || 0);
-    if (id) {
-      updateLoyaltySummary(id);
-      fetchTravellerProfiles(id);
-    } else {
+    if (id) updateLoyaltySummary(id);
+    else {
       latestLoyalty = null;
       document.getElementById("loyaltyCoins").textContent = "-";
       document.getElementById("loyaltyTier").textContent = "-";
-      document.getElementById("travellerProfileRow").hidden = true;
-      document.getElementById("travellerProfileIDs").innerHTML = "";
+      refreshPricePreview();
     }
+  });
+
+  ["totalPrice", "discountCode", "coinsToSpendCents"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", refreshPricePreview);
+    document.getElementById(id)?.addEventListener("change", refreshPricePreview);
   });
 
   document.getElementById("copyResultBtn").addEventListener("click", () => {

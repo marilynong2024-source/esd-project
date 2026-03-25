@@ -2,19 +2,26 @@ version: "3.8"
 
 services:
   booking:
-    build: ./booking
+    build:
+      context: .
+      dockerfile: booking/Dockerfile
     ports:
       - "5101:5101"
     environment:
-      - DB_URL=mysql+pymysql://travel_user:travel_pass@booking-db:3306/travel_booking
-      - FLIGHT_URL=http://flight:5102/flight
-      - HOTEL_URL=http://hotel:5103/hotel
-      - PAYMENT_URL=http://payment:5104/payment
-      - LOYALTY_URL=http://loyalty:5105/loyalty
-      - RABBIT_HOST=rabbitmq
-      - RABBIT_PORT=5672
-      - EXCHANGE_NAME=travel_topic
-      - EXCHANGE_TYPE=topic
+      DB_URL: ${BOOKING_DB_URL:-mysql+pymysql://travel_user:travel_pass@booking-db:3306/travel_booking}
+      FLIGHT_URL: http://flight:5102/flight
+      HOTEL_URL: http://hotel:5103/hotel
+      PAYMENT_URL: http://payment:5104/payment
+      LOYALTY_URL: http://loyalty:5105/loyalty
+      RABBIT_HOST: rabbitmq
+      RABBIT_PORT: 5672
+      EXCHANGE_NAME: travel_topic
+      EXCHANGE_TYPE: topic
+      TRAVELLER_PROFILE_BASE_URL: ${TRAVELLER_PROFILE_BASE_URL:-}
+      TRAVELLER_PROFILE_REQUIRED: ${TRAVELLER_PROFILE_REQUIRED:-false}
+      FX_API_ENABLED: ${FX_API_ENABLED:-false}
+      FX_API_URL: ${FX_API_URL:-}
+      SKIP_CATALOG_VALIDATION: ${SKIP_CATALOG_VALIDATION:-false}
     depends_on:
       flight:
         condition: service_started
@@ -59,25 +66,30 @@ services:
     ports:
       - "5106:5106"
     environment:
-      - RABBIT_HOST=rabbitmq
-      - RABBIT_PORT=5672
-      - EXCHANGE_NAME=travel_topic
-      - EXCHANGE_TYPE=topic
-      - QUEUE_NAME=Notification
-      # Optional — SMU Lab Utilities SendEmail (see notification/smu_integration.py)
-      # - SMU_NOTIFICATION_ENABLED=true
-      # - SMU_NOTIFICATION_BASE_URL=https://smuedu-dev.outsystemsenterprise.com/SMULab_Notification/rest/Notification
-      # - SMU_NOTIFY_EMAIL_TO=you@student.smu.edu.sg
-      # - SMU_NOTIFICATION_AUTH_HEADER=Authorization
-      # - SMU_NOTIFICATION_AUTH_VALUE=Bearer <API key from SMU Lab Utilities>
+      RABBIT_HOST: rabbitmq
+      RABBIT_PORT: 5672
+      EXCHANGE_NAME: travel_topic
+      EXCHANGE_TYPE: topic
+      QUEUE_NAME: Notification
+      SMU_NOTIFICATION_ENABLED: ${SMU_NOTIFICATION_ENABLED:-false}
+      SMU_NOTIFICATION_BASE_URL: ${SMU_NOTIFICATION_BASE_URL:-}
+      SMU_NOTIFY_EMAIL_TO: ${SMU_NOTIFY_EMAIL_TO:-}
+      SMU_NOTIFICATION_AUTH_HEADER: ${SMU_NOTIFICATION_AUTH_HEADER:-Authorization}
+      SMU_NOTIFICATION_AUTH_VALUE: ${SMU_NOTIFICATION_AUTH_VALUE:-}
+      TWILIO_ENABLED: ${TWILIO_ENABLED:-false}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      TWILIO_TO_NUMBER: ${TWILIO_TO_NUMBER:-}
     depends_on:
       - rabbitmq
 
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      # If another stack already uses 5672 / 15672 (e.g. rabbitmq-rabbitmq-1), these host ports avoid clashes.
+      - "5674:5672"
+      - "15673:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
@@ -85,10 +97,10 @@ services:
   booking-db:
     image: mysql:8.0
     environment:
-      - MYSQL_ROOT_PASSWORD=root
-      - MYSQL_DATABASE=travel_booking
-      - MYSQL_USER=travel_user
-      - MYSQL_PASSWORD=travel_pass
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-travel_booking}
+      MYSQL_USER: ${MYSQL_USER:-travel_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-travel_pass}
     ports:
       - "3307:3306"
     command: --default-authentication-plugin=mysql_native_password

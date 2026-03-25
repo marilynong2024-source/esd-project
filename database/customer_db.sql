@@ -1,4 +1,14 @@
 -- Customer Account DB (MySQL)
+--
+-- This stores **account / identity** (email, name, phone) for the Account microservice.
+--
+-- **Traveller profiles** (companion rows: passport on file, seat/meal prefs, etc.) are **not**
+-- duplicated here for the graded design: they are owned by **OutSystems** and read via REST:
+--   GET {TRAVELLER_PROFILE_BASE_URL}/byaccount/{customerID}
+-- Python helpers: travellerprofile/outsystems_client.py (get_profiles_by_account,
+-- get_traveller_profile). Booking validates picks using booking/traveller_os.py.
+--
+-- Optional local **cache** of OutSystems rows (e.g. reporting): see traveller_profile_cache.sql.
 
 CREATE TABLE IF NOT EXISTS customer_accounts (
   customer_id INT AUTO_INCREMENT PRIMARY KEY,
