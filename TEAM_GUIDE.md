@@ -212,12 +212,12 @@
      - `GET /booking/{id}` (GetBookingById).
      - `POST /booking/cancel/{id}` (CancelBooking).
    - Map the JSON structure to match this backend:
-     - Request body for create: `customerID`, `flightID`, `hotelID`, `departureTime`, `totalPrice`, `currency`, `fareType`, `loyaltyTier`, `hotelPaymentMode`.
+     - Request body for create: `customerID`, `flightID`, `hotelID`, `departureTime`, `totalPrice`, `currency`, `fareType`, `loyaltyTier` (plus optional fields per API, e.g. traveller profiles, seat).
      - Response: use `code` + `data` as defined by the API.
 
 4. **Build OutSystems screens**
    - **Screen 1 – Create Booking**
-     - Form inputs: Customer ID, Flight ID, Hotel ID, Departure Date/Time, Total Package Price, Currency, Fare Type, Loyalty Tier, Hotel Payment Mode.
+     - Form inputs: Customer ID, Flight ID, Hotel ID, Departure Date/Time, Total Package Price, Currency, Fare Type, Loyalty Tier.
      - On submit: call `CreateBooking` REST method and show returned `data.id`, `status`, etc.
    - **Screen 2 – Cancel Booking**
      - Input: Booking ID.

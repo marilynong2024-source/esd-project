@@ -58,7 +58,6 @@ MySQL credentials for the `booking-db` container can be overridden with `MYSQL_*
     - `currency` (e.g. `SGD`)  
     - `fareType` (`Saver|Standard|Flexi`)  
     - `loyaltyTier` (e.g. `Bronze|Silver|Gold|Platinum|null`)  
-    - `hotelPaymentMode` (`PrepaidInApp` or `PayAtHotel`)
     - `travellerProfileIds` (optional JSON array of integers — multiple **companion** rows from OutSystems `GET …/byaccount/{customerID}`, each value is that row’s **`Id`**)  
     - `travellerProfileId` (optional single integer — legacy convenience; merged with `travellerProfileIds` if both sent)  
     - Profiles are validated when `TRAVELLER_PROFILE_BASE_URL` is set; responses include **`travellerProfileIds`** on the booking.
@@ -70,7 +69,7 @@ MySQL credentials for the `booking-db` container can be overridden with `MYSQL_*
 - **Cancel booking + refund**  
   - `POST /booking/cancel/{id}`  
   - Orchestrates:
-    - Computes refund based on **cancellation source + timing + hotel payment mode**.
+    - Computes refund based on **cancellation source + timing** (fixed **60% flight / 40% hotel** split for refund math).
     - Optional request body: `{ "cancelSource": "customer|airline|hotel" }` (default: `customer`).
     - Calls `payment` microservice: `POST /payment/refund`.
     - Updates booking status and refund fields in MySQL.
@@ -105,7 +104,7 @@ Other microservices expose:
 
 **Cancel (`POST /booking/cancel/{id}`)** with optional body `{ "cancelSource": "customer" | "airline" | "hotel" }` (default `customer`):
 
-- Package split for refund math: **60% flight / 40% hotel** if `hotelPaymentMode` is `PrepaidInApp`; if `PayAtHotel`, treat **100%** as flight-side for this demo.
+- Package split for refund math: **60% flight / 40% hotel** (prepaid package).
 - **Customer** cancel: flight refund **0**; hotel refund **full hotel component** only if **≥ 7 days** before departure, else **0**.
 - **Airline** cancel: **full** package refund.
 - **Hotel** cancel: **hotel component** only (flight **0**).

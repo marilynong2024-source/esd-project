@@ -65,22 +65,16 @@ services:
     build: ./notification
     ports:
       - "5106:5106"
+    # Load Twilio / SMU keys from project `.env` so real values are never replaced by
+    # empty `${VAR:-}` interpolation when Compose runs without that file in context.
+    env_file:
+      - .env
     environment:
       RABBIT_HOST: rabbitmq
       RABBIT_PORT: 5672
       EXCHANGE_NAME: travel_topic
       EXCHANGE_TYPE: topic
       QUEUE_NAME: Notification
-      SMU_NOTIFICATION_ENABLED: ${SMU_NOTIFICATION_ENABLED:-false}
-      SMU_NOTIFICATION_BASE_URL: ${SMU_NOTIFICATION_BASE_URL:-}
-      SMU_NOTIFY_EMAIL_TO: ${SMU_NOTIFY_EMAIL_TO:-}
-      SMU_NOTIFICATION_AUTH_HEADER: ${SMU_NOTIFICATION_AUTH_HEADER:-Authorization}
-      SMU_NOTIFICATION_AUTH_VALUE: ${SMU_NOTIFICATION_AUTH_VALUE:-}
-      TWILIO_ENABLED: ${TWILIO_ENABLED:-false}
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
-      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
-      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
-      TWILIO_TO_NUMBER: ${TWILIO_TO_NUMBER:-}
     depends_on:
       - rabbitmq
 

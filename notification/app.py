@@ -35,44 +35,68 @@ def start_amqp_consumer():
     queue_name = os.environ.get("QUEUE_NAME", "Notification")
 
     def callback(ch, method, properties, body):
+        rk = getattr(method, "routing_key", None) or ""
+        if isinstance(rk, bytes):
+            rk = rk.decode("utf-8", errors="replace")
         try:
-            payload = json.loads(body.decode("utf-8"))
-        except Exception:
-            payload = {"raw": body.decode("utf-8", errors="ignore")}
-        print(f"[notification] received event: {payload}")
-        NOTIFICATIONS.append(
-            {
-                "source": "amqp",
-                "routing_key": method.routing_key,
-                "payload": payload,
-            }
-        )
-
-        # Optional: SMU Lab Utilities SendEmail (see smu_integration.py + env vars)
-        smu_out = send_email_for_amqp_event(method.routing_key, payload)
-        if smu_out and not smu_out.get("skipped"):
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except Exception:
+                payload = {"raw": body.decode("utf-8", errors="ignore")}
+            print(f"[notification] AMQP received routing_key={rk!r}", flush=True)
             NOTIFICATIONS.append(
                 {
-                    "source": "smu_sendemail",
-                    "routing_key": method.routing_key,
-                    "result": smu_out,
+                    "source": "amqp",
+                    "routing_key": rk,
+                    "payload": payload,
                 }
             )
-        elif smu_out and smu_out.get("skipped"):
-            # Only log once per process to avoid noise — skip reason is in first skipped result
-            pass
 
-        twilio_out = send_sms_for_amqp_event(method.routing_key, payload)
-        if twilio_out and not twilio_out.get("skipped"):
+            # Optional: SMU Lab Utilities SendEmail (see smu_integration.py + env vars)
+            smu_out = send_email_for_amqp_event(rk, payload)
+            if smu_out and not smu_out.get("skipped"):
+                NOTIFICATIONS.append(
+                    {
+                        "source": "smu_sendemail",
+                        "routing_key": rk,
+                        "result": smu_out,
+                    }
+                )
+
+            twilio_out = send_sms_for_amqp_event(rk, payload) or {}
             NOTIFICATIONS.append(
                 {
                     "source": "twilio_sms",
-                    "routing_key": method.routing_key,
+                    "routing_key": rk,
                     "result": twilio_out,
                 }
             )
-
-        ch.basic_ack(delivery_tag=method.delivery_tag)
+            if twilio_out.get("ok"):
+                print(
+                    f"[notification] Twilio SMS sent sid={twilio_out.get('sid')}",
+                    flush=True,
+                )
+            elif twilio_out.get("skipped"):
+                print(
+                    f"[notification] Twilio skipped: {twilio_out.get('reason')}",
+                    flush=True,
+                )
+            elif twilio_out.get("error"):
+                print(
+                    f"[notification] Twilio error: {twilio_out.get('error')}",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[notification] callback error routing_key={rk!r}: {e}", flush=True)
+            NOTIFICATIONS.append(
+                {
+                    "source": "callback_error",
+                    "routing_key": rk,
+                    "error": str(e),
+                }
+            )
+        finally:
+            ch.basic_ack(delivery_tag=method.delivery_tag)
 
     def run():
         params = pika.ConnectionParameters(
@@ -89,13 +113,28 @@ def start_amqp_consumer():
                     exchange=exchange_name, exchange_type=exchange_type, durable=True
                 )
                 channel.queue_declare(queue=queue_name, durable=True)
-                channel.queue_bind(
-                    exchange=exchange_name,
-                    queue=queue_name,
-                    routing_key="booking.cancelled",
+                # Explicit keys — more reliable than wildcards across RabbitMQ semantics.
+                for rk in ("booking.confirmed", "booking.cancelled"):
+                    channel.queue_bind(
+                        exchange=exchange_name,
+                        queue=queue_name,
+                        routing_key=rk,
+                    )
+                print(
+                    f"[notification] Queue {queue_name!r} bound to "
+                    f"booking.confirmed + booking.cancelled on {exchange_name!r}",
+                    flush=True,
                 )
                 channel.basic_consume(queue=queue_name, on_message_callback=callback)
+                tw_en = os.environ.get("TWILIO_ENABLED", "")
+                tw_to = os.environ.get("TWILIO_TO_NUMBER", "")
+                tw_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
                 print("[notification] Waiting for AMQP messages...", flush=True)
+                print(
+                    f"[notification] Twilio env: ENABLED={tw_en!r} TO_SET={bool(str(tw_to).strip())} "
+                    f"SID_SET={bool(str(tw_sid).strip())}",
+                    flush=True,
+                )
                 channel.start_consuming()
                 return
             except Exception as e:

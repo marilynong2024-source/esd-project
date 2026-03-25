@@ -78,17 +78,28 @@ def send_sms_for_amqp_event(
         }
 
     bid = event_payload.get("bookingID", "?")
-    pct = event_payload.get("refundPercentage")
-    amt = event_payload.get("refundAmount")
     cur = event_payload.get("currency") or "SGD"
     who = (
         event_payload.get("passengerName")
         or event_payload.get("travellerDisplayName")
         or "Guest"
     )
-    body = (
-        f"[Travel demo] {routing_key} booking #{bid} ({who}). "
-        f"Refund {pct}% (~{cur} {amt})."
-    )
+    if routing_key == "booking.confirmed":
+        total = event_payload.get("totalPrice")
+        flight = event_payload.get("flightID") or "?"
+        dep = str(event_payload.get("departureTime") or "").replace("T", " ")[:16]
+        seat = event_payload.get("seatNumber")
+        seat_bit = f" Seat {seat}." if seat else ""
+        body = (
+            f"[Travel demo] Booking #{bid} confirmed — {who}. "
+            f"{flight} {dep}. Total {cur} {total}.{seat_bit}"
+        )
+    else:
+        pct = event_payload.get("refundPercentage")
+        amt = event_payload.get("refundAmount")
+        body = (
+            f"[Travel demo] {routing_key} #{bid} ({who}). "
+            f"Refund {pct}% (~{cur} {amt})."
+        )
 
     return send_sms(to, body)

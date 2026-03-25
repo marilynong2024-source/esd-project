@@ -61,16 +61,17 @@ def get_amqp_channel():
 def publish_event(routing_key: str, payload: dict) -> bool:
     try:
         channel = get_amqp_channel()
-        message = json.dumps(payload)
+        message = json.dumps(payload, default=str)
         channel.basic_publish(
             exchange=exchange_name,
             routing_key=routing_key,
             body=message,
             properties=pika.BasicProperties(delivery_mode=2),
         )
+        print(f"[booking] Published AMQP {routing_key} → {exchange_name}", flush=True)
         return True
     except Exception as e:
-        print(f"[booking] Failed to publish AMQP event: {e}", flush=True)
+        print(f"[booking] Failed to publish AMQP event {routing_key!r}: {e}", flush=True)
         return False
 
 
@@ -106,8 +107,6 @@ class Booking(db.Model):
     currency = db.Column(db.String(8), default="SGD")
     fareType = db.Column(db.String(20), default="Saver")
     loyaltyTier = db.Column(db.String(20), nullable=True)
-    # How the hotel portion was paid: "PrepaidInApp" (default) vs "PayAtHotel"
-    hotelPaymentMode = db.Column(db.String(20), default="PrepaidInApp")
     status = db.Column(db.String(20), default="CONFIRMED")
     refundPercentage = db.Column(db.Integer, nullable=True)
     refundAmount = db.Column(db.Float, nullable=True)
@@ -147,7 +146,6 @@ class Booking(db.Model):
             "currency": self.currency,
             "fareType": self.fareType,
             "loyaltyTier": self.loyaltyTier,
-            "hotelPaymentMode": self.hotelPaymentMode,
             "status": self.status,
             "refundPercentage": self.refundPercentage,
             "refundAmount": self.refundAmount,
@@ -156,6 +154,11 @@ class Booking(db.Model):
             "passengerEmail": self.passengerEmail,
             "passengerPhone": self.passengerPhone,
         }
+
+
+def traveller_profile_ids_for_event(booking: Booking) -> list[int]:
+    """Same Id list as in API responses / AMQP payloads."""
+    return booking.to_dict()["travellerProfileIds"]
 
 
 def compute_refund_percentage(
@@ -293,9 +296,6 @@ def create_booking():
 
         currency = str(data.get("currency") or "SGD").strip()[:8] or "SGD"
         fare_type = str(data.get("fareType") or "Saver").strip()[:20] or "Saver"
-        hpm = str(data.get("hotelPaymentMode") or "PrepaidInApp").strip()
-        if hpm not in ("PrepaidInApp", "PayAtHotel"):
-            return _bad_request("hotelPaymentMode must be PrepaidInApp or PayAtHotel")
 
         traveller_ids, tid_err = _parse_traveller_profile_ids(data)
         if tid_err:
@@ -334,7 +334,6 @@ def create_booking():
             currency=currency,
             fareType=fare_type,
             loyaltyTier=data.get("loyaltyTier"),
-            hotelPaymentMode=hpm,
             seatNumber=seat_number,
             travellerProfileId=traveller_profile_id,
             travellerDisplayName=display_name,
@@ -398,6 +397,38 @@ def create_booking():
         except requests.RequestException as e:
             warnings.append(f"Loyalty service unreachable: {e}")
 
+    t_ids_publish = traveller_profile_ids_for_event(booking)
+    confirmed_ok = publish_event(
+        "booking.confirmed",
+        {
+            "bookingID": booking.id,
+            "customerID": booking.customerID,
+            "travellerProfileId": booking.travellerProfileId,
+            "travellerProfileIds": t_ids_publish,
+            "travellerDisplayName": booking.travellerDisplayName,
+            "passengerName": booking.passengerName,
+            "passengerEmail": booking.passengerEmail,
+            "passengerPhone": booking.passengerPhone,
+            "flightID": booking.flightID,
+            "hotelID": booking.hotelID,
+            "hotelRoomType": booking.hotelRoomType,
+            "hotelIncludesBreakfast": booking.hotelIncludesBreakfast,
+            "departureTime": booking.departureTime,
+            "totalPrice": float(booking.totalPrice or 0),
+            "currency": booking.currency or "SGD",
+            "fareType": booking.fareType,
+            "loyaltyTier": booking.loyaltyTier,
+            "seatNumber": booking.seatNumber,
+            "status": booking.status,
+            "confirmedAt": datetime.utcnow().isoformat(),
+        },
+    )
+    if not confirmed_ok:
+        warnings.append(
+            "Could not publish booking.confirmed to RabbitMQ — check booking logs, "
+            "RABBIT_HOST/RABBIT_PORT, and that the notification worker is running."
+        )
+
     out: dict = {"code": 201, "data": booking.to_dict()}
     if warnings:
         out["warnings"] = warnings
@@ -450,15 +481,9 @@ def cancel_booking(booking_id: int):
             f"cancelSource must be one of: {', '.join(sorted(allowed_sources))}"
         )
 
-    # Simple package split for demo logic:
-    # - If hotel is prepaid in app, assume 60% flight + 40% hotel.
-    # - If hotel is pay-at-hotel, app only controls flight-side amount.
-    if (booking.hotelPaymentMode or "PrepaidInApp") == "PayAtHotel":
-        flight_component = total_price
-        hotel_component = 0.0
-    else:
-        flight_component = total_price * 0.6
-        hotel_component = total_price * 0.4
+    # Demo package split: 60% flight + 40% hotel (both prepaid in-app).
+    flight_component = total_price * 0.6
+    hotel_component = total_price * 0.4
 
     # Rule requested by team:
     # - Flight has no refund unless airline cancels.
@@ -560,16 +585,7 @@ def cancel_booking(booking_id: int):
             cancel_warnings.append(f"Loyalty adjust unreachable: {e}")
 
     # Publish cancellation event for async processing (e.g. notification)
-    t_ids_event: list[int] = []
-    if booking.travellerProfileIdsJson:
-        try:
-            raw = json.loads(booking.travellerProfileIdsJson)
-            if isinstance(raw, list):
-                t_ids_event = [int(x) for x in raw if x is not None]
-        except (ValueError, TypeError, json.JSONDecodeError):
-            t_ids_event = []
-    if not t_ids_event and booking.travellerProfileId is not None:
-        t_ids_event = [int(booking.travellerProfileId)]
+    t_ids_event = traveller_profile_ids_for_event(booking)
 
     published = publish_event(
         "booking.cancelled",
@@ -583,10 +599,15 @@ def cancel_booking(booking_id: int):
             "passengerEmail": booking.passengerEmail,
             "passengerPhone": booking.passengerPhone,
             "refundPercentage": percentage,
-            "refundAmount": amount,
+            "refundAmount": round(amount, 2),
+            "flightID": booking.flightID,
+            "hotelID": booking.hotelID,
+            "departureTime": booking.departureTime,
+            "totalPrice": float(booking.totalPrice or 0),
             "currency": booking.currency or "SGD",
             "fareType": booking.fareType,
             "loyaltyTier": booking.loyaltyTier,
+            "seatNumber": booking.seatNumber,
             "cancelledAt": now.isoformat(),
         },
     )
