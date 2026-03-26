@@ -33,7 +33,7 @@
       <p class="hero__eyebrow">Horizon Packages</p>
       <h1 id="hero-heading">Book flight + hotel in a few steps</h1>
       <p class="hero__lede">
-        Choose your flights and stay, apply loyalty perks if you have an account, then confirm.
+        Choose your flights and stay, use loyalty perks when you're signed in, then confirm.
         Your <strong>confirmation and wallet</strong> stay on the right so you always know where you are.
       </p>
       <ul class="hero__trust" role="list">
@@ -95,7 +95,10 @@
         <div class="card-header">
           <div class="card-header__titles">
             <h2>Plan your trip</h2>
-            <p class="card-sub">Start with who is travelling, then flight, hotel, and dates. Confirm at the bottom when you&rsquo;re ready.</p>
+            <p class="card-sub">
+              Pick a curated bundle first (swipe through packages), then traveller profiles, hotel, flight, and payment.
+              Confirm at the bottom when you&rsquo;re ready.
+            </p>
           </div>
         </div>
 
@@ -109,7 +112,7 @@
             aria-controls="bookingStep1Panel"
             tabindex="0"
           >
-            1. Personal
+            1. Choose bundle
           </button>
           <button
             type="button"
@@ -171,9 +174,86 @@
 
           <div id="bookingStep1Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep1Tab">
           <label>
-            Account / customer number
-            <input type="number" id="customerID" value="1" required />
+            Who's booking?
+            <select id="customerID" required aria-label="Member or lead booker"></select>
           </label>
+
+          <div class="section-title section-title--spaced">Choose a bundle</div>
+          <div class="form-grid bundle-filters">
+            <label>
+              Region
+              <select id="bundleFilterRegion" aria-label="Filter by region"></select>
+            </label>
+            <label>
+              From
+              <select id="bundleFilterFrom" aria-label="Filter by origin city"></select>
+            </label>
+            <label>
+              To
+              <select id="bundleFilterTo" aria-label="Filter by destination city"></select>
+            </label>
+          </div>
+          <label class="form-grid-1col">
+            Package
+            <select id="bundlePackageSelect" aria-label="Choose travel package">
+              <option value="">— Select a package —</option>
+            </select>
+          </label>
+          <p class="muted bundle-gallery__hint">
+            Prices on cards update for who's booking and your group size (SGD). Scroll or use filters to browse routes worldwide.
+          </p>
+          <div class="bundle-gallery-wrap">
+            <button
+              type="button"
+              class="bundle-gallery__nav bundle-gallery__nav--prev"
+              id="bundleGalleryPrev"
+              aria-label="Scroll packages left"
+            >
+              ‹
+            </button>
+            <div class="bundle-gallery" id="bundleGallery">
+              <div class="bundle-gallery__track" id="bundleGalleryTrack" role="list"></div>
+            </div>
+            <button
+              type="button"
+              class="bundle-gallery__nav bundle-gallery__nav--next"
+              id="bundleGalleryNext"
+              aria-label="Scroll packages right"
+            >
+              ›
+            </button>
+          </div>
+
+          <label class="form-grid-1col">
+            Number of travellers
+            <select id="bundleNumberOfTravellers" aria-label="Number of travellers"></select>
+            <span class="muted">Group size for seats, rooms, and bundle discount rules (e.g. 2+ guests with 3+ nights).</span>
+          </label>
+
+          <details class="bundle-advanced">
+            <summary class="bundle-advanced__summary">Fine-tune route &amp; dates</summary>
+            <div class="form-grid">
+              <label>
+                Origin city
+                <select id="bundleOrigin" aria-label="Origin city"></select>
+              </label>
+              <label>
+                Destination city
+                <select id="bundleDestination" aria-label="Destination city"></select>
+              </label>
+              <label>
+                Trip dates (out &amp; back)
+                <select id="bundleTripWindowSelect" aria-label="Departure and return window"></select>
+              </label>
+              <input type="hidden" id="bundleDepartDateTime" value="2026-05-01T10:00" />
+              <input type="hidden" id="bundleReturnDateTime" value="2026-05-06T11:00" />
+            </div>
+            <div class="actions-row form-grid-1col">
+              <button type="button" class="btn-secondary" id="bundleSearchBtn">Recalculate bundle price</button>
+            </div>
+          </details>
+
+          <div id="bundleStatus" class="muted" aria-live="polite"></div>
 
           <p class="section-title form-grid-1col section-title--flush">Lead traveller</p>
           <label class="form-grid-1col">
@@ -219,8 +299,8 @@
             </div>
 
             <label>
-              Customer number
-              <input type="number" id="travellerCustomerID" value="1" required />
+              Profiles for
+              <select id="travellerCustomerID" required aria-label="Member whose saved profiles to load"></select>
             </label>
 
             <div class="actions-row form-grid-1col">
@@ -490,7 +570,7 @@
             <label id="coinsOffsetWrap">
               Pay with loyalty coins (amount in cents)
               <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
-              <span class="muted">Signed-in accounts only (customer number above &gt; 0). Guests cannot use coins.</span>
+              <span class="muted">Coins come from the loyalty wallet for whoever is selected under Who's booking?</span>
               <div class="coins-meta">
                 Available coins: <strong id="coinsAvailableCents">-</strong> cents
               </div>
@@ -573,10 +653,10 @@
         <form id="cancelForm" class="form-grid-1col">
           <label>
             Booking reference
-            <input type="number" id="cancelBookingID" min="1" step="1" required placeholder="From your confirmation (not your customer number)" />
+            <input type="number" id="cancelBookingID" min="1" step="1" required placeholder="e.g. 42 — from your confirmation email" />
           </label>
           <p class="muted form-grid-1col muted--compact-top">
-            This is the booking record ID from after you pay — it can differ from your account number.
+            This is the confirmation reference the system issued after payment — not your name, email, or login.
           </p>
           <label>
             Who is cancelling?

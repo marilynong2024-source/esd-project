@@ -6,14 +6,475 @@ const LOYALTY_BASE = "/api/loyalty";
 const NOTIFICATION_BASE = "/api/notification";
 const GRAPHQL_BASE = "/api/graphql/graphql";
 const FLIGHT_BASE = "/api/flight";
+const BUNDLE_PRICE_BASE = "/api/bundle-price";
 // Keep REST hotel base as fallback path if GraphQL is down.
 const HOTEL_BASE = "http://localhost:5103";
+
+/**
+ * Curated packages — multiple hubs worldwide. `region` drives filter chips:
+ * asia | europe | intercontinental
+ */
+const BUNDLE_PRESETS = [
+  {
+    id: "tokyo",
+    title: "Tokyo city break",
+    route: "Singapore → Tokyo",
+    origin: "Singapore",
+    destination: "Tokyo",
+    region: "asia",
+    depart: "2026-05-01T10:00",
+    ret: "2026-05-06T11:00",
+    blurb: "5 nights · culture & dining",
+    image: "https://picsum.photos/seed/pkg-tokyo/520/300",
+  },
+  {
+    id: "bangkok",
+    title: "Bangkok nights",
+    route: "Singapore → Bangkok",
+    origin: "Singapore",
+    destination: "Bangkok",
+    region: "asia",
+    depart: "2026-06-10T08:00",
+    ret: "2026-06-14T18:00",
+    blurb: "4 nights · temples & street food",
+    image: "https://picsum.photos/seed/pkg-bangkok/520/300",
+  },
+  {
+    id: "bali",
+    title: "Bali unwind",
+    route: "Singapore → Bali",
+    origin: "Singapore",
+    destination: "Bali",
+    region: "asia",
+    depart: "2026-07-05T09:00",
+    ret: "2026-07-12T10:00",
+    blurb: "7 nights · beaches & spas",
+    image: "https://picsum.photos/seed/pkg-bali/520/300",
+  },
+  {
+    id: "sydney",
+    title: "Sydney harbour",
+    route: "Singapore → Sydney",
+    origin: "Singapore",
+    destination: "Sydney",
+    region: "asia",
+    depart: "2026-08-02T09:30",
+    ret: "2026-08-09T16:00",
+    blurb: "7 nights · Opera House & coast",
+    image: "https://picsum.photos/seed/pkg-sydney/520/300",
+  },
+  {
+    id: "london",
+    title: "London grand tour",
+    route: "Singapore → London",
+    origin: "Singapore",
+    destination: "London",
+    region: "intercontinental",
+    depart: "2026-05-20T23:55",
+    ret: "2026-05-28T11:00",
+    blurb: "8 nights · museums & theatre",
+    image: "https://picsum.photos/seed/pkg-london/520/300",
+  },
+  {
+    id: "lon-par",
+    title: "Paris art escape",
+    route: "London → Paris",
+    origin: "London",
+    destination: "Paris",
+    region: "europe",
+    depart: "2026-06-02T09:00",
+    ret: "2026-06-07T17:00",
+    blurb: "5 nights · Louvre & cafés",
+    image: "https://picsum.photos/seed/pkg-paris/520/300",
+  },
+  {
+    id: "par-lon",
+    title: "London from Paris",
+    route: "Paris → London",
+    origin: "Paris",
+    destination: "London",
+    region: "europe",
+    depart: "2026-06-10T10:00",
+    ret: "2026-06-16T20:00",
+    blurb: "6 nights · West End & markets",
+    image: "https://picsum.photos/seed/pkg-london-par/520/300",
+  },
+  {
+    id: "lon-tyo",
+    title: "London to Tokyo",
+    route: "London → Tokyo",
+    origin: "London",
+    destination: "Tokyo",
+    region: "intercontinental",
+    depart: "2026-06-18T11:00",
+    ret: "2026-06-26T16:00",
+    blurb: "8 nights · Shinjuku & day trips",
+    image: "https://picsum.photos/seed/pkg-lon-tok/520/300",
+  },
+  {
+    id: "syd-sin",
+    title: "Sydney to Singapore",
+    route: "Sydney → Singapore",
+    origin: "Sydney",
+    destination: "Singapore",
+    region: "asia",
+    depart: "2026-07-01T08:00",
+    ret: "2026-07-08T10:00",
+    blurb: "7 nights · hawkers & Marina Bay",
+    image: "https://picsum.photos/seed/pkg-syd-sin/520/300",
+  },
+  {
+    id: "tyo-bkk",
+    title: "Tokyo to Bangkok",
+    route: "Tokyo → Bangkok",
+    origin: "Tokyo",
+    destination: "Bangkok",
+    region: "asia",
+    depart: "2026-08-01T11:00",
+    ret: "2026-08-07T09:00",
+    blurb: "6 nights · two-city foodie hop",
+    image: "https://picsum.photos/seed/pkg-tyo-bkk/520/300",
+  },
+  {
+    id: "bkk-dps",
+    title: "Bangkok to Bali",
+    route: "Bangkok → Bali",
+    origin: "Bangkok",
+    destination: "Bali",
+    region: "asia",
+    depart: "2026-09-03T10:00",
+    ret: "2026-09-10T14:00",
+    blurb: "7 nights · temples to surf",
+    image: "https://picsum.photos/seed/pkg-bkk-dps/520/300",
+  },
+];
+
+const BUNDLE_REGION_OPTIONS = [
+  { value: "all", label: "All regions" },
+  { value: "asia", label: "Asia & Pacific" },
+  { value: "europe", label: "Europe & UK" },
+  { value: "intercontinental", label: "Long-haul hubs" },
+];
+
+/** id -> { total?, err?, loading? } for card badges */
+const bundleCardPriceCache = new Map();
+let bundleCardPriceTimer = null;
+
+/** Demo members — values are internal customer ids; labels are what travellers expect (name + hint). */
+const CUSTOMER_OPTIONS = [
+  { id: 1, label: "Ava Chen · Singapore" },
+  { id: 2, label: "Ben Kumar" },
+  { id: 3, label: "Casey Tan" },
+  { id: 4, label: "Dana Ng" },
+  { id: 5, label: "Evan Lee" },
+  { id: 6, label: "Fiona Ong" },
+];
+
+const TRIP_WINDOW_OPTIONS = [
+  { value: "2026-05-01T10:00|||2026-05-06T11:00", label: "1 May – 6 May 2026 · 5 nights" },
+  { value: "2026-06-10T08:00|||2026-06-14T18:00", label: "10 Jun – 14 Jun 2026 · 4 nights" },
+  { value: "2026-07-05T09:00|||2026-07-12T10:00", label: "5 Jul – 12 Jul 2026 · 7 nights" },
+  { value: "2026-08-02T09:30|||2026-08-09T16:00", label: "2 Aug – 9 Aug 2026 · 7 nights" },
+  { value: "2026-05-20T23:55|||2026-05-28T11:00", label: "20 May – 28 May 2026 · 8 nights" },
+  { value: "2026-04-18T09:00|||2026-04-22T09:00", label: "18 Apr – 22 Apr 2026 · 4 nights" },
+  { value: "2026-09-05T08:00|||2026-09-15T18:00", label: "5 Sep – 15 Sep 2026 · 10 nights" },
+  { value: "2026-11-10T10:00|||2026-11-17T12:00", label: "10 Nov – 17 Nov 2026 · 7 nights" },
+];
+
+function getFilteredPresets() {
+  const reg = document.getElementById("bundleFilterRegion")?.value || "all";
+  const from = document.getElementById("bundleFilterFrom")?.value || "all";
+  const to = document.getElementById("bundleFilterTo")?.value || "all";
+  return BUNDLE_PRESETS.filter((p) => {
+    if (reg !== "all" && p.region !== reg) return false;
+    if (from !== "all" && p.origin !== from) return false;
+    if (to !== "all" && p.destination !== to) return false;
+    return true;
+  });
+}
+
+function populateBundleFilterSelects() {
+  const regSel = document.getElementById("bundleFilterRegion");
+  if (regSel) {
+    regSel.replaceChildren();
+    for (const r of BUNDLE_REGION_OPTIONS) {
+      const o = document.createElement("option");
+      o.value = r.value;
+      o.textContent = r.label;
+      regSel.appendChild(o);
+    }
+    regSel.value = "all";
+  }
+  const origins = [...new Set(BUNDLE_PRESETS.map((p) => p.origin))].sort();
+  const dests = [...new Set(BUNDLE_PRESETS.map((p) => p.destination))].sort();
+  const fromSel = document.getElementById("bundleFilterFrom");
+  if (fromSel) {
+    fromSel.replaceChildren();
+    const allO = document.createElement("option");
+    allO.value = "all";
+    allO.textContent = "Any city";
+    fromSel.appendChild(allO);
+    for (const city of origins) {
+      const o = document.createElement("option");
+      o.value = city;
+      o.textContent = city;
+      fromSel.appendChild(o);
+    }
+    fromSel.value = "all";
+  }
+  const toSel = document.getElementById("bundleFilterTo");
+  if (toSel) {
+    toSel.replaceChildren();
+    const allT = document.createElement("option");
+    allT.value = "all";
+    allT.textContent = "Any city";
+    toSel.appendChild(allT);
+    for (const city of dests) {
+      const o = document.createElement("option");
+      o.value = city;
+      o.textContent = city;
+      toSel.appendChild(o);
+    }
+    toSel.value = "all";
+  }
+}
+
+function populateBundleRouteSelectsFromPresets() {
+  const origins = [...new Set(BUNDLE_PRESETS.map((p) => p.origin))].sort();
+  const dests = [...new Set(BUNDLE_PRESETS.map((p) => p.destination))].sort();
+  const oSel = document.getElementById("bundleOrigin");
+  const dSel = document.getElementById("bundleDestination");
+  if (oSel && oSel.tagName === "SELECT") {
+    oSel.replaceChildren();
+    for (const city of origins) {
+      const opt = document.createElement("option");
+      opt.value = city;
+      opt.textContent = city;
+      oSel.appendChild(opt);
+    }
+    if (origins.includes("Singapore")) oSel.value = "Singapore";
+    else if (origins.length) oSel.value = origins[0];
+  }
+  if (dSel && dSel.tagName === "SELECT") {
+    dSel.replaceChildren();
+    for (const city of dests) {
+      const opt = document.createElement("option");
+      opt.value = city;
+      opt.textContent = city;
+      dSel.appendChild(opt);
+    }
+    if (dests.includes("Tokyo")) dSel.value = "Tokyo";
+    else if (dests.length) dSel.value = dests[0];
+  }
+}
+
+function bundleCardPriceLabel(presetId) {
+  const c = bundleCardPriceCache.get(presetId);
+  if (!c || c.loading) return "Pricing…";
+  if (c.err) return "—";
+  if (Number.isFinite(c.total)) return `From SGD ${Math.round(Number(c.total))}`;
+  return "—";
+}
+
+function updateBundleCardPriceLabels() {
+  document.querySelectorAll(".bundle-card__price").forEach((el) => {
+    const id = el.getAttribute("data-preset-id");
+    if (id) el.textContent = bundleCardPriceLabel(id);
+  });
+}
+
+async function refreshBundleCardPrices() {
+  const customerId = document.getElementById("customerID")?.value?.trim();
+  const travellers = document.getElementById("bundleNumberOfTravellers")?.value?.trim();
+  if (!customerId || !travellers) return;
+  const coinsInput = document.getElementById("coinsToSpendCents");
+  const coins = Math.max(0, Number(coinsInput?.value || 0));
+
+  for (const p of BUNDLE_PRESETS) {
+    bundleCardPriceCache.set(p.id, { loading: true });
+  }
+  updateBundleCardPriceLabels();
+
+  await Promise.all(
+    BUNDLE_PRESETS.map(async (p) => {
+      const qs = new URLSearchParams();
+      qs.set("origin", p.origin);
+      qs.set("destination", p.destination);
+      qs.set("departDate", p.depart);
+      qs.set("returnDate", p.ret);
+      qs.set("numberOfTravellers", travellers);
+      qs.set("customerId", customerId);
+      qs.set("loyaltyCoinsToUseCents", String(coins));
+      const out = await fetchJson(`${BUNDLE_PRICE_BASE}?${qs.toString()}`);
+      if (out.networkError || !out.ok) {
+        bundleCardPriceCache.set(p.id, {
+          err: out.errorMessage || "unavailable",
+          total: null,
+        });
+        return;
+      }
+      const data = out.body?.data;
+      if (out.body?.code !== 200 || !data) {
+        bundleCardPriceCache.set(p.id, { err: "n/a", total: null });
+        return;
+      }
+      bundleCardPriceCache.set(p.id, {
+        total: Number(data.finalTotal),
+        err: null,
+      });
+    })
+  );
+  updateBundleCardPriceLabels();
+}
+
+function scheduleBundleCardPriceRefresh() {
+  clearTimeout(bundleCardPriceTimer);
+  bundleCardPriceTimer = setTimeout(() => void refreshBundleCardPrices(), 450);
+}
+
+function onBundleFiltersChanged() {
+  const visible = new Set(getFilteredPresets().map((p) => p.id));
+  if (selectedBundlePresetId && !visible.has(selectedBundlePresetId)) {
+    clearBundleSelectionState();
+  }
+  populateBundlePackageSelect();
+  renderBundleGallery();
+  scheduleBundleCardPriceRefresh();
+}
+
+function setupBundleFilterListeners() {
+  for (const id of ["bundleFilterRegion", "bundleFilterFrom", "bundleFilterTo"]) {
+    document.getElementById(id)?.addEventListener("change", () => onBundleFiltersChanged());
+  }
+}
+
+function populateCustomerSelects() {
+  for (const id of ["customerID", "travellerCustomerID"]) {
+    const sel = document.getElementById(id);
+    if (!sel || sel.tagName !== "SELECT") continue;
+    sel.replaceChildren();
+    for (const c of CUSTOMER_OPTIONS) {
+      const o = document.createElement("option");
+      o.value = String(c.id);
+      o.textContent = c.label;
+      sel.appendChild(o);
+    }
+    sel.value = "1";
+  }
+}
+
+function populateTravellerCountSelect() {
+  const sel = document.getElementById("bundleNumberOfTravellers");
+  if (!sel || sel.tagName !== "SELECT") return;
+  sel.replaceChildren();
+  for (let n = 1; n <= 12; n++) {
+    const o = document.createElement("option");
+    o.value = String(n);
+    o.textContent = n === 1 ? "1 guest" : `${n} guests`;
+    sel.appendChild(o);
+  }
+  sel.value = "2";
+}
+
+function populateTripWindowSelect() {
+  const sel = document.getElementById("bundleTripWindowSelect");
+  if (!sel) return;
+  sel.replaceChildren();
+  for (const row of TRIP_WINDOW_OPTIONS) {
+    const o = document.createElement("option");
+    o.value = row.value;
+    o.textContent = row.label;
+    sel.appendChild(o);
+  }
+  if (TRIP_WINDOW_OPTIONS[0]) sel.value = TRIP_WINDOW_OPTIONS[0].value;
+}
+
+function applyTripWindowFromSelect() {
+  const tw = document.getElementById("bundleTripWindowSelect");
+  const depEl = document.getElementById("bundleDepartDateTime");
+  const retEl = document.getElementById("bundleReturnDateTime");
+  if (!tw || !depEl || !retEl) return;
+  const raw = tw.value || "";
+  const parts = raw.split("|||");
+  if (parts.length === 2) {
+    depEl.value = parts[0].trim();
+    retEl.value = parts[1].trim();
+  }
+}
+
+function ensureTripWindowOption(depart, ret) {
+  const sel = document.getElementById("bundleTripWindowSelect");
+  if (!sel) return;
+  const v = `${depart}|||${ret}`;
+  const exists = Array.from(sel.options).some((o) => o.value === v);
+  if (!exists) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = `${depart.replace("T", " ")} → ${ret.replace("T", " ")}`;
+    sel.appendChild(o);
+  }
+  sel.value = v;
+}
+
+function populateBundlePackageSelect() {
+  const sel = document.getElementById("bundlePackageSelect");
+  if (!sel) return;
+  const keep = sel.value;
+  sel.replaceChildren();
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent = "— Select a package —";
+  sel.appendChild(ph);
+  for (const p of getFilteredPresets()) {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = `${p.title} (${p.route})`;
+    sel.appendChild(o);
+  }
+  const valid = keep && Array.from(sel.options).some((o) => o.value === keep);
+  sel.value = valid ? keep : "";
+}
+
+function onFineTuneDivergeFromPackage() {
+  selectedBundlePresetId = null;
+  const pkg = document.getElementById("bundlePackageSelect");
+  if (pkg) pkg.value = "";
+  document.querySelectorAll(".bundle-card").forEach((b) => {
+    b.classList.remove("bundle-card--selected");
+    b.setAttribute("aria-pressed", "false");
+  });
+  latestBundlePricing = null;
+  lastBundleParams = null;
+  setBundleResultVisible(false);
+  const st = document.getElementById("bundleStatus");
+  if (st) {
+    st.textContent =
+      "Trip details changed — pick a package again, or open Fine-tune and tap Recalculate bundle price.";
+  }
+}
+
+function setupBundleFineTuneListeners() {
+  document.getElementById("bundleTripWindowSelect")?.addEventListener("change", () => {
+    applyTripWindowFromSelect();
+    onFineTuneDivergeFromPackage();
+  });
+  document.getElementById("bundleOrigin")?.addEventListener("change", () => onFineTuneDivergeFromPackage());
+  document.getElementById("bundleDestination")?.addEventListener("change", () => onFineTuneDivergeFromPackage());
+  document.getElementById("bundlePackageSelect")?.addEventListener("change", (e) => {
+    const v = e.target.value;
+    if (!v) {
+      clearBundleSelectionState();
+      return;
+    }
+    selectBundlePreset(v);
+  });
+}
 
 /** Demo personas — pick from dropdown to fill the form for presentations */
 const DEMO_PROFILES = [
   {
     id: "ava",
-    label: "Ava Chen — casual traveller (cust 1)",
+    label: "Ava Chen — casual traveller",
     passengerName: "Ava Chen",
     passengerEmail: "ava.chen@example.com",
     passengerPhone: "+65 9123 4567",
@@ -32,7 +493,7 @@ const DEMO_PROFILES = [
   },
   {
     id: "ava_family",
-    label: "Ava + 2 companions (cust 1 — OS Ids 9, 10 after seed script)",
+    label: "Ava + 2 companions (instructors: OS profile Ids 9 & 10 after seed)",
     passengerName: "Ava Chen",
     passengerEmail: "ava.chen@example.com",
     passengerPhone: "+65 9123 4567",
@@ -52,7 +513,7 @@ const DEMO_PROFILES = [
   },
   {
     id: "ben",
-    label: "Ben Kumar — business (cust 2)",
+    label: "Ben Kumar — business trip",
     passengerName: "Ben Kumar",
     passengerEmail: "ben.kumar@example.com",
     passengerPhone: "+65 8123 0000",
@@ -109,7 +570,7 @@ const DEMO_PROFILES = [
   },
   {
     id: "elena",
-    label: "Elena — corporate (cust 5, discount code)",
+    label: "Elena — corporate (PLAT20)",
     passengerName: "Elena Ruiz",
     passengerEmail: "elena.ruiz@corp-demo.sg",
     passengerPhone: "+65 9333 8888",
@@ -169,6 +630,11 @@ let selectedHotel = null; // Hotel row from hotel service (for UI only)
 let latestHotelRows = [];
 let lastHotelRoomType = null;
 let travellerProfilesServiceAvailable = true; // avoids repeated 500 spam when OutSystems is not configured
+
+// Bundle pricing composite (Search & Price Bundle step).
+let latestBundlePricing = null; // { flightPrice, hotelPrice, discount, loyaltyUsed, finalTotal, ... }
+let lastBundleParams = null; // query params used for last bundle call
+let selectedBundlePresetId = null;
 
 /**
  * Detects GET / response (welcome page), not a booking payload.
@@ -303,7 +769,7 @@ function codeDiscountPercent(code, projectedTier) {
  * List price from the form, then tier % off list, then promo % off that subtotal, then coins (dollars).
  * Avoids applying both tier and code as full % of list (e.g. 20+20=40% off), which felt like a glitch.
  */
-/** Customer IDs &gt; 0 are account holders with loyalty; 0 = guest (no coins / tier in this demo). */
+/** In this demo, numeric customer id &gt; 0 means a member with a loyalty wallet; 0 = no wallet (e.g. guest flows). */
 function hasAccountCustomerId(customerID) {
   return Number(customerID) > 0;
 }
@@ -357,8 +823,243 @@ function computeFinalPriceBreakdown() {
 function refreshPricePreview() {
   const el = document.getElementById("computedTotalPrice");
   if (!el) return;
+  // If bundle pricing was run, prefer the diagram-aligned finalTotal.
+  const bTotal = latestBundlePricing?.finalTotal;
+  if (Number.isFinite(Number(bTotal))) {
+    el.textContent = Number(bTotal).toFixed(2);
+    return;
+  }
+
   const { finalPaid } = computeFinalPriceBreakdown();
   el.textContent = Number.isFinite(finalPaid) ? finalPaid.toFixed(2) : "-";
+}
+
+function setBundleResultVisible(_isVisible) {
+  /* Breakdown panel removed — totals live on cards + payment step */
+}
+
+function applyBundlePricingResult(bundle, inputsForThisCall) {
+  if (!bundle || typeof bundle !== "object") return;
+  latestBundlePricing = bundle;
+  lastBundleParams = inputsForThisCall || lastBundleParams;
+
+  const statusEl = document.getElementById("bundleStatus");
+  if (statusEl) {
+    const t = bundle.finalTotal;
+    statusEl.textContent = Number.isFinite(Number(t))
+      ? `Selected — total SGD ${Number(t).toFixed(2)}. Continue with traveller, hotel & flight steps.`
+      : "Bundle applied.";
+  }
+
+  if (selectedBundlePresetId) {
+    bundleCardPriceCache.set(selectedBundlePresetId, {
+      total: Number(bundle.finalTotal),
+      err: null,
+    });
+    updateBundleCardPriceLabels();
+  }
+
+  // Fill booking core fields from bundle result.
+  const flightIdEl = document.getElementById("flightID");
+  if (flightIdEl && bundle.flightNum) flightIdEl.value = String(bundle.flightNum);
+
+  const hotelIdEl = document.getElementById("hotelID");
+  if (hotelIdEl && Number.isFinite(Number(bundle.hotelID))) {
+    hotelIdEl.value = String(bundle.hotelID);
+  }
+
+  // DepartureTime is what Booking uses for refund timing.
+  if (inputsForThisCall?.departDate) {
+    const depEl = document.getElementById("departureTime");
+    if (depEl) depEl.value = String(inputsForThisCall.departDate);
+  }
+
+  // Total price charged at payment time.
+  const totalEl = document.getElementById("totalPrice");
+  if (totalEl && Number.isFinite(Number(bundle.finalTotal))) {
+    totalEl.value = String(Number(bundle.finalTotal));
+  }
+
+  // Apply chosen room type and hotel selection.
+  const hid = Number(bundle.hotelID || 0);
+  const chosenRoomType = (bundle.chosenRoomType || bundle.roomType || "").toString().toUpperCase();
+  if (hid > 0) {
+    void initHotelSelectionById(hid).then(() => {
+      const rtSel = document.getElementById("hotelRoomType");
+      if (rtSel && chosenRoomType && Array.from(rtSel.options || []).some((o) => o.value === chosenRoomType)) {
+        rtSel.value = chosenRoomType;
+      }
+      updateBreakfastAddonUI();
+      // Ensure total includes the room type selection side effects (UI keeps the input as-is).
+      refreshPricePreview();
+    });
+  } else {
+    refreshPricePreview();
+  }
+
+  // Update seat UI for the chosen flight.
+  updateSeatSelectionUI();
+  void syncFlightScheduleUI();
+}
+
+async function searchBundlePricing(loyaltyCoinsToUseCentsOverride = null) {
+  const origin = document.getElementById("bundleOrigin")?.value?.trim();
+  const destination = document.getElementById("bundleDestination")?.value?.trim();
+  const departDate = document.getElementById("bundleDepartDateTime")?.value?.trim();
+  const returnDate = document.getElementById("bundleReturnDateTime")?.value?.trim();
+  const travellers = document.getElementById("bundleNumberOfTravellers")?.value?.trim();
+  const customerId = document.getElementById("customerID")?.value?.trim();
+
+  const statusEl = document.getElementById("bundleStatus");
+  if (statusEl) statusEl.textContent = "Calculating bundle price…";
+
+  if (!origin || !destination || !departDate || !returnDate || !travellers || !customerId) {
+    if (statusEl) statusEl.textContent = "Please fill origin, destination, dates, travellers, and who's booking.";
+    return;
+  }
+
+  const qs = new URLSearchParams();
+  qs.set("origin", origin);
+  qs.set("destination", destination);
+  qs.set("departDate", departDate);
+  qs.set("returnDate", returnDate);
+  qs.set("numberOfTravellers", travellers);
+  qs.set("customerId", customerId);
+
+  const coinsInput = document.getElementById("coinsToSpendCents");
+  const coins = loyaltyCoinsToUseCentsOverride ?? coinsInput?.value ?? 0;
+  qs.set("loyaltyCoinsToUseCents", String(Math.max(0, Number(coins) || 0)));
+
+  latestBundlePricing = null;
+  setBundleResultVisible(false);
+
+  const out = await fetchJson(`${BUNDLE_PRICE_BASE}?${qs.toString()}`);
+  if (out.networkError || !out.ok) {
+    if (statusEl) statusEl.textContent = out.errorMessage || "Could not reach bundle pricing service.";
+    return;
+  }
+
+  const data = out.body?.data;
+  const code = out.body?.code;
+  if (code !== 200 || !data) {
+    if (statusEl) statusEl.textContent = out.body?.message || "Bundle pricing returned no data.";
+    return;
+  }
+
+  applyBundlePricingResult(data, { departDate, returnDate, origin, destination, travellers, customerId });
+}
+
+let bundleRefreshToken = 0;
+async function refreshBundleForCoins() {
+  if (!lastBundleParams) return;
+  const token = ++bundleRefreshToken;
+
+  const coinsInput = document.getElementById("coinsToSpendCents");
+  const coins = Math.max(0, Number(coinsInput?.value || 0));
+
+  // Use the same base inputs, but override coins.
+  const qs = new URLSearchParams();
+  qs.set("origin", lastBundleParams.origin);
+  qs.set("destination", lastBundleParams.destination);
+  qs.set("departDate", lastBundleParams.departDate);
+  qs.set("returnDate", lastBundleParams.returnDate);
+  qs.set("numberOfTravellers", lastBundleParams.travellers);
+  qs.set("customerId", lastBundleParams.customerId);
+  qs.set("loyaltyCoinsToUseCents", String(coins));
+
+  const out = await fetchJson(`${BUNDLE_PRICE_BASE}?${qs.toString()}`);
+  if (token !== bundleRefreshToken) return;
+  if (out.networkError || !out.ok) return;
+
+  const data = out.body?.data;
+  const code = out.body?.code;
+  if (code !== 200 || !data) return;
+  applyBundlePricingResult(data, { ...lastBundleParams, departDate: lastBundleParams.departDate });
+}
+
+function clearBundleSelectionState() {
+  selectedBundlePresetId = null;
+  const pkg = document.getElementById("bundlePackageSelect");
+  if (pkg) pkg.value = "";
+  latestBundlePricing = null;
+  lastBundleParams = null;
+  setBundleResultVisible(false);
+  const st = document.getElementById("bundleStatus");
+  if (st) st.textContent = "";
+  document.querySelectorAll(".bundle-card").forEach((b) => {
+    b.classList.remove("bundle-card--selected");
+    b.setAttribute("aria-pressed", "false");
+  });
+}
+
+function renderBundleGallery() {
+  const track = document.getElementById("bundleGalleryTrack");
+  if (!track) return;
+  track.replaceChildren();
+  const list = getFilteredPresets();
+  if (!list.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted bundle-gallery__empty";
+    empty.textContent =
+      "No packages match these filters — set Region / From / To to “Any” to see all trips.";
+    track.appendChild(empty);
+    return;
+  }
+  for (const p of list) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "bundle-card";
+    btn.dataset.presetId = p.id;
+    btn.setAttribute("role", "listitem");
+    btn.setAttribute("aria-pressed", "false");
+    const priceText = bundleCardPriceLabel(p.id);
+    btn.innerHTML = `
+      <span class="bundle-card__media" style="background-image:url('${escapeHtml(p.image)}')"></span>
+      <span class="bundle-card__price" data-preset-id="${escapeHtml(p.id)}">${escapeHtml(priceText)}</span>
+      <span class="bundle-card__body">
+        <span class="bundle-card__route">${escapeHtml(p.route)}</span>
+        <span class="bundle-card__title">${escapeHtml(p.title)}</span>
+        <span class="bundle-card__meta">${escapeHtml(p.blurb)}</span>
+      </span>
+    `;
+    btn.addEventListener("click", () => selectBundlePreset(p.id));
+    track.appendChild(btn);
+  }
+}
+
+function setupBundleGalleryNav() {
+  const gal = document.getElementById("bundleGallery");
+  const prev = document.getElementById("bundleGalleryPrev");
+  const next = document.getElementById("bundleGalleryNext");
+  if (!gal || !prev || !next) return;
+  const step = () => Math.min(360, Math.floor(gal.clientWidth * 0.88) || 320);
+  prev.addEventListener("click", () => gal.scrollBy({ left: -step(), behavior: "smooth" }));
+  next.addEventListener("click", () => gal.scrollBy({ left: step(), behavior: "smooth" }));
+}
+
+function selectBundlePreset(presetId) {
+  const preset = BUNDLE_PRESETS.find((x) => x.id === presetId);
+  if (!preset) return;
+  selectedBundlePresetId = presetId;
+
+  const pkg = document.getElementById("bundlePackageSelect");
+  if (pkg) pkg.value = presetId;
+
+  const o = document.getElementById("bundleOrigin");
+  const d = document.getElementById("bundleDestination");
+  if (o) o.value = preset.origin;
+  if (d) o.value = preset.destination;
+
+  ensureTripWindowOption(preset.depart, preset.ret);
+  applyTripWindowFromSelect();
+
+  document.querySelectorAll(".bundle-card").forEach((el) => {
+    const on = el.dataset.presetId === presetId;
+    el.classList.toggle("bundle-card--selected", on);
+    el.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+
+  void searchBundlePricing();
 }
 
 function extractAirlineCode(flightId) {
@@ -406,6 +1107,27 @@ function getSeatPolicy(flightId) {
       airlineName: "Scoot",
       reason:
         "Scoot: budget carrier — seat selection via the airline app or at check-in (not modelled in this UI).",
+    },
+    BA: {
+      onlineSeatSelection: false,
+      airlineName: "British Airways",
+      reason:
+        "British Airways (demo): choose seats at online check-in or via the airline.",
+    },
+    JL: {
+      onlineSeatSelection: false,
+      airlineName: "Japan Airlines",
+      reason: "JAL (demo): seat selection at check-in or partner flows — map disabled here.",
+    },
+    QF: {
+      onlineSeatSelection: false,
+      airlineName: "Qantas",
+      reason: "Qantas (demo): seat assignment via airline check-in.",
+    },
+    TG: {
+      onlineSeatSelection: false,
+      airlineName: "Thai Airways",
+      reason: "Thai Airways (demo): advance seat map not enabled — check in online.",
     },
   };
   const r = rules[code];
@@ -768,6 +1490,7 @@ function setCoinsToSpendCents(value) {
   if (!Number.isFinite(n) || n < 0) input.value = "0";
   else input.value = String(Math.floor(n));
   refreshPricePreview();
+  if (latestBundleParams) void refreshBundleForCoins();
 }
 
 function updateBreakfastAddonUI() {
@@ -1015,7 +1738,9 @@ function applyDemoProfile() {
   const p = DEMO_PROFILES.find((x) => x.id === sel.value);
   if (!p) return;
 
-  document.getElementById("customerID").value = p.customerID;
+  clearBundleSelectionState();
+
+  document.getElementById("customerID").value = String(p.customerID);
   const tc = document.getElementById("travellerCustomerID");
   if (tc) tc.value = String(p.customerID);
   const pn = document.getElementById("passengerName");
@@ -1081,8 +1806,9 @@ function applyDemoProfile() {
 }
 
 function setManualDefaults() {
+  clearBundleSelectionState();
   document.getElementById("demoProfile").value = "";
-  document.getElementById("customerID").value = 1;
+  document.getElementById("customerID").value = "1";
   const tc = document.getElementById("travellerCustomerID");
   if (tc) tc.value = "1";
   pendingTravellerIdsFromDemo = null;
@@ -1093,6 +1819,26 @@ function setManualDefaults() {
   if (pe0) pe0.value = "ava.chen@example.com";
   if (pp0) pp0.value = "+65 9123 4567";
   refreshTripContactSummary();
+  const bn = document.getElementById("bundleNumberOfTravellers");
+  if (bn) bn.value = "2";
+  const bo = document.getElementById("bundleOrigin");
+  const bd = document.getElementById("bundleDestination");
+  if (bo) bo.value = "Singapore";
+  if (bd) bd.value = "Tokyo";
+  const tw = document.getElementById("bundleTripWindowSelect");
+  if (tw && TRIP_WINDOW_OPTIONS[0]) {
+    tw.value = TRIP_WINDOW_OPTIONS[0].value;
+    applyTripWindowFromSelect();
+  }
+  const bfr = document.getElementById("bundleFilterRegion");
+  const bff = document.getElementById("bundleFilterFrom");
+  const bft = document.getElementById("bundleFilterTo");
+  if (bfr) bfr.value = "all";
+  if (bff) bff.value = "all";
+  if (bft) bft.value = "all";
+  populateBundlePackageSelect();
+  renderBundleGallery();
+  scheduleBundleCardPriceRefresh();
   document.getElementById("flightID").value = "SQ001";
   document.getElementById("hotelID").value = 1;
   document.getElementById("hotelRoomType").value = "STD";
@@ -1270,10 +2016,23 @@ async function onCreateBookingSubmit(e) {
   }
 
   try {
-    const breakdown = computeFinalPriceBreakdown();
-    refreshPricePreview();
-    payload.totalPrice = breakdown.finalPaid;
-    payload.coinsToSpendCents = breakdown.coinsToSpendCents;
+    const bTotal = latestBundlePricing?.finalTotal;
+    if (Number.isFinite(Number(bTotal))) {
+      // Diagram-aligned pricing: use composite bundle finalTotal.
+      payload.totalPrice = Number(bTotal);
+      const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
+      const coinsRequestedCents = Math.max(
+        0,
+        Number(document.getElementById("coinsToSpendCents")?.value || 0)
+      );
+      payload.coinsToSpendCents = Math.min(coinsAvailableCents, coinsRequestedCents);
+      refreshPricePreview();
+    } else {
+      const breakdown = computeFinalPriceBreakdown();
+      refreshPricePreview();
+      payload.totalPrice = breakdown.finalPaid;
+      payload.coinsToSpendCents = breakdown.coinsToSpendCents;
+    }
 
     const out = await fetchJson(`${API_BASE}/booking`, {
       method: "POST",
@@ -1400,7 +2159,7 @@ async function onCancelBookingSubmit(e) {
         httpStatus === 404 &&
         (String(msg).toLowerCase().includes("not found") || data?.code === 404)
       ) {
-        msg = `${msg} — use the booking reference from confirmation, not your customer number.`;
+        msg = `${msg} — use the booking reference from your confirmation, not your name or email.`;
       }
       setError(uiError, msg);
       showResult(
@@ -1701,7 +2460,7 @@ async function loadTravellerProfiles() {
   const customerID = Number(customerIdRaw || 0);
   if (!customerID || customerID < 1) {
     if (errEl) {
-      errEl.textContent = "Enter a valid customer number.";
+      errEl.textContent = "Choose a member under Profiles for.";
       errEl.hidden = false;
     }
     if (listEl) listEl.textContent = "";
@@ -1744,7 +2503,7 @@ async function loadTravellerProfiles() {
   listEl.innerHTML = "";
 
   if (!latestTravellerRows.length) {
-    listEl.textContent = "No saved traveller profiles found for this account.";
+    listEl.textContent = "No saved traveller profiles for this member yet.";
     return;
   }
 
@@ -2098,6 +2857,18 @@ function initUI() {
   populateDemoProfileOptions();
   buildSeatMapOnce();
   updateSeatSelectionUI();
+  populateCustomerSelects();
+  populateTravellerCountSelect();
+  populateBundleFilterSelects();
+  populateBundleRouteSelectsFromPresets();
+  populateTripWindowSelect();
+  applyTripWindowFromSelect();
+  populateBundlePackageSelect();
+  setupBundleFineTuneListeners();
+  setupBundleFilterListeners();
+  renderBundleGallery();
+  setupBundleGalleryNav();
+  scheduleBundleCardPriceRefresh();
 
   setupSegmentTabs();
   setupLoyaltyPaymentTabs();
@@ -2119,6 +2890,17 @@ function initUI() {
   document.getElementById("flightID").addEventListener("change", () => {
     updateSeatSelectionUI();
     void syncFlightScheduleUI();
+  });
+
+  document.getElementById("bundleSearchBtn")?.addEventListener("click", () => {
+    selectedBundlePresetId = null;
+    const pkg = document.getElementById("bundlePackageSelect");
+    if (pkg) pkg.value = "";
+    document.querySelectorAll(".bundle-card").forEach((b) => {
+      b.classList.remove("bundle-card--selected");
+      b.setAttribute("aria-pressed", "false");
+    });
+    void searchBundlePricing();
   });
   document
     .getElementById("hotelRoomType")
@@ -2156,23 +2938,49 @@ function initUI() {
   document.getElementById("customerID").addEventListener("change", () => {
     const id = Number(document.getElementById("customerID").value || 0);
     updateCoinsOffsetUI();
-    if (id) updateLoyaltySummary(id);
-    else {
+    scheduleBundleCardPriceRefresh();
+    if (id) {
+      void updateLoyaltySummary(id).then(() => {
+        if (selectedBundlePresetId) void searchBundlePricing();
+      });
+    } else {
       latestLoyalty = null;
       document.getElementById("loyaltyCoins").textContent = "-";
       document.getElementById("loyaltyTier").textContent = "-";
       refreshPricePreview();
     }
-    // Keep Trip-tab traveller selectors in sync with the account chosen.
+    // Keep Trip-tab traveller selectors in sync with Who's booking?
     if (document.getElementById("leadTravellerSelect")) {
       void loadTravellerProfiles();
     }
   });
 
-  ["totalPrice", "discountCode", "coinsToSpendCents"].forEach((id) => {
+  document.getElementById("bundleNumberOfTravellers")?.addEventListener("change", () => {
+    scheduleBundleCardPriceRefresh();
+    if (selectedBundlePresetId) void searchBundlePricing();
+  });
+
+  ["totalPrice", "discountCode"].forEach((id) => {
     document.getElementById(id)?.addEventListener("input", refreshPricePreview);
     document.getElementById(id)?.addEventListener("change", refreshPricePreview);
   });
+
+  // When coins change and we already have a bundle price, re-run the bundle
+  // so finalTotal stays diagram-aligned.
+  document
+    .getElementById("coinsToSpendCents")
+    ?.addEventListener("input", () => {
+      refreshPricePreview();
+      scheduleBundleCardPriceRefresh();
+      if (latestBundleParams) void refreshBundleForCoins();
+    });
+  document
+    .getElementById("coinsToSpendCents")
+    ?.addEventListener("change", () => {
+      refreshPricePreview();
+      scheduleBundleCardPriceRefresh();
+      if (latestBundleParams) void refreshBundleForCoins();
+    });
 
   const btnNone = document.getElementById("coinsUseNoneBtn");
   if (btnNone) {

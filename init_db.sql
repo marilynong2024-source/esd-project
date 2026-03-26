@@ -58,7 +58,22 @@ INSERT INTO Flight (flightNumber, airline, origin, destination, originCity, dest
 
 -- Return flights Bangkok → Singapore
 ('SQ707',  'Singapore Airlines', 'BKK', 'SIN', 'Bangkok',   'Singapore', '2025-06-05 10:00:00', '2025-06-05 13:30:00', 90,  180.00, 520.00,  180, 120),
-('TR863',  'Scoot',              'BKK', 'SIN', 'Bangkok',   'Singapore', '2025-06-05 14:00:00', '2025-06-05 15:40:00', 100, 99.00,  NULL,    180, 150);
+('TR863',  'Scoot',              'BKK', 'SIN', 'Bangkok',   'Singapore', '2025-06-05 14:00:00', '2025-06-05 15:40:00', 100, 99.00,  NULL,    180, 150),
+
+-- Extra outbound leisure (broader demo timetable)
+('SQ312',  'Singapore Airlines', 'SIN', 'LHR', 'Singapore', 'London',  '2025-06-10 10:15:00', '2025-06-10 16:40:00', 750, 920.00,  3050.00, 300, 175),
+('TR991',  'Scoot',              'SIN', 'DPS', 'Singapore', 'Bali',    '2025-06-15 14:20:00', '2025-06-15 15:50:00', 90,  95.00,   NULL,    180, 170),
+('SQ415',  'Singapore Airlines', 'SIN', 'SYD', 'Singapore', 'Sydney',  '2025-06-20 09:05:00', '2025-06-20 20:15:00', 480, 540.00,  1420.00, 250, 160);
+
+-- Diagram-aligned seat reservation ledger (FlightDB / slides)
+CREATE TABLE IF NOT EXISTS FlightReservations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    BookingID INT NOT NULL,
+    FlightNum VARCHAR(20) NOT NULL,
+    SeatNo VARCHAR(8) NOT NULL,
+    Status VARCHAR(20) NOT NULL,
+    CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
 
 -- ============================================================
@@ -204,48 +219,131 @@ INSERT INTO RoomType (hotelID, typeName, pricePerNight, maxGuests, totalRooms, a
 (21, 'Standard',  110.00, 2, 45, 26, 'Budget standard room near Latin Quarter.',                      'https://picsum.photos/seed/room21std/400/300'),
 (21, 'Deluxe',    150.00, 2, 25, 12, 'Value deluxe room with breakfast included.',                 'https://picsum.photos/seed/room21dlx/400/300');
 
-
--- ============================================================
--- BOOKING SERVICE DB
--- ============================================================
-CREATE DATABASE IF NOT EXISTS BookingDB;
-USE BookingDB;
-
-CREATE TABLE IF NOT EXISTS Booking (
-    bookingID               INT AUTO_INCREMENT PRIMARY KEY,
-    accountID               INT NOT NULL,
-    travellerProfileID      INT NOT NULL,
-    flightID                INT,               -- NULL if hotel only
-    returnFlightID          INT,               -- NULL if one way
-    hotelID                 INT,               -- NULL if flight only
-    roomTypeID              INT,               -- NULL if flight only
-    flightClass             VARCHAR(20),       -- ECONOMY, BUSINESS
-    checkInDate             DATE,
-    checkOutDate            DATE,
-    departureDate           DATE,
-    returnDate              DATE,
-    numGuests               INT DEFAULT 1,
-    flightPrice             DECIMAL(10,2) DEFAULT 0,
-    hotelPrice              DECIMAL(10,2) DEFAULT 0,
-    discountPercent         DECIMAL(5,2)  DEFAULT 0,
-    loyaltyCoinsUsed        INT DEFAULT 0,
-    totalAmount             DECIMAL(10,2) NOT NULL,
-    loyaltyPointsEarned     INT DEFAULT 0,
-    stripePaymentIntentID   VARCHAR(255),
-    stripeRefundID          VARCHAR(255),
-    status                  VARCHAR(30) NOT NULL DEFAULT 'CONFIRMED',
-    -- CONFIRMED, CANCELLED, REFUND_PENDING, REFUNDED, NO_SHOW
-    cancellationReason      TEXT,
-    refundAmount            DECIMAL(10,2) DEFAULT 0,
-    createdAt               DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updatedAt               DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+-- Diagram-aligned hotel hold/confirm ledger (HotelDB / slides)
+CREATE TABLE IF NOT EXISTS HotelBookings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    BookingID INT NOT NULL,
+    HotelID INT NOT NULL,
+    RoomType VARCHAR(20) NOT NULL,
+    CheckIn DATETIME NOT NULL,
+    CheckOut DATETIME NOT NULL,
+    NumberOfKeys INT NOT NULL,
+    Status VARCHAR(20) NOT NULL,
+    CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Sample bookings for demo
-INSERT INTO Booking (accountID, travellerProfileID, flightID, hotelID, roomTypeID, flightClass, checkInDate, checkOutDate, departureDate, flightPrice, hotelPrice, totalAmount, loyaltyPointsEarned, stripePaymentIntentID, status) VALUES
-(1, 1, 1, 1, 1, 'ECONOMY', '2025-06-01', '2025-06-08', '2025-06-01', 450.00, 1960.00, 2410.00, 2410, 'pi_demo_001', 'CONFIRMED'),
-(1, 1, 5, 4, 9, 'ECONOMY', '2025-06-15','2025-06-18', '2025-06-15', 180.00,  600.00,  780.00,  780,  'pi_demo_002', 'CONFIRMED'),
-(2, 2, 8, 7, 16,'BUSINESS','2025-07-01', '2025-07-07', '2025-07-01', 3200.00,2100.00, 5300.00, 5300, 'pi_demo_003', 'CONFIRMED');
+
+-- ============================================================
+-- CUSTOMER / ACCOUNT DB (slides: CustomerProfile + customer_accounts)
+-- ============================================================
+CREATE DATABASE IF NOT EXISTS CustomerDB;
+USE CustomerDB;
+
+CREATE TABLE IF NOT EXISTS customer_accounts (
+    customer_id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(120) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    first_name VARCHAR(60) NOT NULL,
+    last_name VARCHAR(60) NOT NULL,
+    phone_number VARCHAR(30),
+    date_of_birth DATE,
+    nationality VARCHAR(60),
+    account_status VARCHAR(20) DEFAULT 'Active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS CustomerProfile (
+    customerID INT NOT NULL PRIMARY KEY,
+    Nationality VARCHAR(60),
+    CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    AccountStatus VARCHAR(20) DEFAULT 'Active',
+    CONSTRAINT fk_customer_profile_account FOREIGN KEY (customerID) REFERENCES customer_accounts (customer_id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+INSERT INTO customer_accounts
+    (email, password_hash, first_name, last_name, phone_number, date_of_birth, nationality, account_status)
+VALUES
+    ('ava.chen@example.com', '$2b$demo_hash_1', 'Ava', 'Chen', '+6591110001', '1995-02-14', 'Singapore', 'Active'),
+    ('ben.kumar@example.com', '$2b$demo_hash_2', 'Ben', 'Kumar', '+6591110002', '1991-08-03', 'India', 'Active'),
+    ('casey.tan@example.com', '$2b$demo_hash_3', 'Casey', 'Tan', '+6591110003', '1998-12-09', 'Malaysia', 'Active');
+
+INSERT INTO CustomerProfile (customerID, Nationality, CreatedAt, AccountStatus)
+SELECT customer_id, nationality, created_at, account_status
+FROM customer_accounts;
+
+
+-- ============================================================
+-- BOOKING SERVICE DB (Docker Compose: travel_booking — slides: PackageBookings)
+-- ============================================================
+CREATE DATABASE IF NOT EXISTS travel_booking;
+USE travel_booking;
+
+CREATE TABLE IF NOT EXISTS bookings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customerID INT NOT NULL,
+    flightID VARCHAR(20) NOT NULL,
+    hotelID INT NOT NULL,
+    hotelRoomType VARCHAR(10),
+    hotelIncludesBreakfast TINYINT(1) DEFAULT 0,
+    departureTime VARCHAR(40) NOT NULL,
+    totalPrice DOUBLE NOT NULL,
+    currency VARCHAR(8) DEFAULT 'SGD',
+    fareType VARCHAR(20) DEFAULT 'Saver',
+    loyaltyTier VARCHAR(20),
+    status VARCHAR(20) DEFAULT 'CONFIRMED',
+    noOfRooms INT DEFAULT 1,
+    refundPercentage INT,
+    refundAmount DOUBLE,
+    seatNumber VARCHAR(8) NULL,
+    travellerProfileId INT NULL,
+    travellerDisplayName VARCHAR(128) NULL,
+    travellerProfileIdsJson TEXT NULL,
+    passengerName VARCHAR(200) NULL,
+    passengerEmail VARCHAR(255) NULL,
+    passengerPhone VARCHAR(40) NULL
+);
+
+CREATE TABLE IF NOT EXISTS PackageBookings LIKE bookings;
+
+-- Curated bundles (UI + reporting — aligns with BUNDLE_PRESETS in web app)
+CREATE TABLE IF NOT EXISTS BundleCatalog (
+    bundleCode VARCHAR(32) PRIMARY KEY,
+    title VARCHAR(160) NOT NULL,
+    originCity VARCHAR(80) NOT NULL,
+    destinationCity VARCHAR(80) NOT NULL,
+    defaultNights INT NOT NULL,
+    highlight VARCHAR(255) NULL,
+    displayOrder INT DEFAULT 0
+);
+
+INSERT INTO BundleCatalog (bundleCode, title, originCity, destinationCity, defaultNights, highlight, displayOrder) VALUES
+    ('PKG_TOKYO', 'Tokyo city break', 'Singapore', 'Tokyo', 5, 'Culture, dining & shopping', 1),
+    ('PKG_BKK', 'Bangkok long weekend', 'Singapore', 'Bangkok', 4, 'Temples & street food', 2),
+    ('PKG_BALI', 'Bali beach escape', 'Singapore', 'Bali', 7, 'Resorts & relaxation', 3),
+    ('PKG_SYD', 'Sydney harbour', 'Singapore', 'Sydney', 7, 'Harbour & beaches', 4),
+    ('PKG_LON', 'London summer', 'Singapore', 'London', 8, 'Museums & theatre', 5);
+
+INSERT INTO bookings (
+    customerID, flightID, hotelID, hotelRoomType, hotelIncludesBreakfast,
+    departureTime, totalPrice, currency, fareType, loyaltyTier,
+    status, refundPercentage, refundAmount,
+    seatNumber, travellerProfileId, travellerDisplayName, travellerProfileIdsJson,
+    passengerName, passengerEmail, passengerPhone, noOfRooms
+) VALUES
+    (1, 'SQ001', 1, 'STD', 0,
+     '2026-05-01T10:00:00', 1200.00, 'SGD', 'Flexi', 'Gold',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Ava Chen', 'ava.chen@example.com', '+65 9123 4567', 1),
+    (2, 'SQ001', 1, 'DLX', 1,
+     '2026-06-15T09:30:00', 1500.00, 'SGD', 'Standard', 'Silver',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Ben Kumar', 'ben.kumar@example.com', '+65 8123 0000', 1),
+    (3, 'SQ001', 1, 'STD', 0,
+     '2026-04-20T18:45:00', 800.00, 'SGD', 'Saver', NULL,
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Casey Tan', 'casey.tan@example.com', '+65 9000 1111', 1);
 
 
 -- ============================================================
@@ -291,13 +389,24 @@ INSERT INTO LoyaltyTier (tier, minBookings, coinValueCents, discountPercent) VAL
 ('GOLD',     5,  3, 15.00),
 ('PLATINUM', 10, 5, 20.00);
 
--- Sample loyalty accounts
+-- Sample loyalty accounts (pairs with customer_accounts 1–6)
 INSERT INTO LoyaltyAccount (accountID, tier, totalPoints, coinBalance, totalBookings) VALUES
-(1, 'SILVER',   3190, 3190, 2),
-(2, 'BRONZE',   5300, 5300, 1);
+(1, 'SILVER',   11200, 11200, 3),
+(2, 'SILVER',   8600, 8600, 2),
+(3, 'GOLD',     18400, 18400, 6),
+(4, 'SILVER',   5200, 5200, 2),
+(5, 'BRONZE',   800, 800, 0),
+(6, 'PLATINUM', 98200, 98200, 13);
 
--- Sample transactions
+-- Sample transactions (journal-style audit trail)
 INSERT INTO LoyaltyTransaction (loyaltyID, bookingID, type, points, coins, description) VALUES
-(1, 1, 'EARN', 2410, 2410, 'Earned from Tokyo bundle booking #1'),
-(1, 2, 'EARN',  780,  780, 'Earned from Bangkok booking #2'),
-(2, 3, 'EARN', 5300, 5300, 'Earned from London business booking #3');
+(1, 1, 'EARN', 1200, 1200, 'Bundle accrual — booking #1'),
+(1, 4, 'EARN', 2450, 2450, 'Bundle accrual — Tokyo DLX'),
+(1, NULL, 'REDEEM', -500, -500, 'Partial coin burn — test'),
+(2, 2, 'EARN', 1500, 1500, 'Bangkok weekend'),
+(2, 6, 'EARN', 3100, 3100, 'Sydney long-haul'),
+(3, 3, 'EARN', 800, 800, 'Saver Bali'),
+(3, NULL, 'EARN', 2000, 2000, 'Promotional tier bump'),
+(4, 5, 'EARN', 620, 620, 'Budget Bangkok'),
+(6, 7, 'EARN', 8900, 8900, 'London premium package'),
+(6, NULL, 'EARN', 1200, 1200, 'Anniversary bonus');

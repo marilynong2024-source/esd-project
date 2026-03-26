@@ -202,6 +202,33 @@ Use this `TEAM_GUIDE.md` for full technical and project-level reference.
 
 ---
 
+## 7.1) Search & Price Bundle (Diagram-aligned Composite)
+
+To match your diagram requirements, the repo includes an orchestration composite service and supporting endpoints:
+
+- `bundle-pricing` service exposes: `GET /bundle-price`
+  - Input query params: `origin`, `destination`, `departDate`, `returnDate`, `numberOfTravellers`, `customerId` (optional: `roomType`, `loyaltyCoinsToUseCents`)
+  - Output fields (required by diagram): `flightPrice`, `hotelPrice`, `discount`, `loyaltyUsed`, `finalTotal`
+  - Execution order enforced: Flight (availability -> price) then Hotel (availability -> price) then Discount (`/discount-rule`)
+
+- `discount` service exposes: `GET /discount-rule`
+  - Implemented as “more restrictive bundle discounts”:
+    - bundle constraints: `numberOfTravellers >= 2`, `nights >= 3`, and `roomType == DLX`
+    - tier used as an eligibility floor and the highest eligible discount percent is picked
+
+- `flight` service exposes helper endpoints (used by bundle pricing):
+  - `GET /availability`
+  - `GET /price`
+
+- `hotel` service exposes helper endpoints (used by bundle pricing):
+  - `GET /availability`
+  - `GET /price`
+
+Nginx exposes the bundle endpoint via:
+- `GET http://localhost:8080/api/bundle-price?...`
+
+---
+
 ## 8) API Contract Summary
 
 ### Booking

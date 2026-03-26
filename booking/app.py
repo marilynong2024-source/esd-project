@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import requests
 from flask_sqlalchemy import SQLAlchemy
@@ -123,6 +123,9 @@ class Booking(db.Model):
     fareType = db.Column(db.String(20), default="Saver")
     loyaltyTier = db.Column(db.String(20), nullable=True)
     status = db.Column(db.String(20), default="CONFIRMED")
+    # Number of rooms reserved for this package (diagram-required field).
+    # Demo assumes 1 room for the selected hotel package.
+    noOfRooms = db.Column(db.Integer, default=1)
     refundPercentage = db.Column(db.Integer, nullable=True)
     refundAmount = db.Column(db.Float, nullable=True)
     # Flight seat (demo): only meaningful when airline allows online seat selection (e.g. SQ).
@@ -162,6 +165,7 @@ class Booking(db.Model):
             "fareType": self.fareType,
             "loyaltyTier": self.loyaltyTier,
             "status": self.status,
+            "noOfRooms": self.noOfRooms,
             "refundPercentage": self.refundPercentage,
             "refundAmount": self.refundAmount,
             "seatNumber": self.seatNumber,
@@ -316,6 +320,21 @@ def create_booking():
         if tid_err:
             return _bad_request(tid_err)
 
+        # Account Check (Diagram step):
+        # Call GET /account/{userID}. In local demos, accounts might not be pre-created,
+        # so we treat 404 as non-fatal but still record a warning.
+        if customer_id > 0:
+            try:
+                account_resp = requests.get(
+                    f"http://account:5100/account/{customer_id}", timeout=5
+                )
+                if not account_resp.ok:
+                    warnings.append(
+                        f"Account check returned HTTP {account_resp.status_code} (demo continues)"
+                    )
+            except requests.RequestException as e:
+                warnings.append(f"Account check unreachable: {e} (demo continues)")
+
         profile_rows, profile_err, _, traveller_ids_final = (
             validate_travellers_for_booking(customer_id, traveller_ids)
         )
@@ -350,6 +369,8 @@ def create_booking():
             fareType=fare_type,
             loyaltyTier=data.get("loyaltyTier"),
             seatNumber=seat_number,
+            status="PENDING",
+            noOfRooms=1,
             travellerProfileId=traveller_profile_id,
             travellerDisplayName=display_name,
             travellerProfileIdsJson=ids_json,
@@ -370,51 +391,250 @@ def create_booking():
             {"code": 500, "message": "Could not save booking (database error)"}
         ), 500
 
-    if booking.customerID:
-        loyalty_url = os.environ.get("LOYALTY_URL", "http://localhost:5105/loyalty")
+    # ---- Book Package Composite (Diagram-aligned lifecycle) ----
+    # Execution order inside this function:
+    # 1) Flight reservation (reserve-seat)
+    # 2) Hotel hold (hold-room)
+    # 3) Loyalty pre-payment coin-deduct (stage=deduct) BEFORE payment
+    # 4) Payment processing (payment/process)
+    # 5) Confirmation (confirm-seat + confirm-room)
+    # 6) Loyalty post-payment earn (stage=postpay)
+    def _base_url(env_name: str, default: str) -> str:
+        raw = os.environ.get(env_name, default).strip().rstrip("/")
+        # Common compose defaults are like "...:port/flight" or ".../hotel"
+        return raw
+
+    flight_base = _base_url("FLIGHT_URL", "http://flight:5102/flight")
+    if flight_base.endswith("/flight"):
+        flight_base = flight_base[: -len("/flight")]
+    hotel_base = _base_url("HOTEL_URL", "http://hotel:5103/hotel")
+    if hotel_base.endswith("/hotel"):
+        hotel_base = hotel_base[: -len("/hotel")]
+
+    payment_base = _base_url("PAYMENT_URL", "http://payment:5104/payment")
+    payment_process_url = (
+        payment_base if payment_base.endswith("/process") else f"{payment_base}/process"
+    )
+
+    # Derived fields for Diagram lifecycle.
+    traveller_ids_for_keys = traveller_profile_ids_for_event(booking)
+    number_of_keys = len(traveller_ids_for_keys) if traveller_ids_for_keys else 1
+
+    check_in = booking.departureTime
+    check_out = booking.departureTime
+    try:
+        dep = datetime.fromisoformat(str(booking.departureTime).strip())
+        check_out = (dep + timedelta(days=4)).isoformat()
+    except Exception:
+        # Keep check_out as check_in if parsing fails (demo tolerance).
+        pass
+
+    def _release_all():
         try:
-            earn_payload = {
+            requests.put(
+                f"{flight_base}/release-seat",
+                json={"bookingID": booking.id},
+                timeout=3,
+            )
+        except Exception:
+            pass
+        try:
+            requests.put(
+                f"{hotel_base}/release-room",
+                json={"bookingID": booking.id},
+                timeout=3,
+            )
+        except Exception:
+            pass
+
+    # 1) Flight Reservation
+    seat_no = booking.seatNumber or "AUTO"
+    try:
+        reserve_payload = {
+            "bookingID": booking.id,
+            "flightNum": booking.flightID,
+            "seatNo": seat_no,
+        }
+        reserve_resp = requests.post(
+            f"{flight_base}/reserve-seat",
+            json=reserve_payload,
+            timeout=5,
+        )
+        if not reserve_resp.ok:
+            _release_all()
+            booking.status = "CANCELLED"
+            db.session.commit()
+            return (
+                jsonify(
+                    {"code": 502, "message": "Flight reserve-seat failed", "upstream": reserve_resp.status_code}
+                ),
+                502,
+            )
+    except requests.RequestException as e:
+        _release_all()
+        booking.status = "CANCELLED"
+        db.session.commit()
+        return jsonify({"code": 503, "message": f"Flight reserve-seat unreachable: {e}"}), 503
+
+    # 2) Hotel Hold
+    room_type = booking.hotelRoomType or "STD"
+    try:
+        hold_payload = {
+            "bookingID": booking.id,
+            "hotelID": booking.hotelID,
+            "roomType": room_type,
+            "checkIn": check_in,
+            "checkOut": check_out,
+            "numberOfKeys": number_of_keys,
+        }
+        hold_resp = requests.post(
+            f"{hotel_base}/hold-room",
+            json=hold_payload,
+            timeout=5,
+        )
+        if not hold_resp.ok:
+            _release_all()
+            booking.status = "CANCELLED"
+            db.session.commit()
+            return (
+                jsonify(
+                    {"code": 502, "message": "Hotel hold-room failed", "upstream": hold_resp.status_code}
+                ),
+                502,
+            )
+    except requests.RequestException as e:
+        _release_all()
+        booking.status = "CANCELLED"
+        db.session.commit()
+        return jsonify({"code": 503, "message": f"Hotel hold-room unreachable: {e}"}), 503
+
+    # 3) Loyalty pre-payment coin-deduct
+    if booking.customerID:
+        loyalty_url = os.environ.get("LOYALTY_URL", "http://loyalty:5105/loyalty")
+        try:
+            deduct_payload = {
                 "customerID": booking.customerID,
                 "amount": float(booking.totalPrice),
                 "coinsToSpendCents": coins_to_spend_cents,
+                "stage": "deduct",
+            }
+            deduct_resp = requests.post(
+                f"{loyalty_url}/earn",
+                json=deduct_payload,
+                timeout=5,
+            )
+            if deduct_resp.ok:
+                try:
+                    deduct_data = deduct_resp.json()
+                except ValueError:
+                    deduct_data = {}
+                if deduct_data.get("code") == 200 and deduct_data.get("data"):
+                    COINS_SPENT_BY_BOOKING[booking.id] = int(
+                        deduct_data["data"].get("coinsSpent") or 0
+                    )
+            else:
+                warnings.append(
+                    f"Loyalty pre-deduct failed HTTP {deduct_resp.status_code}"
+                )
+        except requests.RequestException as e:
+            warnings.append(f"Loyalty pre-deduct unreachable: {e}")
+
+    # 4) Payment processing
+    payment_payload = {
+        "bookingID": booking.id,
+        "amount": float(booking.totalPrice),
+        "currency": booking.currency or "SGD",
+    }
+    try:
+        payment_resp = requests.post(
+            payment_process_url, json=payment_payload, timeout=10
+        )
+    except requests.RequestException as e:
+        _release_all()
+        booking.status = "CANCELLED"
+        try:
+            db.session.commit()
+        except sa_exc.SQLAlchemyError:
+            db.session.rollback()
+        return jsonify({"code": 503, "message": f"Payment process unreachable: {e}"}), 503
+
+    if not payment_resp.ok:
+        _release_all()
+        booking.status = "CANCELLED"
+        try:
+            db.session.commit()
+        except sa_exc.SQLAlchemyError:
+            db.session.rollback()
+        try:
+            upstream_body = payment_resp.text or ""
+        except Exception:
+            upstream_body = ""
+        return (
+            jsonify(
+                {
+                    "code": 502,
+                    "message": "Payment process failed",
+                    "upstreamStatus": payment_resp.status_code,
+                    "upstreamBody": upstream_body[:300],
+                }
+            ),
+            502,
+        )
+
+    # 5) Confirmation
+    try:
+        confirm_payload = {"bookingID": booking.id}
+        requests.put(
+            f"{flight_base}/confirm-seat", json=confirm_payload, timeout=5
+        )
+        requests.put(
+            f"{hotel_base}/confirm-room", json=confirm_payload, timeout=5
+        )
+    except requests.RequestException as e:
+        # If confirmation fails, rollback the holds.
+        _release_all()
+        booking.status = "CANCELLED"
+        db.session.commit()
+        return jsonify({"code": 502, "message": f"Confirm-seat/room failed: {e}"}), 502
+
+    booking.status = "CONFIRMED"
+    try:
+        db.session.commit()
+    except sa_exc.SQLAlchemyError:
+        db.session.rollback()
+
+    # 6) Loyalty post-payment earn (coins already deducted in stage=deduct)
+    if booking.customerID:
+        try:
+            loyalty_url = os.environ.get("LOYALTY_URL", "http://loyalty:5105/loyalty")
+            earn_payload = {
+                "customerID": booking.customerID,
+                "amount": float(booking.totalPrice),
+                "coinsToSpendCents": 0,
+                "stage": "postpay",
             }
             earn_resp = requests.post(
                 f"{loyalty_url}/earn", json=earn_payload, timeout=5
             )
-            if not earn_resp.ok:
-                warnings.append(
-                    f"Loyalty service returned HTTP {earn_resp.status_code} for /earn"
-                )
-                earn_data = {}
-            else:
+            if earn_resp.ok:
                 try:
                     earn_data = earn_resp.json()
                 except ValueError:
-                    warnings.append("Loyalty service returned non-JSON for /earn")
                     earn_data = {}
-            if (
-                earn_data
-                and earn_data.get("code") == 200
-                and earn_data.get("data")
-                and earn_data["data"].get("tier")
-            ):
-                booking.loyaltyTier = earn_data["data"]["tier"]
-                try:
+                if (
+                    earn_data
+                    and earn_data.get("code") == 200
+                    and earn_data.get("data")
+                    and earn_data["data"].get("tier")
+                ):
+                    booking.loyaltyTier = earn_data["data"]["tier"]
                     db.session.commit()
-                except sa_exc.SQLAlchemyError as e:
-                    db.session.rollback()
-                    warnings.append("Could not persist loyalty tier on booking")
-                    print(f"[booking] loyalty tier commit: {e}")
-                if earn_data["data"].get("coinsSpent") is not None:
-                    COINS_SPENT_BY_BOOKING[booking.id] = int(
-                        earn_data["data"]["coinsSpent"]
-                    )
         except requests.RequestException as e:
-            warnings.append(f"Loyalty service unreachable: {e}")
+            warnings.append(f"Loyalty postpay unreachable: {e}")
 
     t_ids_publish = traveller_profile_ids_for_event(booking)
     confirmed_ok = publish_event(
-        "booking.confirmed",
+        "notify.user",
         {
             "bookingID": booking.id,
             "customerID": booking.customerID,
@@ -440,7 +660,7 @@ def create_booking():
     )
     if not confirmed_ok:
         warnings.append(
-            "Could not publish booking.confirmed to RabbitMQ — check booking logs, "
+            "Could not publish notify.user to RabbitMQ — check booking logs, "
             "RABBIT_HOST/RABBIT_PORT, and that the notification worker is running."
         )
 
@@ -470,7 +690,7 @@ def get_reserved_seats_for_flight(flight_id: str):
     rows = (
         Booking.query.filter(func.upper(Booking.flightID) == fid)
         .filter(Booking.seatNumber.isnot(None))
-        .filter(func.upper(func.coalesce(Booking.status, "")) != "CANCELLED")
+        .filter(func.upper(func.coalesce(Booking.status, "")) == "CONFIRMED")
         .all()
     )
 
@@ -606,8 +826,11 @@ def cancel_booking(booking_id: int):
 
     percentage = int(round((amount / total_price) * 100)) if total_price > 0 else 0
 
-    payment_url = os.environ.get(
-        "PAYMENT_URL", "http://localhost:5104/payment/refund"
+    payment_base = os.environ.get("PAYMENT_URL", "http://payment:5104/payment").rstrip("/")
+    payment_url = (
+        payment_base
+        if payment_base.endswith("/refund")
+        else f"{payment_base}/refund"
     )
     refund_payload = {"bookingID": booking_id, "refundAmount": amount}
     try:
@@ -688,7 +911,7 @@ def cancel_booking(booking_id: int):
     t_ids_event = traveller_profile_ids_for_event(booking)
 
     published = publish_event(
-        "booking.cancelled",
+        "notify.user",
         {
             "bookingID": booking_id,
             "customerID": booking.customerID,
@@ -782,6 +1005,12 @@ def ensure_booking_columns():
                 "ALTER TABLE bookings ADD COLUMN passengerPhone VARCHAR(40) NULL"
                 if db.engine.dialect.name != "sqlite"
                 else "ALTER TABLE bookings ADD COLUMN passengerPhone VARCHAR(40)"
+            )
+        if "noOfRooms" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN noOfRooms INT DEFAULT 1"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN noOfRooms INTEGER DEFAULT 1"
             )
         for stmt in alters:
             db.session.execute(text(stmt))

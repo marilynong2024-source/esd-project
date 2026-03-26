@@ -74,6 +74,23 @@ services:
       - hotel
       - loyalty
 
+  discount:
+    build: ./discount
+    ports:
+      - "5112:5112"
+    depends_on:
+      - loyalty
+
+  bundle-pricing:
+    build: ./bundle_pricing
+    ports:
+      - "5111:5111"
+    depends_on:
+      - flight
+      - hotel
+      - loyalty
+      - discount
+
   notification:
     build: ./notification
     ports:
@@ -87,7 +104,7 @@ services:
       RABBIT_PORT: 5672
       EXCHANGE_NAME: travel_topic
       EXCHANGE_TYPE: topic
-      QUEUE_NAME: Notification
+      QUEUE_NAME: notify.user
     depends_on:
       - rabbitmq
 
@@ -130,4 +147,5 @@ services:
       - loyalty
       - notification
       - graphql
+      - bundle-pricing
 

@@ -60,7 +60,7 @@ $createPayload = @{
 } | ConvertTo-Json -Depth 6
 
 $create = Invoke-RestMethod "$baseBooking/booking" -Method POST -ContentType "application/json" -Body $createPayload
-Assert-Ok ($create.code -eq 200) "Create booking failed"
+Assert-Ok ($create.code -eq 200 -or $create.code -eq 201) "Create booking failed"
 Assert-Ok ($null -ne $create.data.id) "Create booking returned no ID"
 $bookingId = [int]$create.data.id
 Write-Host "Created booking id: $bookingId" -ForegroundColor Green

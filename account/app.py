@@ -5,9 +5,70 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 
-# In-memory store for demo purposes.
-ACCOUNTS = {}
-NEXT_ID = 1
+# In-memory store for demo purposes (seed aligns with `database/customer_db.sql` / `init_db.sql`).
+ACCOUNTS = {
+    1: {
+        "email": "ava.chen@example.com",
+        "firstName": "Ava",
+        "lastName": "Chen",
+        "phoneNumber": "+6591110001",
+        "nationality": "Singapore",
+        "dateOfBirth": "1995-02-14",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    2: {
+        "email": "ben.kumar@example.com",
+        "firstName": "Ben",
+        "lastName": "Kumar",
+        "phoneNumber": "+6591110002",
+        "nationality": "India",
+        "dateOfBirth": "1991-08-03",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    3: {
+        "email": "casey.tan@example.com",
+        "firstName": "Casey",
+        "lastName": "Tan",
+        "phoneNumber": "+6591110003",
+        "nationality": "Malaysia",
+        "dateOfBirth": "1998-12-09",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    4: {
+        "email": "dana.ng@example.com",
+        "firstName": "Dana",
+        "lastName": "Ng",
+        "phoneNumber": "+6591110004",
+        "nationality": "Singapore",
+        "dateOfBirth": "1993-05-21",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    5: {
+        "email": "evan.lee@example.com",
+        "firstName": "Evan",
+        "lastName": "Lee",
+        "phoneNumber": "+6591110005",
+        "nationality": "Singapore",
+        "dateOfBirth": "1990-11-02",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    6: {
+        "email": "fiona.ong@example.com",
+        "firstName": "Fiona",
+        "lastName": "Ong",
+        "phoneNumber": "+6591110006",
+        "nationality": "Singapore",
+        "dateOfBirth": "1988-03-30",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+}
+NEXT_ID = 7
 
 
 def to_dict(record_id: int, record: dict) -> dict:

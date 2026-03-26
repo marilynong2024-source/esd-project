@@ -38,3 +38,16 @@ VALUES
   (3, 'DLX', 'Deluxe Skyline', 1, 260.00, 7),
   (3, 'STE', 'Executive Suite', 1, 380.00, 7);
 
+-- Diagram-aligned hotel room hold/booking table (HotelDB)
+CREATE TABLE IF NOT EXISTS HotelBookings (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  BookingID INT NOT NULL,
+  HotelID INT NOT NULL,
+  RoomType VARCHAR(20) NOT NULL, -- STD / DLX / etc.
+  CheckIn DATETIME NOT NULL,
+  CheckOut DATETIME NOT NULL,
+  NumberOfKeys INT NOT NULL,
+  Status VARCHAR(20) NOT NULL, -- HELD / CONFIRMED / RELEASED
+  CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+

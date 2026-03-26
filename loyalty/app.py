@@ -23,8 +23,12 @@ Coins:
 """
 
 LOYALTY = {
-    # customerID: { "coins": int(cents), "bookingCount": int, "tier": str }
-    # Default for missing customers is computed on the fly.
+    1: {"coins": 11200, "bookingCount": 3, "tier": "Silver"},
+    2: {"coins": 8600, "bookingCount": 2, "tier": "Silver"},
+    3: {"coins": 18400, "bookingCount": 6, "tier": "Gold"},
+    4: {"coins": 5200, "bookingCount": 2, "tier": "Silver"},
+    5: {"coins": 800, "bookingCount": 0, "tier": "Bronze"},
+    6: {"coins": 98200, "bookingCount": 13, "tier": "Platinum"},
 }
 
 TIERS_BY_BOOKING_COUNT = [
@@ -107,31 +111,46 @@ def earn_points():
     """
     Body: { customerID, amount, coinsToSpendCents? }
 
-    - Increment bookingCount by 1
-    - Determine tier AFTER completing the booking
-    - Earn coins = amount * coinsRate(tierAfterBooking)
+    - Default behaviour (post-payment):
+      - Deduct coinsToSpendCents
+      - Increment bookingCount by 1
+      - Determine tier AFTER completing the booking
+      - Earn coins = amount * coinsRate(tierAfterBooking)
+
+    - Pre-payment coin-deduct stage (diagram compliance):
+      - Send: { stage: "deduct" }
+      - Only deduct coinsToSpendCents
+      - Do NOT change bookingCount or tier
     """
     data = request.get_json() or {}
     customer_id = data.get("customerID")
     amount = data.get("amount", 0)
     coins_to_spend_cents = int(max(0, int(data.get("coinsToSpendCents", 0) or 0)))
+    stage = str(data.get("stage") or "").strip().lower()
     if customer_id is None:
         return jsonify({"code": 400, "message": "customerID is required"}), 400
 
     record = get_record(customer_id)
     current_count = int(record.get("bookingCount", 0) or 0)
-    next_count = current_count + 1
-
-    tier_after_booking = compute_tier_from_booking_count(next_count)
-    coins_rate = coins_rate_for_tier(tier_after_booking)
-    coins_earned = to_int_cents(float(amount) * coins_rate)
 
     # Spend coins at payment time (before earning new coins).
     current_coins = int(record.get("coins", 0) or 0)
     coins_spent = min(current_coins, coins_to_spend_cents)
-    record["coins"] = (current_coins - coins_spent) + coins_earned
-    record["bookingCount"] = next_count
-    record["tier"] = tier_after_booking
+
+    if stage == "deduct":
+        # Pre-payment stage: only deduct coins; do not update tier/bookingCount.
+        record["coins"] = current_coins - coins_spent
+        coins_earned = 0
+    else:
+        # Post-payment stage: increment bookingCount and earn coins based on tier.
+        next_count = current_count + 1
+        tier_after_booking = compute_tier_from_booking_count(next_count)
+        coins_rate = coins_rate_for_tier(tier_after_booking)
+        coins_earned = to_int_cents(float(amount) * coins_rate)
+        record["coins"] = (current_coins - coins_spent) + coins_earned
+        record["bookingCount"] = next_count
+        record["tier"] = tier_after_booking
+
     LOYALTY[customer_id] = record
     return (
         jsonify(
@@ -149,6 +168,12 @@ def earn_points():
         ),
         200,
     )
+
+
+# Diagram-aligned alias: the slides refer to POST /loyalty for loyalty updates.
+@app.route("/loyalty", methods=["POST"])
+def loyalty_post_alias():
+    return earn_points()
 
 
 @app.route("/loyalty/adjust", methods=["POST"])

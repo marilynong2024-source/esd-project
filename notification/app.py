@@ -114,7 +114,8 @@ def start_amqp_consumer():
                 )
                 channel.queue_declare(queue=queue_name, durable=True)
                 # Explicit keys — more reliable than wildcards across RabbitMQ semantics.
-                for rk in ("booking.confirmed", "booking.cancelled"):
+                # Diagram uses `notify.user` queue.
+                for rk in ("notify.user", "booking.cancelled"):
                     channel.queue_bind(
                         exchange=exchange_name,
                         queue=queue_name,
@@ -122,7 +123,7 @@ def start_amqp_consumer():
                     )
                 print(
                     f"[notification] Queue {queue_name!r} bound to "
-                    f"booking.confirmed + booking.cancelled on {exchange_name!r}",
+                    f"notify.user + booking.cancelled on {exchange_name!r}",
                     flush=True,
                 )
                 channel.basic_consume(queue=queue_name, on_message_callback=callback)

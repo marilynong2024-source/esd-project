@@ -31,6 +31,38 @@ def process_payment():
     return jsonify({"code": 201, "data": record}), 201
 
 
+@app.route("/payment/process", methods=["POST"])
+def process_payment_process():
+    """
+    Diagram-aligned payment processing endpoint.
+
+    Body: { bookingID, amount, currency, simulateFail? }
+    """
+    data = request.get_json() or {}
+    booking_id = data.get("bookingID")
+    amount = data.get("amount", 0)
+    currency = data.get("currency", "SGD")
+    simulate_fail = bool(data.get("simulateFail", False))
+
+    # Optional simulation for demo/testing.
+    if simulate_fail or float(amount or 0) <= 0:
+        return jsonify({"code": 502, "message": "Payment processing failed (simulated)"}), 502
+
+    global NEXT_ID
+    payment_id = NEXT_ID
+    NEXT_ID += 1
+    record = {
+        "paymentID": payment_id,
+        "bookingID": booking_id,
+        "amount": amount,
+        "currency": currency,
+        "status": "PAID",
+        "createdAt": datetime.utcnow().isoformat(),
+    }
+    PAYMENTS[payment_id] = record
+    return jsonify({"code": 200, "data": record}), 200
+
+
 @app.route("/payment/refund", methods=["POST"])
 def refund_payment():
     """

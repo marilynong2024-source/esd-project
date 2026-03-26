@@ -4,6 +4,24 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+# Demo room hold lifecycle store (per booking)
+# Diagram-aligned endpoints:
+# - POST /hold-room
+# - PUT /confirm-room
+# - PUT /release-room
+HOTEL_ROOM_HOLDS: dict[int, dict] = {}
+
+
+def _parse_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _parse_bool(value: object) -> bool:
+    return bool(value)
+
 
 def _room(code: str, type_name: str, price_per_night: float, includes_breakfast: bool, available_rooms: int):
     return {
@@ -399,6 +417,209 @@ def search_hotels():
         results = filter_hotels(ignore_city=True)
 
     return jsonify({"code": 200, "data": results}), 200
+
+
+@app.route("/availability", methods=["GET"])
+def availability():
+    """
+    Bundle pricing helper for Diagram compliance.
+
+    Accepts:
+    - city (destination)
+    - country (optional)
+    - roomType (STD/DLX) optional; defaults to STD if not provided
+
+    Returns:
+    - a single hotelID with availableRooms for the selected room type
+    """
+    city_q = (request.args.get("city") or request.args.get("destination") or "").strip().lower()
+    country_q = (request.args.get("country") or "").strip().lower()
+    room_type = (request.args.get("roomType") or request.args.get("room_code") or "STD").strip().upper()
+    if room_type not in ("STD", "DLX"):
+        room_type = "STD"
+
+    def _norm(s: str) -> str:
+        return (s or "").strip().lower()
+
+    candidates = []
+    for _, hotel in HOTELS.items():
+        if country_q and _norm(hotel.get("country")) != country_q:
+            continue
+        if city_q and _norm(hotel.get("city")) != city_q:
+            continue
+        # If city is provided but country doesn't match, allow partial match by city only.
+        # (Demo-friendly UX.)
+        candidates.append(hotel)
+
+    if not candidates and city_q:
+        # fallback: ignore country
+        for _, hotel in HOTELS.items():
+            if _norm(hotel.get("city")) == city_q:
+                candidates.append(hotel)
+
+    if not candidates:
+        return jsonify({"code": 404, "message": "No matching hotel availability"}), 404
+
+    chosen = None
+    for hotel in candidates:
+        rooms = hotel.get("roomTypes") or []
+        selected_room = next((r for r in rooms if str(r.get("code", "")).upper() == room_type), None)
+        if not selected_room:
+            continue
+        avail_rooms = int(selected_room.get("availableRooms") or 0)
+        # Pick the hotel with the most available rooms for this room type.
+        if chosen is None or avail_rooms > chosen[1]:
+            chosen = (hotel, avail_rooms)
+
+    if not chosen:
+        return jsonify({"code": 404, "message": "No matching room type availability"}), 404
+
+    hotel, avail_rooms = chosen
+    return (
+        jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "hotelID": int(hotel.get("hotelID") or 0),
+                    "availableRooms": int(avail_rooms),
+                    "city": hotel.get("city"),
+                    "country": hotel.get("country"),
+                    "roomType": room_type,
+                },
+            }
+        ),
+        200,
+    )
+
+
+@app.route("/price", methods=["GET"])
+def price():
+    """
+    Bundle pricing helper for Diagram compliance.
+
+    Accepts:
+    - hotelID + roomType
+    """
+    hotel_id = request.args.get("hotelID") or request.args.get("hotelId") or ""
+    room_type = (request.args.get("roomType") or "STD").strip().upper()
+    if room_type not in ("STD", "DLX"):
+        room_type = "STD"
+
+    try:
+        hid = int(hotel_id)
+    except Exception:
+        hid = 0
+
+    hotel = HOTELS.get(hid)
+    if not hotel:
+        return jsonify({"code": 404, "message": "Hotel not found"}), 404
+
+    rooms = hotel.get("roomTypes") or []
+    selected_room = next((r for r in rooms if str(r.get("code", "")).upper() == room_type), None)
+    if not selected_room:
+        return jsonify({"code": 404, "message": "Room type not found"}), 404
+
+    return (
+        jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "hotelID": hid,
+                    "roomType": room_type,
+                    "pricePerNight": float(selected_room.get("pricePerNight") or 0),
+                    "availableRooms": int(selected_room.get("availableRooms") or 0),
+                    "includesBreakfast": bool(selected_room.get("includesBreakfast") or False),
+                },
+            }
+        ),
+        200,
+    )
+
+
+@app.route("/hold-room", methods=["POST"])
+def hold_room():
+    """
+    Hold a hotel room for a pending booking.
+    Body:
+      - bookingID (int)
+      - hotelID (int)
+      - roomType (STD/DLX)
+      - checkIn (string datetime)
+      - checkOut (string datetime)
+      - numberOfKeys (int)
+    """
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+
+    try:
+        booking_id = int(data.get("bookingID"))
+    except Exception:
+        return jsonify({"code": 400, "message": "bookingID is required (int)"}), 400
+
+    hotel_id = _parse_int(data.get("hotelID"), 0)
+    room_type = (data.get("roomType") or "").strip().upper() or "STD"
+    number_of_keys = _parse_int(data.get("numberOfKeys"), 1)
+    check_in = data.get("checkIn") or data.get("checkInDate") or ""
+    check_out = data.get("checkOut") or data.get("checkOutDate") or ""
+
+    if not hotel_id:
+        return jsonify({"code": 400, "message": "hotelID is required (int)"}), 400
+    if room_type not in ("STD", "DLX"):
+        room_type = "STD"
+    if not check_in or not check_out:
+        return jsonify({"code": 400, "message": "checkIn and checkOut are required"}), 400
+
+    # For demo: allow one hold per booking_id; no concurrency logic.
+    HOTEL_ROOM_HOLDS[booking_id] = {
+        "bookingID": booking_id,
+        "hotelID": hotel_id,
+        "roomType": room_type,
+        "checkIn": str(check_in),
+        "checkOut": str(check_out),
+        "numberOfKeys": number_of_keys,
+        "status": "HELD",
+    }
+    return jsonify({"code": 200, "data": HOTEL_ROOM_HOLDS[booking_id]}), 200
+
+
+@app.route("/confirm-room", methods=["PUT"])
+def confirm_room():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+
+    booking_id = data.get("bookingID")
+    try:
+        booking_id = int(booking_id)
+    except Exception:
+        return jsonify({"code": 400, "message": "bookingID is required (int)"}), 400
+
+    rec = HOTEL_ROOM_HOLDS.get(booking_id)
+    if not rec:
+        return jsonify({"code": 404, "message": "Room hold not found"}), 404
+
+    rec["status"] = "CONFIRMED"
+    return jsonify({"code": 200, "data": rec}), 200
+
+
+@app.route("/release-room", methods=["PUT"])
+def release_room():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+
+    booking_id = data.get("bookingID")
+    try:
+        booking_id = int(booking_id)
+    except Exception:
+        return jsonify({"code": 400, "message": "bookingID is required (int)"}), 400
+
+    if booking_id in HOTEL_ROOM_HOLDS:
+        HOTEL_ROOM_HOLDS.pop(booking_id, None)
+        return jsonify({"code": 200, "data": {"bookingID": booking_id}}), 200
+
+    return jsonify({"code": 404, "message": "Room hold not found"}), 404
 
 
 if __name__ == "__main__":
