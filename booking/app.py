@@ -108,6 +108,100 @@ def _optional_trimmed_str(data: dict, key: str, max_len: int) -> str | None:
     return s[:max_len]
 
 
+def _traveller_profile_row_id(row: dict) -> int | None:
+    for key in ("Id", "id", "TravellerProfileId", "TravellerId"):
+        raw = row.get(key)
+        if raw is None:
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _extract_traveller_doc(profile: dict) -> dict:
+    return {
+        "travellerProfileID": _traveller_profile_row_id(profile),
+        "fullName": str(
+            profile.get("FullName")
+            or profile.get("Name")
+            or profile.get("TravellerName")
+            or ""
+        ).strip()
+        or None,
+        "passportNumber": str(
+            profile.get("PassportNumber")
+            or profile.get("PassportNo")
+            or profile.get("passportNumber")
+            or ""
+        ).strip()
+        or None,
+        "mealPreference": str(
+            profile.get("MealPreference")
+            or profile.get("mealPreference")
+            or ""
+        ).strip()
+        or None,
+        "dateOfBirth": str(
+            profile.get("DateOfBirth")
+            or profile.get("dateOfBirth")
+            or profile.get("DOB")
+            or ""
+        ).strip()
+        or None,
+    }
+
+
+def _parse_isoish_date(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        pass
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except Exception:
+            continue
+    return None
+
+
+def _age_years_on(dob_raw: str | None, when_dt: datetime) -> int | None:
+    dob = _parse_isoish_date(dob_raw)
+    if not dob:
+        return None
+    years = when_dt.year - dob.year - (
+        (when_dt.month, when_dt.day) < (dob.month, dob.day)
+    )
+    return max(0, years)
+
+
+def _traveller_age_breakdown(
+    traveller_docs: list[dict], departure_raw: str
+) -> tuple[int, int, int]:
+    dep_dt = _parse_isoish_date(departure_raw) or datetime.utcnow()
+    adult = 0
+    child = 0
+    infant = 0
+    for d in traveller_docs:
+        age = _age_years_on(d.get("dateOfBirth"), dep_dt)
+        # If age unknown, default to adult to avoid silently under-counting seats/rooms.
+        if age is None or age >= 12:
+            adult += 1
+        elif age >= 2:
+            child += 1
+        else:
+            infant += 1
+    if not traveller_docs:
+        adult = 1
+    return adult, child, infant
+
+
 class Booking(db.Model):
     __tablename__ = "bookings"
 
@@ -128,12 +222,17 @@ class Booking(db.Model):
     noOfRooms = db.Column(db.Integer, default=1)
     refundPercentage = db.Column(db.Integer, nullable=True)
     refundAmount = db.Column(db.Float, nullable=True)
+    cancellationPolicyID = db.Column(db.String(40), nullable=True)
+    cancellationTimestamp = db.Column(db.String(40), nullable=True)
     # Flight seat (demo): only meaningful when airline allows online seat selection (e.g. SQ).
     seatNumber = db.Column(db.String(8), nullable=True)
     # OutSystems Traveller Profile: companion/co-traveller records (not the customer account row).
     travellerProfileId = db.Column(db.Integer, nullable=True)  # first Id (legacy / convenience)
     travellerDisplayName = db.Column(db.String(128), nullable=True)  # summary; truncated
     travellerProfileIdsJson = db.Column(db.Text, nullable=True)  # JSON array of OutSystems Ids, e.g. [1,2,3]
+    adultCount = db.Column(db.Integer, nullable=False, default=1)
+    childCount = db.Column(db.Integer, nullable=False, default=0)
+    infantCount = db.Column(db.Integer, nullable=False, default=0)
     passengerName = db.Column(db.String(200), nullable=True)
     passengerEmail = db.Column(db.String(255), nullable=True)
     passengerPhone = db.Column(db.String(40), nullable=True)
@@ -155,6 +254,9 @@ class Booking(db.Model):
             "travellerProfileId": self.travellerProfileId,
             "travellerProfileIds": t_ids,
             "travellerDisplayName": self.travellerDisplayName,
+            "adultCount": int(self.adultCount or 0),
+            "childCount": int(self.childCount or 0),
+            "infantCount": int(self.infantCount or 0),
             "flightID": self.flightID,
             "hotelID": self.hotelID,
             "hotelRoomType": self.hotelRoomType,
@@ -168,6 +270,8 @@ class Booking(db.Model):
             "noOfRooms": self.noOfRooms,
             "refundPercentage": self.refundPercentage,
             "refundAmount": self.refundAmount,
+            "cancellationPolicyID": self.cancellationPolicyID,
+            "cancellationTimestamp": self.cancellationTimestamp,
             "seatNumber": self.seatNumber,
             "passengerName": self.passengerName,
             "passengerEmail": self.passengerEmail,
@@ -220,6 +324,42 @@ def compute_refund_percentage(
     return percentage
 
 
+def compute_refund_policy_id_and_amount(
+    *,
+    total_price: float,
+    fare_type: str,
+    loyalty_tier: str | None,
+    days_before_departure: int,
+    cancel_source: str,
+) -> tuple[str, int, float]:
+    """
+    Diagram-facing refund calculator:
+    - Airline cancel => full package refund.
+    - Hotel cancel   => hotel-side 40% refund.
+    - Customer       => tiered rules by fare/tier and days to departure.
+    """
+    total = float(total_price or 0.0)
+    src = (cancel_source or "customer").strip().lower()
+    if src == "airline":
+        return "AIRLINE_FULL", 100, round(total, 2)
+    if src == "hotel":
+        amt = round(total * 0.40, 2)
+        pct = int(round((amt / total) * 100)) if total > 0 else 0
+        return "HOTEL_PARTIAL", pct, amt
+
+    pct = compute_refund_percentage(
+        departure_time=datetime.utcnow() + timedelta(days=max(-1, int(days_before_departure))),
+        cancel_time=datetime.utcnow(),
+        fare_type=fare_type,
+        loyalty_tier=loyalty_tier,
+    )
+    if days_before_departure < 0:
+        pct = 0
+    policy = f"{(fare_type or 'Saver').strip().upper()}_{(loyalty_tier or 'STD').strip().upper()}_D{max(-1, int(days_before_departure))}"
+    amt = round(max(0.0, total * (pct / 100.0)), 2)
+    return policy, pct, amt
+
+
 @app.route("/")
 def index():
     """Health / welcome so opening http://localhost:5101 in browser shows API is up."""
@@ -230,6 +370,8 @@ def index():
             "POST /booking": "Create a booking",
             "GET /booking/<id>": "Get booking by ID",
             "POST /booking/cancel/<id>": "Cancel booking and get refund",
+            "GET /booking/policies": "List cancellation/refund policy rules",
+            "GET /booking/refund-estimate?bookingID=<id>&cancelSource=customer": "Estimate cancellation refund",
         },
     }), 200
 
@@ -346,6 +488,17 @@ def create_booking():
             json.dumps(traveller_ids_final) if traveller_ids_final else None
         )
         traveller_snap = snapshot_display_names(profile_rows)
+        traveller_docs = [_extract_traveller_doc(p) for p in profile_rows]
+        traveller_docs = [
+            d for d in traveller_docs if d.get("travellerProfileID") is not None
+        ]
+        adult_count, child_count, infant_count = _traveller_age_breakdown(
+            traveller_docs, departure_time
+        )
+        if (child_count > 0 or infant_count > 0) and adult_count < 1:
+            return _bad_request(
+                "At least one adult traveller is required when children/infants are included"
+            )
         passenger_name = _optional_trimmed_str(data, "passengerName", 200)
         passenger_email = _optional_trimmed_str(data, "passengerEmail", 255)
         passenger_phone = _optional_trimmed_str(data, "passengerPhone", 40)
@@ -374,6 +527,9 @@ def create_booking():
             travellerProfileId=traveller_profile_id,
             travellerDisplayName=display_name,
             travellerProfileIdsJson=ids_json,
+            adultCount=adult_count,
+            childCount=child_count,
+            infantCount=infant_count,
             passengerName=passenger_name,
             passengerEmail=passenger_email,
             passengerPhone=passenger_phone,
@@ -447,6 +603,8 @@ def create_booking():
         except Exception:
             pass
 
+    primary_doc = traveller_docs[0] if traveller_docs else {}
+
     # 1) Flight Reservation
     seat_no = booking.seatNumber or "AUTO"
     try:
@@ -454,6 +612,12 @@ def create_booking():
             "bookingID": booking.id,
             "flightNum": booking.flightID,
             "seatNo": seat_no,
+            "travellers": traveller_docs,
+            "adultCount": int(booking.adultCount or 0),
+            "childCount": int(booking.childCount or 0),
+            "infantCount": int(booking.infantCount or 0),
+            "passportNumber": primary_doc.get("passportNumber"),
+            "mealPreference": primary_doc.get("mealPreference"),
         }
         reserve_resp = requests.post(
             f"{flight_base}/reserve-seat",
@@ -486,6 +650,9 @@ def create_booking():
             "checkIn": check_in,
             "checkOut": check_out,
             "numberOfKeys": number_of_keys,
+            "adultCount": int(booking.adultCount or 0),
+            "childCount": int(booking.childCount or 0),
+            "infantCount": int(booking.infantCount or 0),
         }
         hold_resp = requests.post(
             f"{hotel_base}/hold-room",
@@ -508,36 +675,56 @@ def create_booking():
         db.session.commit()
         return jsonify({"code": 503, "message": f"Hotel hold-room unreachable: {e}"}), 503
 
-    # 3) Loyalty pre-payment coin-deduct
+    # 3) Loyalty pre-payment point check + redeem
     if booking.customerID:
         loyalty_url = os.environ.get("LOYALTY_URL", "http://loyalty:5105/loyalty")
         try:
-            deduct_payload = {
-                "customerID": booking.customerID,
-                "amount": float(booking.totalPrice),
-                "coinsToSpendCents": coins_to_spend_cents,
-                "stage": "deduct",
-            }
-            deduct_resp = requests.post(
-                f"{loyalty_url}/earn",
-                json=deduct_payload,
+            points_resp = requests.get(
+                f"{loyalty_url}/{booking.customerID}/points",
                 timeout=5,
             )
-            if deduct_resp.ok:
+            points_available = 0
+            if points_resp.ok:
                 try:
-                    deduct_data = deduct_resp.json()
+                    points_data = points_resp.json()
                 except ValueError:
-                    deduct_data = {}
-                if deduct_data.get("code") == 200 and deduct_data.get("data"):
-                    COINS_SPENT_BY_BOOKING[booking.id] = int(
-                        deduct_data["data"].get("coinsSpent") or 0
+                    points_data = {}
+                if points_data.get("code") == 200 and points_data.get("data"):
+                    points_available = int(
+                        points_data["data"].get("coins")
+                        or points_data["data"].get("points")
+                        or 0
                     )
             else:
                 warnings.append(
-                    f"Loyalty pre-deduct failed HTTP {deduct_resp.status_code}"
+                    f"Loyalty points-check failed HTTP {points_resp.status_code}"
                 )
+            points_to_redeem = min(int(points_available), int(coins_to_spend_cents))
+            if points_to_redeem > 0:
+                redeem_resp = requests.post(
+                    f"{loyalty_url}/{booking.customerID}/redeem",
+                    json={
+                        "bookingID": booking.id,
+                        "points": points_to_redeem,
+                        "reason": "Pre-payment discount",
+                    },
+                    timeout=5,
+                )
+                if redeem_resp.ok:
+                    try:
+                        redeem_data = redeem_resp.json()
+                    except ValueError:
+                        redeem_data = {}
+                    if redeem_data.get("code") == 200 and redeem_data.get("data"):
+                        COINS_SPENT_BY_BOOKING[booking.id] = int(
+                            redeem_data["data"].get("pointsRedeemed") or points_to_redeem
+                        )
+                else:
+                    warnings.append(
+                        f"Loyalty redeem failed HTTP {redeem_resp.status_code}"
+                    )
         except requests.RequestException as e:
-            warnings.append(f"Loyalty pre-deduct unreachable: {e}")
+            warnings.append(f"Loyalty pre-payment unreachable: {e}")
 
     # 4) Payment processing
     payment_payload = {
@@ -603,18 +790,17 @@ def create_booking():
     except sa_exc.SQLAlchemyError:
         db.session.rollback()
 
-    # 6) Loyalty post-payment earn (coins already deducted in stage=deduct)
+    # 6) Loyalty post-payment earn
     if booking.customerID:
         try:
             loyalty_url = os.environ.get("LOYALTY_URL", "http://loyalty:5105/loyalty")
             earn_payload = {
-                "customerID": booking.customerID,
+                "bookingID": booking.id,
                 "amount": float(booking.totalPrice),
-                "coinsToSpendCents": 0,
-                "stage": "postpay",
+                "reason": "Completed booking reward",
             }
             earn_resp = requests.post(
-                f"{loyalty_url}/earn", json=earn_payload, timeout=5
+                f"{loyalty_url}/{booking.customerID}/earn", json=earn_payload, timeout=5
             )
             if earn_resp.ok:
                 try:
@@ -627,7 +813,7 @@ def create_booking():
                     and earn_data.get("data")
                     and earn_data["data"].get("tier")
                 ):
-                    booking.loyaltyTier = earn_data["data"]["tier"]
+                    booking.loyaltyTier = str(earn_data["data"]["tier"]).title()
                     db.session.commit()
         except requests.RequestException as e:
             warnings.append(f"Loyalty postpay unreachable: {e}")
@@ -641,6 +827,9 @@ def create_booking():
             "travellerProfileId": booking.travellerProfileId,
             "travellerProfileIds": t_ids_publish,
             "travellerDisplayName": booking.travellerDisplayName,
+            "adultCount": int(booking.adultCount or 0),
+            "childCount": int(booking.childCount or 0),
+            "infantCount": int(booking.infantCount or 0),
             "passengerName": booking.passengerName,
             "passengerEmail": booking.passengerEmail,
             "passengerPhone": booking.passengerPhone,
@@ -679,6 +868,58 @@ def get_booking(booking_id: int):
     if not booking:
         return jsonify({"code": 404, "message": "Booking not found"}), 404
     return jsonify({"code": 200, "data": booking.to_dict()}), 200
+
+
+@app.route("/booking/policies", methods=["GET"])
+def get_booking_policies():
+    data = {
+        "sources": ["customer", "airline", "hotel"],
+        "fareTypes": ["Saver", "Standard", "Flexi"],
+        "notes": "Customer cancellations use fare+tier day brackets. Airline=full refund. Hotel=hotel component refund.",
+    }
+    return jsonify({"code": 200, "data": data}), 200
+
+
+@app.route("/booking/refund-estimate", methods=["GET"])
+def booking_refund_estimate():
+    booking_id = request.args.get("bookingID")
+    cancel_source = (request.args.get("cancelSource") or "customer").strip().lower()
+    if not booking_id:
+        return _bad_request("bookingID is required")
+    try:
+        bid = int(booking_id)
+    except ValueError:
+        return _bad_request("bookingID must be an integer")
+    booking = Booking.query.get(bid)
+    if not booking:
+        return jsonify({"code": 404, "message": "Booking not found"}), 404
+    try:
+        departure_time = datetime.fromisoformat(booking.departureTime)
+    except Exception:
+        return jsonify({"code": 500, "message": "Invalid departureTime format on booking"}), 500
+    now = datetime.utcnow()
+    days_before_departure = (departure_time - now).days
+    policy_id, pct, amount = compute_refund_policy_id_and_amount(
+        total_price=float(booking.totalPrice or 0),
+        fare_type=booking.fareType or "Saver",
+        loyalty_tier=booking.loyaltyTier,
+        days_before_departure=days_before_departure,
+        cancel_source=cancel_source,
+    )
+    return jsonify(
+        {
+            "code": 200,
+            "data": {
+                "bookingID": bid,
+                "cancelSource": cancel_source,
+                "daysBeforeDeparture": days_before_departure,
+                "cancellationPolicyID": policy_id,
+                "refundPercentage": pct,
+                "refundAmount": amount,
+                "currency": booking.currency or "SGD",
+            },
+        }
+    ), 200
 
 
 @app.route("/booking/seats/<flight_id>", methods=["GET"])
@@ -722,6 +963,47 @@ def traveller_profiles_byaccount(customer_id: int):
     if err:
         return jsonify({"code": 502, "message": err}), 502
     return jsonify({"code": 200, "data": rows or []}), 200
+
+
+@app.route("/traveller/<int:traveller_profile_id>", methods=["GET"])
+def traveller_get(traveller_profile_id: int):
+    customer_raw = request.args.get("customerID")
+    if not customer_raw:
+        return jsonify({"code": 400, "message": "customerID query param is required"}), 400
+    try:
+        customer_id = int(customer_raw)
+    except (TypeError, ValueError):
+        return jsonify({"code": 400, "message": "customerID must be an integer"}), 400
+
+    err, rows = fetch_byaccount_rows(customer_id)
+    if rows is None and err is None:
+        return jsonify({"code": 500, "message": "Traveller profile service is not configured"}), 500
+    if err:
+        return jsonify({"code": 502, "message": err}), 502
+    for row in rows or []:
+        if _traveller_profile_row_id(row) == int(traveller_profile_id):
+            return jsonify({"code": 200, "data": row}), 200
+    return jsonify({"code": 404, "message": "Traveller profile not found"}), 404
+
+
+@app.route("/traveller", methods=["POST"])
+def traveller_create():
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+    result = create_traveller_profile(payload)
+    return jsonify({"code": 200, "data": result}), 200
+
+
+@app.route("/traveller/<int:traveller_profile_id>", methods=["PUT"])
+def traveller_update(traveller_profile_id: int):
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+    payload.setdefault("Id", int(traveller_profile_id))
+    payload.setdefault("TravellerProfileId", int(traveller_profile_id))
+    result = update_traveller_profile(payload)
+    return jsonify({"code": 200, "data": result}), 200
 
 
 @app.route(
@@ -801,36 +1083,19 @@ def cancel_booking(booking_id: int):
             f"cancelSource must be one of: {', '.join(sorted(allowed_sources))}"
         )
 
-    # Demo package split: 60% flight + 40% hotel (both prepaid in-app).
-    flight_component = total_price * 0.6
-    hotel_component = total_price * 0.4
-
-    # Rule requested by team:
-    # - Flight has no refund unless airline cancels.
-    # - Hotel refund is 100% only when cancelled >= 7 days before departure, else 0.
-    if cancel_source == "airline":
-        # Airline-initiated cancellation -> full package refund in this demo.
-        amount = total_price
-        flight_refund = flight_component
-        hotel_refund = hotel_component
-    elif cancel_source == "hotel":
-        # Hotel-initiated cancellation -> full hotel-side refund.
-        flight_refund = 0.0
-        hotel_refund = hotel_component
-        amount = flight_refund + hotel_refund
-    else:
-        # Customer cancellation.
-        flight_refund = 0.0
-        hotel_refund = hotel_component if days_before_departure >= 7 else 0.0
-        amount = flight_refund + hotel_refund
-
-    percentage = int(round((amount / total_price) * 100)) if total_price > 0 else 0
+    policy_id, percentage, amount = compute_refund_policy_id_and_amount(
+        total_price=total_price,
+        fare_type=booking.fareType or "Saver",
+        loyalty_tier=booking.loyaltyTier,
+        days_before_departure=days_before_departure,
+        cancel_source=cancel_source,
+    )
 
     payment_base = os.environ.get("PAYMENT_URL", "http://payment:5104/payment").rstrip("/")
     payment_url = (
         payment_base
-        if payment_base.endswith("/refund")
-        else f"{payment_base}/refund"
+        if payment_base.endswith("/refund-payment")
+        else f"{payment_base}/refund-payment"
     )
     refund_payload = {"bookingID": booking_id, "refundAmount": amount}
     try:
@@ -863,9 +1128,60 @@ def cancel_booking(booking_id: int):
             }
         ), 502
 
+    # Required sequence after successful refund:
+    # 1) release flight seat by seatNo
+    # 2) release hotel room by roomID
+    flight_base = os.environ.get("FLIGHT_URL", "http://flight:5102/flight").strip().rstrip("/")
+    if flight_base.endswith("/flight"):
+        flight_base = flight_base[: -len("/flight")]
+    hotel_base = os.environ.get("HOTEL_URL", "http://hotel:5103/hotel").strip().rstrip("/")
+    if hotel_base.endswith("/hotel"):
+        hotel_base = hotel_base[: -len("/hotel")]
+
+    seat_no = (booking.seatNumber or "AUTO").strip().upper()
+    room_id = f"{int(booking.hotelID)}:{(booking.hotelRoomType or 'STD').strip().upper()}"
+
+    try:
+        flight_release_resp = requests.put(
+            f"{flight_base}/flight/inventory/{seat_no}/release",
+            json={"bookingID": booking_id, "flightNum": booking.flightID},
+            timeout=8,
+        )
+    except requests.RequestException as e:
+        return jsonify({"code": 503, "message": f"Flight release unreachable: {e}"}), 503
+    if not flight_release_resp.ok:
+        return jsonify(
+            {
+                "code": 502,
+                "message": "Flight inventory release failed",
+                "upstreamStatus": flight_release_resp.status_code,
+                "upstreamBody": (flight_release_resp.text or "")[:500],
+            }
+        ), 502
+
+    try:
+        hotel_release_resp = requests.put(
+            f"{hotel_base}/hotel/inventory/{room_id}/release",
+            json={"bookingID": booking_id, "hotelID": booking.hotelID},
+            timeout=8,
+        )
+    except requests.RequestException as e:
+        return jsonify({"code": 503, "message": f"Hotel release unreachable: {e}"}), 503
+    if not hotel_release_resp.ok:
+        return jsonify(
+            {
+                "code": 502,
+                "message": "Hotel inventory release failed",
+                "upstreamStatus": hotel_release_resp.status_code,
+                "upstreamBody": (hotel_release_resp.text or "")[:500],
+            }
+        ), 502
+
     booking.status = "CANCELLED"
     booking.refundPercentage = percentage
     booking.refundAmount = amount
+    booking.cancellationPolicyID = policy_id
+    booking.cancellationTimestamp = now.isoformat()
     try:
         db.session.commit()
     except sa_exc.SQLAlchemyError as e:
@@ -874,7 +1190,7 @@ def cancel_booking(booking_id: int):
         return jsonify(
             {
                 "code": 500,
-                "message": "Refund was sent to Payment but updating the booking in the database failed — flag for manual check",
+                "message": "Refund was sent to Payment but booking update failed after release steps",
                 "payment": payment_data,
             }
         ), 500
@@ -883,25 +1199,26 @@ def cancel_booking(booking_id: int):
     if booking.customerID:
         loyalty_url = os.environ.get("LOYALTY_URL", "http://localhost:5105/loyalty")
         try:
-            adjust_payload = {
-                "customerID": booking.customerID,
+            refund_payload = {
+                "bookingID": booking_id,
                 "bookingAmount": float(booking.totalPrice),
                 "bookingTier": booking.loyaltyTier,
-                "coinsSpentCents": int(COINS_SPENT_BY_BOOKING.get(booking_id, 0) or 0),
+                "pointsToRestore": int(COINS_SPENT_BY_BOOKING.get(booking_id, 0) or 0),
+                "reason": "Booking cancellation reversal",
             }
             adj_resp = requests.post(
-                f"{loyalty_url}/adjust", json=adjust_payload, timeout=5
+                f"{loyalty_url}/{booking.customerID}/refund", json=refund_payload, timeout=5
             )
             if not adj_resp.ok:
                 cancel_warnings.append(
-                    f"Loyalty service returned HTTP {adj_resp.status_code} for /adjust"
+                    f"Loyalty service returned HTTP {adj_resp.status_code} for /refund"
                 )
             else:
                 try:
                     adj_resp.json()
                 except ValueError:
                     cancel_warnings.append(
-                        "Loyalty service returned non-JSON for /adjust"
+                        "Loyalty service returned non-JSON for /refund"
                     )
             COINS_SPENT_BY_BOOKING.pop(booking_id, None)
         except requests.RequestException as e:
@@ -918,6 +1235,9 @@ def cancel_booking(booking_id: int):
             "travellerProfileId": booking.travellerProfileId,
             "travellerProfileIds": t_ids_event,
             "travellerDisplayName": booking.travellerDisplayName,
+            "adultCount": int(booking.adultCount or 0),
+            "childCount": int(booking.childCount or 0),
+            "infantCount": int(booking.infantCount or 0),
             "passengerName": booking.passengerName,
             "passengerEmail": booking.passengerEmail,
             "passengerPhone": booking.passengerPhone,
@@ -932,6 +1252,7 @@ def cancel_booking(booking_id: int):
             "loyaltyTier": booking.loyaltyTier,
             "seatNumber": booking.seatNumber,
             "cancelledAt": now.isoformat(),
+            "cancellationPolicyID": policy_id,
         },
     )
     if not published:
@@ -945,8 +1266,8 @@ def cancel_booking(booking_id: int):
         "cancelSource": cancel_source,
         "refundPercentage": percentage,
         "refundAmount": amount,
-        "flightRefundAmount": round(flight_refund, 2),
-        "hotelRefundAmount": round(hotel_refund, 2),
+        "status": "CANCELLED",
+        "cancellationPolicyID": policy_id,
         "currency": booking.currency or "SGD",
         "payment": payment_data,
     }
@@ -1011,6 +1332,36 @@ def ensure_booking_columns():
                 "ALTER TABLE bookings ADD COLUMN noOfRooms INT DEFAULT 1"
                 if db.engine.dialect.name != "sqlite"
                 else "ALTER TABLE bookings ADD COLUMN noOfRooms INTEGER DEFAULT 1"
+            )
+        if "cancellationPolicyID" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN cancellationPolicyID VARCHAR(40) NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN cancellationPolicyID VARCHAR(40)"
+            )
+        if "cancellationTimestamp" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN cancellationTimestamp VARCHAR(40) NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN cancellationTimestamp VARCHAR(40)"
+            )
+        if "adultCount" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN adultCount INT NOT NULL DEFAULT 1"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN adultCount INTEGER DEFAULT 1"
+            )
+        if "childCount" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN childCount INT NOT NULL DEFAULT 0"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN childCount INTEGER DEFAULT 0"
+            )
+        if "infantCount" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN infantCount INT NOT NULL DEFAULT 0"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN infantCount INTEGER DEFAULT 0"
             )
         for stmt in alters:
             db.session.execute(text(stmt))

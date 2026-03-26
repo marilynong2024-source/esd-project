@@ -249,14 +249,23 @@
                 Trip dates (out &amp; back)
                 <select id="bundleTripWindowSelect" aria-label="Departure and return window"></select>
               </label>
-              <input type="hidden" id="bundleDepartDateTime" value="2026-05-01T10:00" />
-              <input type="hidden" id="bundleReturnDateTime" value="2026-05-06T11:00" />
+              <label>
+                Outbound date &amp; time
+                <input type="datetime-local" id="bundleDepartDateTime" value="2026-05-01T10:00" />
+              </label>
+              <label>
+                Return date &amp; time
+                <input type="datetime-local" id="bundleReturnDateTime" value="2026-05-06T11:00" />
+              </label>
             </div>
             <div class="actions-row form-grid-1col">
               <button type="button" class="btn-secondary" id="bundleSearchBtn">Recalculate bundle price</button>
             </div>
           </details>
 
+          <div class="actions-row form-grid-1col">
+            <button type="button" class="btn-primary" id="bundleQuickApplyBtn">Update bundle price</button>
+          </div>
           <div id="bundleStatus" class="muted" aria-live="polite"></div>
 
           <p class="section-title form-grid-1col section-title--flush">Lead traveller</p>
@@ -309,19 +318,20 @@
 
             <div class="actions-row form-grid-1col">
               <button type="button" class="btn-secondary" id="loadTravellerProfilesBtn">
-                Load profiles
+                Refresh list
               </button>
               <button type="button" class="btn-primary" id="travellerCreateBtn">
-                Create new profile
+                New profile
               </button>
             </div>
+            <p class="muted section-hint--flush">Pick a saved profile to edit, or create a new one.</p>
 
             <div id="travellerProfilesError" class="alert" role="alert" hidden></div>
 
             <div id="travellerProfilesList" class="traveller-list" aria-label="Traveller profiles list"></div>
 
             <div id="travellerEditWrap" class="traveller-edit" hidden>
-              <div class="section-title section-title--spaced">Edit record</div>
+              <div class="section-title section-title--spaced" id="travellerEditTitle">Profile details</div>
               <input type="hidden" id="travellerEditId" value="" />
 
               <label>
@@ -384,6 +394,9 @@
                 </button>
                 <button type="button" class="btn-secondary" id="travellerDeleteBtn">
                   Delete profile
+                </button>
+                <button type="button" class="btn-secondary" id="travellerCancelEditBtn">
+                  Close editor
                 </button>
               </div>
 

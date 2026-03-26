@@ -571,9 +571,11 @@ def hold_room():
         return jsonify({"code": 400, "message": "checkIn and checkOut are required"}), 400
 
     # For demo: allow one hold per booking_id; no concurrency logic.
+    room_id = f"{hotel_id}:{room_type}"
     HOTEL_ROOM_HOLDS[booking_id] = {
         "bookingID": booking_id,
         "hotelID": hotel_id,
+        "roomID": room_id,
         "roomType": room_type,
         "checkIn": str(check_in),
         "checkOut": str(check_out),
@@ -620,6 +622,38 @@ def release_room():
         return jsonify({"code": 200, "data": {"bookingID": booking_id}}), 200
 
     return jsonify({"code": 404, "message": "Room hold not found"}), 404
+
+
+@app.route("/hotel/inventory/<room_id>/release", methods=["PUT"])
+def release_inventory_room(room_id: str):
+    """
+    Diagram-aligned endpoint:
+    PUT /hotel/inventory/{roomID}/release
+    Body: { bookingID?, hotelID? }
+    """
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        data = {}
+    booking_id = data.get("bookingID")
+    rid = str(room_id or "").strip().upper()
+
+    if booking_id is not None:
+        try:
+            bid = int(booking_id)
+            rec = HOTEL_ROOM_HOLDS.get(bid)
+            if rec:
+                HOTEL_ROOM_HOLDS.pop(bid, None)
+                return jsonify({"code": 200, "data": {"roomID": rid, "status": "AVAILABLE"}}), 200
+        except Exception:
+            pass
+
+    for bid, rec in list(HOTEL_ROOM_HOLDS.items()):
+        rec_room = str(rec.get("roomID") or f"{rec.get('hotelID')}:{rec.get('roomType')}").strip().upper()
+        if rec_room == rid:
+            HOTEL_ROOM_HOLDS.pop(bid, None)
+            return jsonify({"code": 200, "data": {"roomID": rid, "status": "AVAILABLE"}}), 200
+
+    return jsonify({"code": 404, "message": f"Room inventory {rid} not held"}), 404
 
 
 if __name__ == "__main__":

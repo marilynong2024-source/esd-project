@@ -354,6 +354,7 @@ def reserve_seat():
       - bookingID (int)
       - flightNum or flightID (string)
       - seatNo (string)  (use "AUTO" if not modeled)
+      - travellers (optional array with passportNumber / mealPreference)
     """
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
@@ -362,6 +363,9 @@ def reserve_seat():
     booking_id = data.get("bookingID")
     seat_no = data.get("seatNo") or data.get("seatNumber")
     flight_num = (data.get("flightNum") or data.get("flightID") or "").strip().upper()
+    travellers = data.get("travellers") if isinstance(data.get("travellers"), list) else []
+    passport_number = data.get("passportNumber")
+    meal_preference = data.get("mealPreference")
 
     try:
         booking_id = int(booking_id)
@@ -387,6 +391,9 @@ def reserve_seat():
         "bookingID": booking_id,
         "flightNum": flight_num,
         "seatNo": seat_no,
+        "travellers": travellers,
+        "passportNumber": passport_number,
+        "mealPreference": meal_preference,
         "status": "HELD",
     }
     return jsonify({"code": 200, "data": FLIGHT_RESERVATIONS[booking_id]}), 200
@@ -433,6 +440,42 @@ def release_seat():
     # Remove entirely to free the seat.
     FLIGHT_RESERVATIONS.pop(booking_id, None)
     return jsonify({"code": 200, "data": {"bookingID": booking_id}}), 200
+
+
+@app.route("/flight/inventory/<seat_no>/release", methods=["PUT"])
+def release_inventory_seat(seat_no: str):
+    """
+    Diagram-aligned release endpoint:
+    PUT /flight/inventory/{seatNo}/release
+    Body: { bookingID?, flightNum? }
+    """
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        data = {}
+    seat = str(seat_no or "").strip().upper()
+    booking_id = data.get("bookingID")
+    target_bid = None
+
+    if booking_id is not None:
+        try:
+            bid = int(booking_id)
+            rec = FLIGHT_RESERVATIONS.get(bid)
+            if rec and str(rec.get("seatNo", "")).strip().upper() == seat:
+                target_bid = bid
+        except Exception:
+            pass
+
+    if target_bid is None:
+        for bid, rec in FLIGHT_RESERVATIONS.items():
+            if str(rec.get("seatNo", "")).strip().upper() == seat and rec.get("status") in ("HELD", "CONFIRMED"):
+                target_bid = bid
+                break
+
+    if target_bid is None:
+        return jsonify({"code": 404, "message": f"Seat {seat} is not reserved"}), 404
+
+    FLIGHT_RESERVATIONS.pop(target_bid, None)
+    return jsonify({"code": 200, "data": {"seatNo": seat, "status": "AVAILABLE"}}), 200
 
 
 if __name__ == "__main__":

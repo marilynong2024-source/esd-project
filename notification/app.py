@@ -15,10 +15,15 @@ CORS(app)
 NOTIFICATIONS = []
 
 
+def _store_manual_notification(data: dict):
+    # Shared action used by HTTP POST /notify/manual and AMQP callback.
+    NOTIFICATIONS.append(data or {})
+
+
 @app.route("/notify/manual", methods=["POST"])
 def notify_manual():
     data = request.get_json() or {}
-    NOTIFICATIONS.append(data)
+    _store_manual_notification(data)
     return jsonify({"code": 200, "data": data}), 200
 
 
@@ -44,7 +49,7 @@ def start_amqp_consumer():
             except Exception:
                 payload = {"raw": body.decode("utf-8", errors="ignore")}
             print(f"[notification] AMQP received routing_key={rk!r}", flush=True)
-            NOTIFICATIONS.append(
+            _store_manual_notification(
                 {
                     "source": "amqp",
                     "routing_key": rk,

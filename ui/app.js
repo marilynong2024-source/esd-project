@@ -455,6 +455,16 @@ function applyTripWindowFromSelect() {
   }
 }
 
+function syncTripWindowFromDateInputs() {
+  const depEl = document.getElementById("bundleDepartDateTime");
+  const retEl = document.getElementById("bundleReturnDateTime");
+  if (!depEl || !retEl) return;
+  const depart = String(depEl.value || "").trim();
+  const ret = String(retEl.value || "").trim();
+  if (!depart || !ret) return;
+  ensureTripWindowOption(depart, ret);
+}
+
 function ensureTripWindowOption(depart, ret) {
   const sel = document.getElementById("bundleTripWindowSelect");
   if (!sel) return;
@@ -968,6 +978,12 @@ async function searchBundlePricing(loyaltyCoinsToUseCentsOverride = null) {
 
   if (!origin || !destination || !departDate || !returnDate || !travellers || !customerId) {
     if (statusEl) statusEl.textContent = "Please fill origin, destination, dates, travellers, and who's booking.";
+    return;
+  }
+  const depTs = Date.parse(departDate);
+  const retTs = Date.parse(returnDate);
+  if (Number.isFinite(depTs) && Number.isFinite(retTs) && retTs <= depTs) {
+    if (statusEl) statusEl.textContent = "Return date/time must be after outbound date/time.";
     return;
   }
 
@@ -2519,6 +2535,7 @@ async function loadTravellerProfiles() {
       errEl.hidden = false;
     }
     if (listEl) listEl.textContent = "";
+    resetTravellerEdit();
     return;
   }
 
@@ -2531,6 +2548,7 @@ async function loadTravellerProfiles() {
       errEl.hidden = false;
     }
     if (listEl) listEl.textContent = "";
+    resetTravellerEdit();
     return;
   }
 
@@ -2548,6 +2566,7 @@ async function loadTravellerProfiles() {
     if (listEl) listEl.textContent = "";
     // Clear selectors used in Trip tab to avoid stale drop-down values.
     populateTravellerSelectorsFromRows([]);
+    resetTravellerEdit();
     return;
   }
 
@@ -2559,6 +2578,7 @@ async function loadTravellerProfiles() {
 
   if (!latestTravellerRows.length) {
     listEl.textContent = "No saved traveller profiles for this member yet.";
+    resetTravellerEdit();
     return;
   }
 
@@ -2572,13 +2592,15 @@ async function loadTravellerProfiles() {
 
     const item = document.createElement("div");
     item.className = "traveller-item";
+    const selectedId = Number(selectedTravellerRow?.Id ?? selectedTravellerRow?.id ?? 0);
+    const isSelected = selectedId > 0 && selectedId === id;
     item.innerHTML = `
       <div class="traveller-item__meta">
         <div class="traveller-item__title">${escapeHtml(title)}</div>
         <div class="traveller-item__sub">${escapeHtml(sub)}</div>
       </div>
-      <button type="button" class="btn-secondary" data-action="selectTraveller" data-id="${id}">
-        Edit
+      <button type="button" class="${isSelected ? "btn-primary" : "btn-secondary"}" data-action="selectTraveller" data-id="${id}">
+        ${isSelected ? "Editing" : "Edit profile"}
       </button>
     `;
     listEl.appendChild(item);
@@ -2595,7 +2617,9 @@ function resetTravellerEdit() {
   if (wrap) wrap.hidden = true;
   if (idEl) idEl.value = "";
   const statusEl = document.getElementById("travellerEditStatus");
-  if (statusEl) statusEl.textContent = "";
+  if (statusEl) statusEl.textContent = "Select a saved profile to edit, or click New profile.";
+  const titleEl = document.getElementById("travellerEditTitle");
+  if (titleEl) titleEl.textContent = "Profile details";
 
   const delBtn = document.getElementById("travellerDeleteBtn");
   if (delBtn) delBtn.disabled = true;
@@ -2634,9 +2658,16 @@ function populateTravellerEditFromRow(row) {
 
   const wrap = document.getElementById("travellerEditWrap");
   if (wrap) wrap.hidden = false;
+  const titleEl = document.getElementById("travellerEditTitle");
+  const rowName = getOsField(row, ["FullName", "Name", "TravellerName"]);
+  if (titleEl) titleEl.textContent = rowName ? `Editing: ${rowName}` : "Editing profile";
 
   const delBtn = document.getElementById("travellerDeleteBtn");
   if (delBtn) delBtn.disabled = false;
+  const statusEl = document.getElementById("travellerEditStatus");
+  if (statusEl) statusEl.textContent = "Update fields below, then click Save changes.";
+  // Refresh list actions so the active row shows "Editing".
+  void loadTravellerProfiles();
 }
 
 function getTravellerEditPayload() {
@@ -2717,6 +2748,8 @@ function onTravellerCreateNew() {
 
   const wrap = document.getElementById("travellerEditWrap");
   if (wrap) wrap.hidden = false;
+  const titleEl = document.getElementById("travellerEditTitle");
+  if (titleEl) titleEl.textContent = "Create new profile";
 
   const idEl = document.getElementById("travellerEditId");
   if (idEl) idEl.value = "";
@@ -2743,6 +2776,7 @@ function onTravellerCreateNew() {
 
   const delBtn = document.getElementById("travellerDeleteBtn");
   if (delBtn) delBtn.disabled = true;
+  void loadTravellerProfiles();
 }
 
 async function onTravellerSave() {
@@ -2906,6 +2940,8 @@ function setupTravellerProfilesUI() {
 
   const delBtn = document.getElementById("travellerDeleteBtn");
   if (delBtn) delBtn.addEventListener("click", () => onTravellerDelete());
+  const closeEditBtn = document.getElementById("travellerCancelEditBtn");
+  if (closeEditBtn) closeEditBtn.addEventListener("click", () => resetTravellerEdit());
 }
 
 function initUI() {
@@ -2956,6 +2992,22 @@ function initUI() {
       b.setAttribute("aria-pressed", "false");
     });
     void searchBundlePricing();
+  });
+  document.getElementById("bundleQuickApplyBtn")?.addEventListener("click", () => {
+    selectedBundlePresetId = null;
+    const pkg = document.getElementById("bundlePackageSelect");
+    if (pkg) pkg.value = "";
+    document.querySelectorAll(".bundle-card").forEach((b) => {
+      b.classList.remove("bundle-card--selected");
+      b.setAttribute("aria-pressed", "false");
+    });
+    void searchBundlePricing();
+  });
+  document.getElementById("bundleDepartDateTime")?.addEventListener("change", () => {
+    syncTripWindowFromDateInputs();
+  });
+  document.getElementById("bundleReturnDateTime")?.addEventListener("change", () => {
+    syncTripWindowFromDateInputs();
   });
   document
     .getElementById("hotelRoomType")
