@@ -14,7 +14,7 @@ FLIGHT_RESERVATIONS: dict[int, dict] = {}
 
 def _online_seat_selection(flight_num: str) -> bool:
     # Match UI logic: it enables seat map when prefix is "SQ".
-    code = str(flight_num).upper().slice(0, 2)
+    code = str(flight_num).upper()[:2]
     return code == "SQ"
 
 

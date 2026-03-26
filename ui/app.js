@@ -156,6 +156,38 @@ const BUNDLE_REGION_OPTIONS = [
   { value: "intercontinental", label: "Long-haul hubs" },
 ];
 
+/** City names in BUNDLE_PRESETS → stable filter slug */
+const CITY_COUNTRY_SLUG = {
+  Singapore: "singapore",
+  Tokyo: "japan",
+  Bangkok: "thailand",
+  Bali: "indonesia",
+  Sydney: "australia",
+  London: "uk",
+  Paris: "france",
+};
+
+const BUNDLE_COUNTRY_LABEL = {
+  singapore: "Singapore",
+  japan: "Japan",
+  thailand: "Thailand",
+  indonesia: "Indonesia",
+  australia: "Australia",
+  uk: "United Kingdom",
+  france: "France",
+};
+
+function countriesUsedByPresets() {
+  const slugs = new Set();
+  for (const p of BUNDLE_PRESETS) {
+    const a = CITY_COUNTRY_SLUG[p.origin];
+    const b = CITY_COUNTRY_SLUG[p.destination];
+    if (a) slugs.add(a);
+    if (b) slugs.add(b);
+  }
+  return [...slugs].sort((x, y) => BUNDLE_COUNTRY_LABEL[x].localeCompare(BUNDLE_COUNTRY_LABEL[y]));
+}
+
 /** id -> { total?, err?, loading? } for card badges */
 const bundleCardPriceCache = new Map();
 let bundleCardPriceTimer = null;
@@ -183,10 +215,16 @@ const TRIP_WINDOW_OPTIONS = [
 
 function getFilteredPresets() {
   const reg = document.getElementById("bundleFilterRegion")?.value || "all";
+  const country = document.getElementById("bundleFilterCountry")?.value || "all";
   const from = document.getElementById("bundleFilterFrom")?.value || "all";
   const to = document.getElementById("bundleFilterTo")?.value || "all";
   return BUNDLE_PRESETS.filter((p) => {
     if (reg !== "all" && p.region !== reg) return false;
+    if (country !== "all") {
+      const o = CITY_COUNTRY_SLUG[p.origin];
+      const d = CITY_COUNTRY_SLUG[p.destination];
+      if (o !== country && d !== country) return false;
+    }
     if (from !== "all" && p.origin !== from) return false;
     if (to !== "all" && p.destination !== to) return false;
     return true;
@@ -236,6 +274,21 @@ function populateBundleFilterSelects() {
       toSel.appendChild(o);
     }
     toSel.value = "all";
+  }
+  const countrySel = document.getElementById("bundleFilterCountry");
+  if (countrySel) {
+    countrySel.replaceChildren();
+    const allC = document.createElement("option");
+    allC.value = "all";
+    allC.textContent = "Any country";
+    countrySel.appendChild(allC);
+    for (const slug of countriesUsedByPresets()) {
+      const o = document.createElement("option");
+      o.value = slug;
+      o.textContent = BUNDLE_COUNTRY_LABEL[slug] || slug;
+      countrySel.appendChild(o);
+    }
+    countrySel.value = "all";
   }
 }
 
@@ -343,7 +396,7 @@ function onBundleFiltersChanged() {
 }
 
 function setupBundleFilterListeners() {
-  for (const id of ["bundleFilterRegion", "bundleFilterFrom", "bundleFilterTo"]) {
+  for (const id of ["bundleFilterRegion", "bundleFilterCountry", "bundleFilterFrom", "bundleFilterTo"]) {
     document.getElementById(id)?.addEventListener("change", () => onBundleFiltersChanged());
   }
 }
@@ -1831,9 +1884,11 @@ function setManualDefaults() {
     applyTripWindowFromSelect();
   }
   const bfr = document.getElementById("bundleFilterRegion");
+  const bfc = document.getElementById("bundleFilterCountry");
   const bff = document.getElementById("bundleFilterFrom");
   const bft = document.getElementById("bundleFilterTo");
   if (bfr) bfr.value = "all";
+  if (bfc) bfc.value = "all";
   if (bff) bff.value = "all";
   if (bft) bft.value = "all";
   populateBundlePackageSelect();

@@ -63,7 +63,19 @@ INSERT INTO Flight (flightNumber, airline, origin, destination, originCity, dest
 -- Extra outbound leisure (broader demo timetable)
 ('SQ312',  'Singapore Airlines', 'SIN', 'LHR', 'Singapore', 'London',  '2025-06-10 10:15:00', '2025-06-10 16:40:00', 750, 920.00,  3050.00, 300, 175),
 ('TR991',  'Scoot',              'SIN', 'DPS', 'Singapore', 'Bali',    '2025-06-15 14:20:00', '2025-06-15 15:50:00', 90,  95.00,   NULL,    180, 170),
-('SQ415',  'Singapore Airlines', 'SIN', 'SYD', 'Singapore', 'Sydney',  '2025-06-20 09:05:00', '2025-06-20 20:15:00', 480, 540.00,  1420.00, 250, 160);
+('SQ415',  'Singapore Airlines', 'SIN', 'SYD', 'Singapore', 'Sydney',  '2025-06-20 09:05:00', '2025-06-20 20:15:00', 480, 540.00,  1420.00, 250, 160),
+
+-- Extra demo diversity (10 additional legs for reports / SQL exercises)
+('SQ210',  'Singapore Airlines', 'SIN', 'MNL', 'Singapore', 'Manila',   '2025-07-02 08:40:00', '2025-07-02 12:55:00', 255, 240.00,  720.00,  180, 140),
+('PR501',  'Philippine Airlines', 'MNL', 'SIN', 'Manila',   'Singapore', '2025-07-09 18:20:00', '2025-07-09 22:10:00', 230, 230.00,  690.00,  180, 125),
+('KE658',  'Korean Air',          'ICN', 'BKK', 'Seoul',    'Bangkok',  '2025-07-03 10:00:00', '2025-07-03 14:30:00', 330, 410.00, 1150.00, 260, 190),
+('OZ752',  'Asiana Airlines',     'ICN', 'NRT', 'Seoul',    'Tokyo',    '2025-07-04 19:00:00', '2025-07-04 21:15:00', 135, 280.00,  820.00,  200, 165),
+('JL414',  'Japan Airlines',      'NRT', 'CTS', 'Tokyo',    'Sapporo',  '2025-07-05 07:30:00', '2025-07-05 09:25:00', 115, 190.00,  540.00,  180, 120),
+('NH217',  'ANA',                 'CTS', 'NRT', 'Sapporo',  'Tokyo',    '2025-07-12 18:00:00', '2025-07-12 19:55:00', 115, 175.00,  510.00,  180, 110),
+('QF454',  'Qantas',              'SYD', 'MEL', 'Sydney',   'Melbourne','2025-07-06 06:00:00', '2025-07-06 07:35:00',  95, 155.00,  420.00,  200, 150),
+('JQ502',  'Jetstar',             'MEL', 'SYD', 'Melbourne','Sydney',   '2025-07-13 20:15:00', '2025-07-13 21:50:00',  95,  85.00,  240.00,  200, 175),
+('KL1004', 'KLM',                 'AMS', 'LHR', 'Amsterdam','London',   '2025-07-07 15:30:00', '2025-07-07 15:55:00',  85, 165.00,  480.00,  180, 95),
+('AF1681', 'Air France',          'LHR', 'CDG', 'London',   'Paris',    '2025-07-08 12:00:00', '2025-07-08 14:15:00', 135, 220.00,  620.00,  180, 88);
 
 -- Diagram-aligned seat reservation ledger (FlightDB / slides)
 CREATE TABLE IF NOT EXISTS FlightReservations (
@@ -267,7 +279,10 @@ INSERT INTO customer_accounts
 VALUES
     ('ava.chen@example.com', '$2b$demo_hash_1', 'Ava', 'Chen', '+6591110001', '1995-02-14', 'Singapore', 'Active'),
     ('ben.kumar@example.com', '$2b$demo_hash_2', 'Ben', 'Kumar', '+6591110002', '1991-08-03', 'India', 'Active'),
-    ('casey.tan@example.com', '$2b$demo_hash_3', 'Casey', 'Tan', '+6591110003', '1998-12-09', 'Malaysia', 'Active');
+    ('casey.tan@example.com', '$2b$demo_hash_3', 'Casey', 'Tan', '+6591110003', '1998-12-09', 'Malaysia', 'Active'),
+    ('dana.ng@example.com', '$2b$demo_hash_4', 'Dana', 'Ng', '+6591110004', '1993-05-21', 'Singapore', 'Active'),
+    ('evan.lee@example.com', '$2b$demo_hash_5', 'Evan', 'Lee', '+6591110005', '1990-11-02', 'Singapore', 'Active'),
+    ('fiona.ong@example.com', '$2b$demo_hash_6', 'Fiona', 'Ong', '+6591110006', '1988-03-30', 'Singapore', 'Active');
 
 INSERT INTO CustomerProfile (customerID, Nationality, CreatedAt, AccountStatus)
 SELECT customer_id, nationality, created_at, account_status
@@ -323,7 +338,13 @@ INSERT INTO BundleCatalog (bundleCode, title, originCity, destinationCity, defau
     ('PKG_BKK', 'Bangkok long weekend', 'Singapore', 'Bangkok', 4, 'Temples & street food', 2),
     ('PKG_BALI', 'Bali beach escape', 'Singapore', 'Bali', 7, 'Resorts & relaxation', 3),
     ('PKG_SYD', 'Sydney harbour', 'Singapore', 'Sydney', 7, 'Harbour & beaches', 4),
-    ('PKG_LON', 'London summer', 'Singapore', 'London', 8, 'Museums & theatre', 5);
+    ('PKG_LON', 'London summer', 'Singapore', 'London', 8, 'Museums & theatre', 5),
+    ('PKG_LON_PAR', 'Paris art escape', 'London', 'Paris', 5, 'Louvre & cafés', 6),
+    ('PKG_PAR_LON', 'London from Paris', 'Paris', 'London', 6, 'West End & markets', 7),
+    ('PKG_LON_TYO', 'London to Tokyo', 'London', 'Tokyo', 8, 'Shinjuku & day trips', 8),
+    ('PKG_SYD_SIN', 'Sydney to Singapore', 'Sydney', 'Singapore', 7, 'Hawkers & Marina Bay', 9),
+    ('PKG_TYO_BKK', 'Tokyo to Bangkok', 'Tokyo', 'Bangkok', 6, 'Two-city foodie hop', 10),
+    ('PKG_BKK_DPS', 'Bangkok to Bali', 'Bangkok', 'Bali', 7, 'Temples to surf', 11);
 
 INSERT INTO bookings (
     customerID, flightID, hotelID, hotelRoomType, hotelIncludesBreakfast,
