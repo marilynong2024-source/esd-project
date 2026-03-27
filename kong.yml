@@ -1,0 +1,82 @@
+_format_version: "1.1"
+
+services:
+  - name: account
+    url: http://account:5100
+    routes:
+      - name: account-route
+        paths:
+          - /account
+        strip_path: false
+
+  - name: booking
+    url: http://booking:5101
+    routes:
+      - name: booking-route
+        paths:
+          - /booking
+        strip_path: false
+
+  - name: flight
+    url: http://flight:5102
+    routes:
+      - name: flight-route
+        paths:
+          - /flight
+        strip_path: false
+
+  - name: hotel
+    url: http://hotel:5103
+    routes:
+      - name: hotel-route
+        paths:
+          - /hotel
+        strip_path: false
+
+  - name: payment
+    url: http://payment:5104
+    routes:
+      - name: payment-route
+        paths:
+          - /payment
+        strip_path: false
+
+  - name: loyalty
+    url: http://loyalty:5105
+    routes:
+      - name: loyalty-route
+        paths:
+          - /loyalty
+        strip_path: false
+
+  - name: notification
+    url: http://notification:5106
+    routes:
+      - name: notification-route
+        paths:
+          - /notification
+        strip_path: false
+
+  - name: graphql
+    url: http://graphql:5110
+    routes:
+      - name: graphql-route
+        paths:
+          - /graphql
+        strip_path: false
+
+  - name: bundle-pricing
+    url: http://bundle-pricing:5111
+    routes:
+      - name: bundle-pricing-route
+        paths:
+          - /bundle-pricing
+        strip_path: false
+
+  - name: discount
+    url: http://discount:5112
+    routes:
+      - name: discount-route
+        paths:
+          - /discount
+        strip_path: false

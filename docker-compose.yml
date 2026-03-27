@@ -5,8 +5,8 @@ services:
     build:
       context: .
       dockerfile: booking/Dockerfile
-    ports:
-      - "5101:5101"
+    # ports:
+    #   - "5101:5101"
     env_file:
       - .env
     environment:
@@ -42,33 +42,33 @@ services:
 
   account:
     build: ./account
-    ports:
-      - "5100:5100"
+    # ports:
+    #   - "5100:5100"
 
   flight:
     build: ./flight
-    ports:
-      - "5102:5102"
+    # ports:
+    #   - "5102:5102"
 
   hotel:
     build: ./hotel
-    ports:
-      - "5103:5103"
+    # ports:
+    #   - "5103:5103"
 
   payment:
     build: ./payment
-    ports:
-      - "5104:5104"
+    # ports:
+    #   - "5104:5104"
 
   loyalty:
     build: ./loyalty
-    ports:
-      - "5105:5105"
+    # ports:
+    #   - "5105:5105"
 
   graphql:
     build: ./graphql_gateway
-    ports:
-      - "5110:5110"
+    # ports:
+    #   - "5110:5110"
     depends_on:
       - flight
       - hotel
@@ -76,15 +76,15 @@ services:
 
   discount:
     build: ./discount
-    ports:
-      - "5112:5112"
+    # ports:
+    #   - "5112:5112"
     depends_on:
       - loyalty
 
   bundle-pricing:
     build: ./bundle_pricing
-    ports:
-      - "5111:5111"
+    # ports:
+    #   - "5111:5111"
     depends_on:
       - flight
       - hotel
@@ -93,8 +93,8 @@ services:
 
   notification:
     build: ./notification
-    ports:
-      - "5106:5106"
+    # ports:
+    #   - "5106:5106"
     # Load Twilio / SMU keys from project `.env` so real values are never replaced by
     # empty `${VAR:-}` interpolation when Compose runs without that file in context.
     env_file:
@@ -107,6 +107,35 @@ services:
       QUEUE_NAME: notify.user
     depends_on:
       - rabbitmq
+
+  kong:
+    image: kong:latest
+    environment:
+      KONG_DATABASE: off
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    ports:
+      - "9000:8000"  # Proxy port
+      - "9443:8443"  # Proxy SSL port
+      - "9001:8001"  # Admin API port
+      - "9444:8444"  # Admin API SSL port
+    volumes:
+      - ./kong.yml:/kong/declarative/kong.yml:ro
+    depends_on:
+      - account
+      - booking
+      - flight
+      - hotel
+      - payment
+      - loyalty
+      - notification
+      - graphql
+      - bundle-pricing
+      - discount
 
   rabbitmq:
     image: rabbitmq:3-management
