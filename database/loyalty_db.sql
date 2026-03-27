@@ -1,36 +1,33 @@
--- Loyalty DB (MySQL)
+-- Loyalty DB (Diagram 3/3 aligned)
 
-CREATE TABLE IF NOT EXISTS loyalty_accounts (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  customer_id INT NOT NULL UNIQUE,
-  booking_count INT DEFAULT 0,
-  tier_level VARCHAR(20) DEFAULT 'Bronze', -- Bronze/Silver/Gold/Platinum
-  coins INT DEFAULT 0, -- stored in cents
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS LoyaltyAccounts (
+  ID INT AUTO_INCREMENT PRIMARY KEY,
+  CustomerID INT NOT NULL UNIQUE,
+  PointsBalance INT NOT NULL DEFAULT 0,
+  TierLevel VARCHAR(20) NOT NULL DEFAULT 'Bronze',
+  UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS loyalty_transactions (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  customer_id INT NOT NULL,
-  booking_id INT,
-  transaction_type VARCHAR(30) NOT NULL, -- EARN/SPEND/REVERSAL
-  points_changed INT DEFAULT 0,
-  coins_changed INT DEFAULT 0, -- cents
-  reason VARCHAR(255),
-  transaction_date DATETIME DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS LoyaltyTransactions (
+  ID INT AUTO_INCREMENT PRIMARY KEY,
+  CustomerID INT NOT NULL,
+  BookingID INT NULL,
+  PointsChanged INT NOT NULL DEFAULT 0,
+  TransactionDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+  Reason VARCHAR(255)
 );
 
-INSERT INTO loyalty_accounts
-  (customer_id, booking_count, tier_level, coins)
+INSERT INTO LoyaltyAccounts
+  (CustomerID, PointsBalance, TierLevel)
 VALUES
-  (1, 1, 'Bronze', 120),
-  (2, 2, 'Silver', 430),
-  (3, 6, 'Gold', 1250);
+  (1, 11200, 'Silver'),
+  (2, 8600, 'Silver'),
+  (3, 18400, 'Gold');
 
-INSERT INTO loyalty_transactions
-  (customer_id, booking_id, transaction_type, points_changed, coins_changed, reason)
+INSERT INTO LoyaltyTransactions
+  (CustomerID, BookingID, PointsChanged, Reason)
 VALUES
-  (1, 1, 'EARN', 1200, 120, 'Completed booking'),
-  (2, 2, 'EARN', 1500, 300, 'Completed booking as Silver'),
-  (3, 3, 'EARN', 800, 240, 'Completed booking as Gold');
+  (1, 1, 1200, 'Earn after completed booking'),
+  (2, 2, 300, 'Earn after completed booking (Silver tier)'),
+  (3, 3, -500, 'Redeem points for pre-payment discount');
 

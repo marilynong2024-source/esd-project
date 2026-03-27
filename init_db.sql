@@ -311,10 +311,15 @@ CREATE TABLE IF NOT EXISTS bookings (
     noOfRooms INT DEFAULT 1,
     refundPercentage INT,
     refundAmount DOUBLE,
+    cancellationPolicyID VARCHAR(40) NULL,
+    cancellationTimestamp VARCHAR(40) NULL,
     seatNumber VARCHAR(8) NULL,
     travellerProfileId INT NULL,
     travellerDisplayName VARCHAR(128) NULL,
     travellerProfileIdsJson TEXT NULL,
+    adultCount INT NOT NULL DEFAULT 1,
+    childCount INT NOT NULL DEFAULT 0,
+    infantCount INT NOT NULL DEFAULT 0,
     passengerName VARCHAR(200) NULL,
     passengerEmail VARCHAR(255) NULL,
     passengerPhone VARCHAR(40) NULL
@@ -373,61 +378,62 @@ INSERT INTO bookings (
 CREATE DATABASE IF NOT EXISTS LoyaltyDB;
 USE LoyaltyDB;
 
-CREATE TABLE IF NOT EXISTS LoyaltyAccount (
-    loyaltyID       INT AUTO_INCREMENT PRIMARY KEY,
-    accountID       INT NOT NULL UNIQUE,
-    tier            VARCHAR(20) NOT NULL DEFAULT 'BRONZE',  -- BRONZE, SILVER, GOLD, PLATINUM
-    totalPoints     INT NOT NULL DEFAULT 0,   -- for tier calculation (1 per $1 spent)
-    coinBalance     INT NOT NULL DEFAULT 0,   -- redeemable coins (value depends on tier)
-    totalBookings   INT NOT NULL DEFAULT 0,
-    createdAt       DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updatedAt       DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS LoyaltyAccounts (
+    ID              INT AUTO_INCREMENT PRIMARY KEY,
+    CustomerID      INT NOT NULL UNIQUE,
+    PointsBalance   INT NOT NULL DEFAULT 0,
+    TierLevel       VARCHAR(20) NOT NULL DEFAULT 'Bronze',
+    UpdatedAt       DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS LoyaltyTransaction (
-    transactionID   INT AUTO_INCREMENT PRIMARY KEY,
-    loyaltyID       INT NOT NULL,
-    bookingID       INT,
-    type            VARCHAR(20) NOT NULL,  -- EARN, REDEEM, REFUND_REVERSAL
-    points          INT NOT NULL,          -- points earned/deducted
-    coins           INT NOT NULL,          -- coins earned/deducted
-    description     VARCHAR(255),
-    createdAt       DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (loyaltyID) REFERENCES LoyaltyAccount(loyaltyID)
+CREATE TABLE IF NOT EXISTS LoyaltyTransactions (
+    ID              INT AUTO_INCREMENT PRIMARY KEY,
+    CustomerID      INT NOT NULL,
+    BookingID       INT NULL,
+    PointsChanged   INT NOT NULL DEFAULT 0,
+    TransactionDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+    Reason          VARCHAR(255)
 );
 
--- Tier rules reference table (for easy querying in code)
-CREATE TABLE IF NOT EXISTS LoyaltyTier (
-    tier                VARCHAR(20) PRIMARY KEY,
-    minBookings         INT NOT NULL,
-    coinValueCents      INT NOT NULL,   -- how many cents 1 coin is worth
-    discountPercent     DECIMAL(5,2) NOT NULL
+INSERT INTO LoyaltyAccounts (CustomerID, PointsBalance, TierLevel) VALUES
+(1, 11200, 'Silver'),
+(2, 8600, 'Silver'),
+(3, 18400, 'Gold'),
+(4, 5200, 'Silver'),
+(5, 800, 'Bronze'),
+(6, 98200, 'Platinum');
+
+INSERT INTO LoyaltyTransactions (CustomerID, BookingID, PointsChanged, Reason) VALUES
+(1, 1, 1200, 'Earn after completed booking'),
+(1, 4, -500, 'Redeem points for pre-payment discount'),
+(2, 2, 1500, 'Earn after completed booking'),
+(3, 3, -800, 'Refund reversal after cancellation');
+
+
+-- ============================================================
+-- TRAVELLER PROFILE DB
+-- ============================================================
+CREATE DATABASE IF NOT EXISTS TravellerDB;
+USE TravellerDB;
+
+CREATE TABLE IF NOT EXISTS TravellerProfiles (
+    ID              INT AUTO_INCREMENT PRIMARY KEY,
+    CustomerID      INT NOT NULL,
+    FullName        VARCHAR(120) NOT NULL,
+    PassportNumber  VARCHAR(40) NOT NULL,
+    Nationality     VARCHAR(60),
+    DateOfBirth     DATE,
+    MealPreference  VARCHAR(40) DEFAULT 'None',
+    CreatedAt       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_traveller_passport (PassportNumber),
+    CONSTRAINT fk_travellerprofiles_customer
+      FOREIGN KEY (CustomerID) REFERENCES CustomerDB.customer_accounts(customer_id)
+      ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-INSERT INTO LoyaltyTier (tier, minBookings, coinValueCents, discountPercent) VALUES
-('BRONZE',   0,  1, 0.00),
-('SILVER',   2,  2, 10.00),
-('GOLD',     5,  3, 15.00),
-('PLATINUM', 10, 5, 20.00);
-
--- Sample loyalty accounts (pairs with customer_accounts 1–6)
-INSERT INTO LoyaltyAccount (accountID, tier, totalPoints, coinBalance, totalBookings) VALUES
-(1, 'SILVER',   11200, 11200, 3),
-(2, 'SILVER',   8600, 8600, 2),
-(3, 'GOLD',     18400, 18400, 6),
-(4, 'SILVER',   5200, 5200, 2),
-(5, 'BRONZE',   800, 800, 0),
-(6, 'PLATINUM', 98200, 98200, 13);
-
--- Sample transactions (journal-style audit trail)
-INSERT INTO LoyaltyTransaction (loyaltyID, bookingID, type, points, coins, description) VALUES
-(1, 1, 'EARN', 1200, 1200, 'Bundle accrual — booking #1'),
-(1, 4, 'EARN', 2450, 2450, 'Bundle accrual — Tokyo DLX'),
-(1, NULL, 'REDEEM', -500, -500, 'Partial coin burn — test'),
-(2, 2, 'EARN', 1500, 1500, 'Bangkok weekend'),
-(2, 6, 'EARN', 3100, 3100, 'Sydney long-haul'),
-(3, 3, 'EARN', 800, 800, 'Saver Bali'),
-(3, NULL, 'EARN', 2000, 2000, 'Promotional tier bump'),
-(4, 5, 'EARN', 620, 620, 'Budget Bangkok'),
-(6, 7, 'EARN', 8900, 8900, 'London premium package'),
-(6, NULL, 'EARN', 1200, 1200, 'Anniversary bonus');
+INSERT INTO TravellerProfiles
+    (CustomerID, FullName, PassportNumber, Nationality, DateOfBirth, MealPreference)
+VALUES
+    (1, 'Ava Chen', 'E1234567A', 'Singapore', '1995-02-14', 'Vegetarian'),
+    (1, 'Liam Chen', 'E7654321B', 'Singapore', '1992-07-11', 'None'),
+    (2, 'Ben Kumar', 'K9988776C', 'India', '1991-08-03', 'Halal');

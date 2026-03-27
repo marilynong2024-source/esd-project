@@ -64,6 +64,8 @@ def process_payment_process():
 
 
 @app.route("/payment/refund", methods=["POST"])
+@app.route("/refund-payment", methods=["POST"])
+@app.route("/payment/refund-payment", methods=["POST"])
 def refund_payment():
     """
     Refund payment for a booking.
