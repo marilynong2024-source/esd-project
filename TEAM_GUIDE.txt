@@ -1,0 +1,708 @@
+================================================================================
+  HORIZON PACKAGES (esd-project) — COMPREHENSIVE TEAM GUIDE
+  Plain-text source of truth for implementation, demo, report, and handover
+================================================================================
+
+Last updated: use git history for exact dates. Pair with README.md (quick start)
+and SCORE_BOOST_CHECKLIST.md (submission / marks uplift).
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+  1. How to use this document
+  2. Course requirements crosswalk (IS213-style)
+  3. Business scenario & “interesting” flows
+  4. Architecture overview
+  5. Service catalog (ports, roles, data stores)
+  6. Repository map
+  7. Setup & runbook (Docker)
+  8. Environment variables (.env)
+  9. HTTP routing (nginx UI proxy)
+ 10. Kong API gateway (optional BTL)
+ 11. End-to-end: create booking (orchestration)
+ 12. End-to-end: cancel booking
+ 13. Bundle pricing composite
+ 14. Discount rules (current behaviour)
+ 15. Flight & hotel APIs (including diagram path aliases)
+ 16. Payment & loyalty & account
+ 17. Notification: RabbitMQ, Twilio (UI config), SMU email
+ 18. GraphQL gateway (BTL)
+ 19. OutSystems traveller profiles
+ 20. MySQL (booking-db)
+ 21. Web UI behaviour & guest-facing copy
+ 22. Data ownership & demo simplifications
+ 23. Testing & smoke checks
+ 24. 15-minute demo script (suggested)
+ 25. Troubleshooting
+ 26. Secrets, .gitignore, what not to commit
+ 27. Deliverables: slides, report, video.txt, zip
+ 28. Team workflow (roles, PR discipline)
+ 29. FAQ
+ 30. Change log (team-maintained appendix)
+
+================================================================================
+ 1. HOW TO USE THIS DOCUMENT
+================================================================================
+
+  * New teammate: read sections 1–7, then 11–12, then your owned service.
+  * Demo day: sections 24, 23, 25.
+  * Report writing: sections 2, 3, 4, 5, 11–20, 22, 27.
+  * Instructor verification: sections 5, 9, 11–17 + API appendix in report.
+
+  README.md          → fastest path to a running UI.
+  TEAM_GUIDE.txt     → deep reference (this file).
+  SCORE_BOOST_CHECKLIST.md → deadlines, rubric alignment, last-week plan.
+
+================================================================================
+ 2. COURSE REQUIREMENTS CROSSWALK (IS213-STYLE)
+================================================================================
+
+  The codebase is INTENDED to satisfy typical “enterprise microservices” project
+  requirements. Your team still must submit slides, report, video, eLearn zip.
+
+  [ ] >= 3 interesting user scenarios (not just login/register)
+      → Bundle search/price; book package (multi-service orchestration);
+        cancel/refund + async notification (and optional SMS).
+
+  [ ] >= 3 atomic microservices, different data/entities
+      → booking, flight, hotel, loyalty, payment, notification, account,
+        discount, bundle-pricing, graphql_gateway, etc.
+
+  [ ] At least one service exposed / integrated with OutSystems
+      → Traveller profiles via booking (REST to OutSystems when URL set).
+
+  [ ] Reuse of at least one microservice across scenarios
+      → e.g. loyalty, payment, flight, hotel, notification in book + cancel.
+
+  [ ] At least one external service (your choice; not mandatory Stripe)
+      → Twilio SMS (optional, UI-configured on notification service) and/or
+        SMU SendEmail hooks; payment is SIMULATED in-repo (state that clearly).
+
+  [ ] >= 2 scenarios with orchestration or choreography
+      → Booking orchestrates HTTP chain; RabbitMQ notify.user to notification
+        (choreography + Twilio/SMU side effects).
+
+  [ ] Each service: exclusive data where applicable; >=1 real DB
+      → Booking → MySQL; many others in-memory for demo (disclose in report).
+
+  [ ] HTTP between some services; message-based between some; JSON; web GUI
+      → Yes (Flask REST, AMQP, JSON bodies, ui/).
+
+  [ ] Docker + Docker Compose for non–OutSystems services
+      → docker-compose.yml
+
+  [ ] Beyond-the-labs (for extra marks): justify in report
+      → GraphQL gateway, Kong, real Twilio path, composite bundle-pricing, etc.
+
+================================================================================
+ 3. BUSINESS SCENARIO & “INTERESTING” FLOWS
+================================================================================
+
+  Brand: Horizon Packages — bundled flight + hotel booking.
+
+  Flow A — Search & price bundle:
+    User picks origin/destination/dates/travellers; UI calls bundle-pricing
+    which calls flight, hotel, discount, loyalty (coins preview), returns
+    breakdown and final total.
+
+  Flow B — Book package:
+    Holds seat + room, optional loyalty redeem, simulated payment, confirms
+    inventory, earns loyalty, synchronous notify/manual + AMQP notify.user
+    (SMS/email side effects in notification service).
+
+  Flow C — Cancel:
+    Refund via payment service, release seat/room, restore availability counts,
+    loyalty reversal, AMQP + synchronous notify/manual, optional SMS.
+
+  Assumptions to state in report:
+    SGD currency in UI demo; simplified airline/hotel inventory; payment is not
+    a live card processor unless you wire one yourself.
+
+================================================================================
+ 4. ARCHITECTURE OVERVIEW
+================================================================================
+
+  Browser → nginx (ui service) serves static files and reverse-proxies /api/*
+  to internal containers by DNS name on the Docker network.
+
+  booking service is the main COMPOSITE for create/cancel: it calls account,
+  flight, hotel, payment, loyalty, notification HTTP, and publishes to
+  RabbitMQ.
+
+  notification service consumes AMQP from exchange travel_topic, queue bound to
+  routing keys notify.user and booking.cancelled (bindings in code), appends
+  events to in-memory list, optional Twilio/SMU.
+
+  graphql_gateway aggregates flight/hotel/loyalty for BTL-style queries.
+
+  kong is included for gateway BTL demos; primary student path is often
+  localhost:8080 (nginx), not Kong ports.
+
+================================================================================
+ 5. SERVICE CATALOG (PORTS, ROLES, DATA STORES)
+================================================================================
+
+  Service          Port   Data store              Notes
+  ---------------- ------ ----------------------- ---------------------------
+  ui (nginx)       8080   static files            Proxies /api/* to backends
+  booking          5101   MySQL (booking-db)      Orchestration, traveller API
+  account          5100   in-memory ACCOUNTS      Customer lookup
+  flight           5102   in-memory FLIGHTS      Catalog, reserve/confirm
+  hotel            5103   in-memory HOTELS        Catalog, hold/confirm
+  payment          5104   in-memory PAYMENTS      process + refund-payment
+  loyalty          5105   in-memory LOYALTY       points, tier, earn/redeem/refund
+  notification     5106   in-memory NOTIFICATIONS + optional file
+                                 /app/data/twilio_runtime.json (volume)
+  graphql          5110   none                    Aggregates REST
+  bundle-pricing   5111   none                    Composite GET /bundle-price
+  discount         5112   rules in code           GET /discount-rule + alias
+  rabbitmq         5672   broker (internal)       Host 5674, UI 15673
+  booking-db       3306   MySQL                   Host 3307
+  kong             8000   declarative config      Host 9000 (proxy)
+
+  Internal URLs use Docker DNS: e.g. http://booking:5101/booking
+
+================================================================================
+ 6. REPOSITORY MAP
+================================================================================
+
+  booking/           Flask app, SQLAlchemy models, orchestration, AMQP publish,
+                     traveller_os + OutSystems client copy in image
+  flight/            Flask catalog, reserve-seat, confirm-seat, availability
+  hotel/             Flask catalog, hold-room, confirm-room, availability
+  payment/           Flask payment/process, refund-payment aliases
+  loyalty/           Flask tier + coins
+  notification/      Flask AMQP consumer, /notifications, /notify/manual,
+                     /twilio/config (GET/POST), smu_integration, twilio_integration
+  account/           Flask GET /account/{id}
+  bundle_pricing/    Flask GET /bundle-price
+  discount/          Flask GET /discount-rule and /discounts/bundle-rule
+  graphql_gateway/   Flask + Graphene schema
+  ui/                index.html, app.js, styles.css
+  nginx/ui.conf      reverse proxy rules for /api/booking, loyalty, etc.
+  docker-compose.yml stack definition + notification_twilio_data volume
+  kong.yml           Kong declarative routes (BTL)
+  database/*.sql     reference / seed SQL for various conceptual DBs
+  init_db.sql        root-level seed reference
+  scripts/smoke_test.ps1 optional automated checks
+  travellerprofile/  OutSystems client library (used by booking)
+
+================================================================================
+ 7. SETUP & RUNBOOK (DOCKER)
+================================================================================
+
+  Prerequisites:
+    Docker Desktop (Compose v2), ports free: 8080, 3307, 5674, 15673, 9000...
+
+  First time:
+    1. Copy-Item .env.example .env   (PowerShell, project root)
+    2. Edit .env for OutSystems / SMU / FX if needed (see section 8)
+    3. docker compose up --build
+    4. Open http://localhost:8080
+
+  Rebuild one service:
+    docker compose up --build booking
+
+  Full reset:
+    docker compose down
+    docker compose up --build
+
+  Logs:
+    docker compose logs booking --tail 120
+    docker compose logs notification --tail 120
+    docker compose logs ui --tail 80
+
+  RabbitMQ management UI:
+    http://localhost:15673  (guest / guest)
+
+  MySQL from host (debug):
+    localhost:3307  user travel_user  password travel_pass  DB travel_booking
+
+================================================================================
+ 8. ENVIRONMENT VARIABLES (.env)
+================================================================================
+
+  Compose loads .env for substitution on services that declare env_file: .env
+  (e.g. booking). Do NOT commit real secrets.
+
+  Booking-related:
+    BOOKING_DB_URL       MySQL URL for SQLAlchemy
+    TRAVELLER_PROFILE_BASE_URL   OutSystems REST base (empty = optional OS)
+    TRAVELLER_PROFILE_REQUIRED   true = strict validation when URL set
+    TRAVELLER_PROFILE_UPDATE_PATH / DELETE_PATH  OS action names
+    SKIP_CATALOG_VALIDATION      skip flight/hotel existence checks if true
+    FX_API_ENABLED / FX_API_URL  optional FX snippet on booking response
+
+  SMU email (notification service — add under notification.environment in
+  compose if you removed env_file; or use compose environment block):
+    SMU_NOTIFICATION_ENABLED, BASE_URL, SMU_NOTIFY_EMAIL_TO, AUTH header/value
+
+  Twilio:
+    Legacy TWILIO_* env vars are NOT required for notification: Twilio is
+    configured via UI POST /api/notification/twilio/config and persists under
+    Docker volume notification_twilio_data → /app/data.
+
+  Booking → Notification HTTP:
+    NOTIFICATION_URL=http://notification:5106  (set in compose for booking)
+
+================================================================================
+ 9. HTTP ROUTING (NGINX UI PROXY)
+================================================================================
+
+  All from browser same-origin http://localhost:8080/api/...
+
+  /api/booking/*     → booking:5101
+  /api/loyalty/*     → loyalty:5105
+  /api/notification/*→ notification:5106
+  /api/flight/*      → flight:5102
+  /api/hotel/*       → hotel:5103
+  /api/graphql/*     → graphql:5110
+  /api/discount/*    → discount:5112
+  /api/bundle-price  → bundle-pricing:5111
+
+  UI JavaScript uses relative paths like /api/booking/... so do NOT open
+  index.html via file://.
+
+================================================================================
+10. KONG API GATEWAY (OPTIONAL BTL)
+================================================================================
+
+  Kong listens on host port 9000 (proxy) and 9001 (admin) per compose.
+  Declarative config: kong.yml in project root.
+
+  Use case for report: “second entry point / gateway layer in addition to
+  nginx BFF.” Ensure diagram matches what you actually demo.
+
+================================================================================
+11. END-TO-END: CREATE BOOKING (ORCHESTRATION)
+================================================================================
+
+  UI: POST /api/booking/booking  (JSON body with customerID, flightID, hotelID,
+       totalPrice, departureTime, traveller profile ids, coins, etc.)
+
+  Diagram aliases (same handler):
+    POST /book-package
+    POST /booking
+
+  High-level server steps (booking/app.py):
+    1. Validate payload; optional catalog validation flight+hotel
+    2. GET http://account:5100/account/{customerID}
+       - 404 → fail; non-Active → 403; unreachable → warning only
+    3. Validate traveller profiles (OutSystems or local fallback per code)
+    4. Persist booking row (status PENDING)
+    5. POST flight: reserve-seat
+    6. POST hotel: hold-room
+    7. GET loyalty points; optional POST redeem (pre-pay coins)
+    8. POST payment: .../payment/process
+    9. PUT flight: confirm-seat ; PUT hotel: confirm-room
+   10. PUT flight: /availability/{seat}/CONFIRMED (inventory)
+       PUT hotel: /availability/{hotelID}/CONFIRMED (inventory)
+   11. Set booking CONFIRMED in DB
+   12. POST loyalty .../earn (post-payment rewards)
+   13. POST notification /notify/manual (sync confirmation payload)
+   14. AMQP publish routing_key notify.user with rich payload (email, phone...)
+
+  Failure before pay: release-seat and release-room rollback pattern.
+
+================================================================================
+12. END-TO-END: CANCEL BOOKING
+================================================================================
+
+  UI: POST /api/booking/booking/cancel/{id}  with JSON body cancelSource
+
+  Diagram alias:
+    POST /cancel-booking  body: { bookingID, userID?, cancelSource? }
+    userID optional check against booking.customerID
+
+  Steps:
+    1. Compute refund % and amount from policy (fare, tier, days, source)
+    2. POST payment .../refund-payment  { bookingID, refundAmount }
+    3. PUT flight .../flight/inventory/{seat}/release
+    4. PUT hotel .../hotel/inventory/{room}/release
+    5. PUT availability .../RELEASED (restore seat/room counts)
+    6. Update booking row CANCELLED + refund fields
+    7. POST loyalty .../refund (reversal — not the same as /redeem)
+    8. AMQP notify.user with cancellation payload
+    9. POST notification /notify/manual (sync fallback)
+
+================================================================================
+13. BUNDLE PRICING COMPOSITE
+================================================================================
+
+  Endpoint (via nginx):
+    GET /api/bundle-price?origin=&destination=&departDate=&returnDate=
+        &numberOfTravellers=&customerId=&roomType=&loyaltyCoinsToUseCents=
+
+  Internal calls (bundle_pricing/app.py):
+    - GET flight /availability then GET flight /flights/price (alias of /price)
+    - GET hotel /availability then GET hotel /hotels/price
+    - GET discount /discounts/bundle-rule (alias of /discount-rule)
+    - Optional GET loyalty /{id}/points for coin preview
+
+  Response data includes flightPrice, hotelPrice, discount, loyaltyUsed,
+  finalTotal, plus helper fields (flightNum, hotelID, discountPercent, ...).
+
+================================================================================
+14. DISCOUNT RULES (CURRENT BEHAVIOUR)
+================================================================================
+
+  discount/app.py:
+    - Endpoints: GET /discount-rule  AND  GET /discounts/bundle-rule
+    - Baseline: 10% bundle discount when tier/bundle rules do not yield higher
+    - Stricter tier rules apply when travellers>=2, nights>=3, room DLX, and
+      loyalty tier matches; highest eligible percent wins (min 10%).
+
+  Report should describe this accurately (do not claim “always 0%”).
+
+================================================================================
+15. FLIGHT & HOTEL APIs (ALIASES)
+================================================================================
+
+  Flight (service root, strip /api/flight prefix when reading OpenAPI appendix):
+    GET  /flight/{flightNum}
+    GET  /flight/search
+    GET  /availability
+    GET  /price
+    GET  /flights/price          (diagram alias → same as /price)
+    POST /reserve-seat
+    PUT  /confirm-seat
+    PUT  /release-seat           body bookingID or resolvable flightRef
+    PUT  /flight/inventory/{seat}/release
+    PUT  /availability/{seatNo}/{status}   CONFIRMED|RELEASED|...
+
+  Hotel:
+    GET  /hotel/{id}
+    GET  /hotel/search
+    GET  /availability
+    GET  /price
+    GET  /hotels/price           (diagram alias)
+    POST /hold-room
+    PUT  /confirm-room
+    PUT  /release-room
+    PUT  /hotel/inventory/{roomId}/release
+    PUT  /availability/{hotelID}/{status}
+
+================================================================================
+16. PAYMENT & LOYALTY & ACCOUNT
+================================================================================
+
+  payment/app.py:
+    POST /payment
+    POST /payment/process
+    POST /payment/refund
+    POST /refund-payment
+    POST /payment/refund-payment
+    (Simulated — document in report.)
+
+  loyalty/app.py:
+    GET  /loyalty/{id}/points
+    POST /loyalty/{id}/earn
+    POST /loyalty/{id}/redeem
+    POST /loyalty/{id}/refund   (cancellation reversal)
+    POST /loyalty/earn, /loyalty/adjust  (additional demo endpoints)
+
+  account/app.py:
+    GET /account/{customerID}
+    POST /account, PUT /account/{id}
+
+================================================================================
+17. NOTIFICATION: RABBITMQ, TWILIO, SMU
+================================================================================
+
+  notification/app.py:
+    GET  /notifications
+    POST /notify/manual
+    GET  /twilio/config
+    POST /twilio/config
+
+  AMQP:
+    Exchange: travel_topic (topic, durable)
+    Queue: notify.user (name in compose env QUEUE_NAME)
+    Binds: notify.user, booking.cancelled
+
+  booking publishes routing_key notify.user for both confirm and cancel payloads.
+
+  Twilio:
+    Configured via UI (sidebar) → POST /api/notification/twilio/config
+    Persisted: Docker volume notification_twilio_data mounted at /app/data
+    Code: notification/twilio_integration.py
+    Phone: passengerPhone on AMQP payload; normalizes SG-style numbers.
+
+  SMU SendEmail:
+    smu_integration.py — env-driven; wire via compose if needed.
+
+================================================================================
+18. GRAPHQL GATEWAY (BTL)
+================================================================================
+
+  graphql_gateway/app.py — POST /graphql
+  Through UI proxy: /api/graphql/graphql
+
+  Typical demo: hotelSearch query; explain aggregation benefit in report.
+
+================================================================================
+19. OUTSYSTEMS TRAVELLER PROFILES
+================================================================================
+
+  booking validates and CRUDs via traveller_os.py + outsystems client.
+
+  Set TRAVELLER_PROFILE_BASE_URL in .env to your OutSystems REST base.
+  If empty: demo may still run with reduced profile strictness (see code).
+
+  For report: include assumptions (auth, tunneling if OS cloud → localhost).
+
+================================================================================
+20. MYSQL (BOOKING-DB)
+================================================================================
+
+  Service: booking-db (MySQL 8)
+  ORM: Flask-SQLAlchemy in booking service
+  Migrations: ensure_booking_columns() and SQL under database/ for reference
+
+  Satisfies “at least one microservice uses a DB” — cite booking + ERD in appendix.
+
+================================================================================
+21. WEB UI BEHAVIOUR & GUEST-FACING COPY
+================================================================================
+
+  ui/app.js + index.html:
+    - Member dropdown shows NAMES (not “Member 1”) + Guest checkout (id 0)
+    - Traveller profile dropdown stays on a real member when guest checkout
+      selected for booking (wallet vs passport profiles)
+    - Labels: “Who is this booking for?”, booking reference for cancel,
+      package total S$, reward coins with S$ hint
+    - SMS section user-friendly; technical details in README/checklist
+
+  Do not open UI as file:// — use http://localhost:8080
+
+================================================================================
+22. DATA OWNERSHIP & DEMO SIMPLIFICATIONS
+================================================================================
+
+  * booking MySQL: source of truth for bookings.
+  * flight/hotel/loyalty/payment/notification lists: in-memory — restart clears.
+  * Twilio config file survives in Docker volume across notification restarts.
+  * State these boundaries in report to avoid “looks like production” claims.
+
+================================================================================
+23. TESTING & SMOKE CHECKS
+================================================================================
+
+  Automated:
+    powershell -ExecutionPolicy Bypass -File .\scripts\smoke_test.ps1
+
+  Manual minimum:
+    1. Load UI, bundle price or hotel search
+    2. Complete booking, note reference in summary JSON
+    3. Refresh notifications / sidebar log — see twilio_sms or skipped reason
+    4. Cancel booking — verify refund line + notification entry
+    5. Optional: GraphQL query via POST tool
+    6. Optional: RabbitMQ management — see queues/messages
+
+================================================================================
+24. 15-MINUTE DEMO SCRIPT (SUGGESTED)
+================================================================================
+
+  0:00–1:30  Problem + scenario (Horizon Packages)
+  1:30–3:30  Architecture slide: services, DB, RabbitMQ, external (Twilio)
+  3:30–5:00  Scenario 1: bundle price on UI (show breakdown)
+  5:00–9:30  Scenario 2: book — hotel, flight/seat, pay, confirmation ref
+  9:30–11:30 Loyalty wallet + optional SMS / notification log
+ 11:30–13:30 Scenario 3: cancel — refund + notification + inventory story
+ 13:30–15:00 GraphQL or Kong “BTL” + Q&A buffer
+
+  PRACTICE WITH A TIMER. Overrun = lost demo marks per course rules.
+
+================================================================================
+25. TROUBLESHOOTING
+================================================================================
+
+  Blank UI / failed fetches:
+    - Confirm URL is localhost:8080 not file://
+    - docker compose ps — ui, booking, booking-db healthy
+
+  Booking 500 / DB errors:
+    - docker compose logs booking-db, booking
+    - Verify BOOKING_DB_URL matches compose DB credentials
+
+  Notifications empty:
+    - rabbitmq up; notification logs “Waiting for AMQP”
+    - booking logs “Published AMQP notify.user”
+
+  Twilio skipped:
+    - Enable checkbox + save SID/token/from in UI
+    - Trial: verify destination number in Twilio console
+    - Phone on form must normalize to E.164 (SG defaults in code)
+
+  GraphQL errors:
+    - graphql container up; path /api/graphql/graphql double “graphql” is correct
+
+================================================================================
+26. SECRETS, .GITIGNORE, WHAT NOT TO COMMIT
+================================================================================
+
+  Never commit: .env with real tokens, Twilio auth, SMU keys, personal OutSystems
+  secrets.
+
+  .gitignore includes .env and notification/data/ (local Twilio JSON experiments).
+
+  Use .env.example as the template teammates copy.
+
+================================================================================
+27. DELIVERABLES: SLIDES, REPORT, VIDEO.TXT, ZIP
+================================================================================
+
+  Course-specific (you must produce):
+    - Presentation slides (PPT/PDF) to eLearn before deadline
+    - Report (Word/PDF) max 6 pages body + unlimited appendix
+        Appendix MUST include: SOA/technical diagrams, API docs for services,
+        team contribution table
+    - video.txt containing YouTube link, max ~3 min demo backup
+    - Zip (or repo link) with code + README + this guide
+
+  Penalties apply for missing README, video, late upload, inconsistent slides.
+
+================================================================================
+28. TEAM WORKFLOW (ROLES, PR DISCIPLINE)
+================================================================================
+
+  Suggested ownership (adjust to your team of 5–6):
+    A — Booking + MySQL + AMQP + traveller integration
+    B — Flight + hotel + seat/hold semantics
+    C — Payment + loyalty + refund math
+    D — Notification + Twilio + RabbitMQ bindings
+    E — UI/UX + nginx + bundle pricing client
+    F — GraphQL/Kong + report diagrams + OutSystems liaison
+
+  Practices:
+    - Small PRs; update TEAM_GUIDE.txt when behaviour changes
+    - Run smoke script before demo week
+    - One teammate owns “submission checklist” (SCORE_BOOST_CHECKLIST.md)
+
+================================================================================
+29. FAQ
+================================================================================
+
+  Q: Do we need real Stripe?
+  A: No. Course wants an external service; Twilio (or SMU) suffices. Say payment
+     is simulated unless you integrate real Stripe test mode.
+
+  Q: Is MySQL mandatory?
+  A: Course wants ≥1 DB; not necessarily MySQL. This repo uses MySQL for
+     booking — that satisfies the requirement.
+
+  Q: What if OutSystems is down?
+  A: Have TRAVELLER_PROFILE_BASE_URL empty for local-only demo OR video backup
+     with tunnel working; explain in report.
+
+  Q: Where is the “booking reference” for cancel?
+  A: Shown in right-hand summary JSON after successful create (booking id).
+
+================================================================================
+30. CHANGE LOG (TEAM-MAINTAINED — APPEND NEWEST AT TOP)
+================================================================================
+
+  YYYY-MM-DD | Author | Summary of change | Services/files affected
+
+  (Example)
+  2026-04-02 | Team | Added TEAM_GUIDE.txt; removed duplicate TEAM_GUIDE.md
+             |      | README now points to .txt | docs only
+
+================================================================================
+APPENDIX A — SAMPLE API PAYLOADS (FOR REPORT / TESTING)
+================================================================================
+
+  Create booking (minimal shape — adjust to your UI):
+    POST http://localhost:8080/api/booking/booking
+    Content-Type: application/json
+
+    {
+      "customerID": 1,
+      "flightID": "SQ001",
+      "hotelID": 1,
+      "hotelRoomType": "STD",
+      "hotelIncludesBreakfast": false,
+      "departureTime": "2026-05-01T10:00:00",
+      "totalPrice": 1200,
+      "currency": "SGD",
+      "fareType": "Flexi",
+      "passengerName": "Ava Chen",
+      "passengerEmail": "ava.chen@example.com",
+      "passengerPhone": "+6591234567",
+      "seatNumber": "12A",
+      "coinsToSpendCents": 0,
+      "travellerProfileIds": [1],
+      "discountCode": ""
+    }
+
+  Cancel booking:
+    POST http://localhost:8080/api/booking/booking/cancel/42
+    Content-Type: application/json
+    { "cancelSource": "customer" }
+
+  Diagram cancel alias:
+    POST http://localhost:8080/api/booking/cancel-booking
+    { "bookingID": 42, "userID": 1, "cancelSource": "customer" }
+
+  Bundle price:
+    GET http://localhost:8080/api/bundle-price?origin=Singapore&destination=Tokyo
+        &departDate=2026-05-01T10:00&returnDate=2026-05-06T11:00
+        &numberOfTravellers=2&customerId=1
+
+  Notification poll:
+    GET http://localhost:8080/api/notification/notifications
+
+  Twilio config save (after stack up):
+    POST http://localhost:8080/api/notification/twilio/config
+    Content-Type: application/json
+    {
+      "enabled": true,
+      "accountSid": "AC...",
+      "authToken": "...",
+      "fromNumber": "+1..."
+    }
+
+================================================================================
+APPENDIX B — LOYALTY TIER (TYPICAL DEMO RULES)
+================================================================================
+
+  Tier from booking count (loyalty service):
+    bookingCount < 2  → Bronze
+    2–4               → Silver
+    5–9               → Gold
+    >=10              → Platinum
+
+  UI tier discount preview (separate from bundle discount service):
+    Silver 10%, Gold 15%, Platinum 20% on package subtotal path in browser.
+
+  Always cite the actual code in loyalty/app.py + ui/app.js if instructors ask.
+
+================================================================================
+APPENDIX C — REFUND POLICY SUMMARY (CUSTOMER CANCEL)
+================================================================================
+
+  Customer-led cancel:
+    Flight portion: 0% refund (demo rule)
+    Hotel portion: 100% if >= 7 days before departure, else 0%
+  Airline cancel: full package refund
+  Hotel cancel: hotel-side refund logic
+
+  Exact implementation: booking/app.py compute_refund_policy_id_and_amount
+
+================================================================================
+APPENDIX D — FILES TO INCLUDE IN SUBMISSION ZIP
+================================================================================
+
+  Include:
+    All service folders, ui/, nginx/, docker-compose.yml, kong.yml,
+    Dockerfile per service, database/*.sql, init_db.sql, scripts/,
+    .env.example, README.md, TEAM_GUIDE.txt, SCORE_BOOST_CHECKLIST.md,
+    travellerprofile/, booking supporting modules.
+
+  Exclude (do not upload):
+    .env with secrets, __pycache__, .venv, huge Docker image exports,
+    node_modules if any, personal IDE folders.
+
+================================================================================
+END OF TEAM_GUIDE.txt
+================================================================================

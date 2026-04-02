@@ -101,7 +101,7 @@ Your **slides, report, video (`video.txt`), and eLearn zip** are still your team
 
 For comprehensive architecture, business rules, report/demo prep, troubleshooting, and team workflow, see:
 
-- `TEAM_GUIDE.md`
+- `TEAM_GUIDE.txt` (full team reference — plain text)
 - `SCORE_BOOST_CHECKLIST.md` (quick grading/demo uplift checklist)
 
 ## Optional: One-command smoke test
