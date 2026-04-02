@@ -64,3 +64,29 @@ Use this in the final week to move marks from "good" to "very good / exceptional
   - full rehearsal with timer and one backup device.
 - Demo day:
   - run smoke script, restart stack once, use stable scripted flow.
+
+## 8) Minimum technical requirements vs this codebase (verification)
+
+Use this when writing the report appendix or rehearsing Q&A.
+
+| Course requirement | Project evidence (where to look) |
+|---------------------|----------------------------------|
+| 3+ **interesting** scenarios | Bundle pricing flow; book with holds/pay/confirm/loyalty/notify; cancel with refund/release/MQ/SMS. |
+| 3+ atomic microservices | `booking`, `flight`, `hotel`, `loyalty`, `payment`, `notification`, `discount`, `bundle-pricing`, `account`, `graphql_gateway`, etc. |
+| **OutSystems** | Traveller profile CRUD from booking (`traveller_os`, OutSystems client, `TRAVELLER_PROFILE_BASE_URL`). |
+| Reuse across scenarios | **Loyalty** + **payment** + **notification** in book and cancel; **flight**/**hotel** in search and book. |
+| External service | **Twilio** (UI-configured), optional **SMU** email; payment is **simulated** (Stripe-shaped demo — state that in report). |
+| Orchestration / choreography (×2) | **Booking** orchestrates HTTP chain; **RabbitMQ** `notify.user` for async notification/Twilio. |
+| Own data store per service | Booking DB vs in-memory flight/hotel/loyalty/payment stores — state assumptions in report. |
+| ≥1 DB | `booking-db` MySQL + SQLAlchemy models. |
+| HTTP + messages + JSON + web UI | REST + AMQP + `ui/` + JSON bodies. |
+| Docker Compose | `docker-compose.yml` (local deploy; OutSystems external). |
+| **BTL** (up to 3 marks) | GraphQL gateway, Kong, composite bundle service, real Twilio path, inventory/availability PUTs aligned to diagrams — **justify benefit** in one report slide + appendix. |
+
+**Deliverables you cannot automate in code:** proposal session, **slides**, **6-page report** (+ appendix), **`video.txt`** with YouTube URL, **eLearn** upload, inter-team evaluation, team contribution table.
+
+## 9) UI / UX expectations (course + guests)
+
+- Prefer **human labels** on the form (member names, “booking reference”, “package total”) — internal field names stay in JSON for APIs only.
+- **Nice enough** for marks = clear steps, readable type, obvious primary actions (`styles.css` + sidebar summary). Fancy animation is optional; **reliable demo** beats decoration.
+- **Improvements to aim for** if you have time: loading states on slow searches, inline success toast after book, empty-state copy when no hotels found, and a one-page “demo script” PDF for the presenter only.

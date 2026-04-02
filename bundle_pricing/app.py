@@ -127,7 +127,7 @@ def bundle_price():
         return jsonify({"code": 409, "message": "Not enough flight seats for travellers"}), 409
 
     flight_price_out = _get_json(
-        f"{FLIGHT_BASE}/price",
+        f"{FLIGHT_BASE}/flights/price",
         params={"flightNum": flight_num},
     )
     if not flight_price_out or flight_price_out.get("code") != 200:
@@ -169,7 +169,7 @@ def bundle_price():
         return jsonify({"code": 409, "message": "Not enough hotel rooms for travellers"}), 409
 
     hotel_price_out = _get_json(
-        f"{HOTEL_BASE}/price",
+        f"{HOTEL_BASE}/hotels/price",
         params={"hotelID": hotel_id, "roomType": chosen_room_type},
     )
     if not hotel_price_out or hotel_price_out.get("code") != 200:
@@ -182,7 +182,7 @@ def bundle_price():
     # Loyalty tier is derived inside the discount service (it will call loyalty).
     # This keeps the orchestration order strictly: Flight -> Hotel -> Discount.
     discount_out = _get_json(
-        f"{DISCOUNT_BASE}/discount-rule",
+        f"{DISCOUNT_BASE}/discounts/bundle-rule",
         params={
             "customerId": cid,
             "flightNum": flight_num,

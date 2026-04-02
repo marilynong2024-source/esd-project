@@ -73,6 +73,18 @@ def get_amqp_channel():
     return _amqp_channel
 
 
+def _post_notify_manual(payload: dict) -> str | None:
+    """POST /notify/manual on the Notification service (diagram: synchronous confirmation)."""
+    base = os.environ.get("NOTIFICATION_URL", "http://notification:5106").rstrip("/")
+    try:
+        resp = requests.post(f"{base}/notify/manual", json=payload, timeout=5)
+        if not resp.ok:
+            return f"notify/manual HTTP {resp.status_code}"
+    except requests.RequestException as e:
+        return f"notify/manual unreachable: {e}"
+    return None
+
+
 def publish_event(routing_key: str, payload: dict) -> bool:
     try:
         channel = get_amqp_channel()
@@ -415,6 +427,7 @@ def _parse_traveller_profile_ids(data: dict) -> tuple[list[int], str | None]:
     return unique, None
 
 
+@app.route("/book-package", methods=["POST"])
 @app.route("/booking", methods=["POST"])
 def create_booking():
     if not request.is_json:
@@ -470,7 +483,31 @@ def create_booking():
                 account_resp = requests.get(
                     f"http://account:5100/account/{customer_id}", timeout=5
                 )
-                if not account_resp.ok:
+                if account_resp.ok:
+                    try:
+                        acc_json = account_resp.json()
+                    except ValueError:
+                        acc_json = {}
+                    st = (
+                        str((acc_json.get("data") or {}).get("accountStatus") or "")
+                        .strip()
+                        .lower()
+                    )
+                    if st and st != "active":
+                        return jsonify(
+                            {
+                                "code": 403,
+                                "message": f"Customer account is not active (status={st!r})",
+                            }
+                        ), 403
+                elif account_resp.status_code == 404:
+                    return jsonify(
+                        {
+                            "code": 404,
+                            "message": "Customer account not found — create the account first",
+                        }
+                    ), 404
+                else:
                     warnings.append(
                         f"Account check returned HTTP {account_resp.status_code} (demo continues)"
                     )
@@ -768,7 +805,7 @@ def create_booking():
             502,
         )
 
-    # 5) Confirmation
+    # 5) Confirmation (confirm-seat / confirm-room + diagram PUT availability)
     try:
         confirm_payload = {"bookingID": booking.id}
         requests.put(
@@ -777,6 +814,26 @@ def create_booking():
         requests.put(
             f"{hotel_base}/confirm-room", json=confirm_payload, timeout=5
         )
+        seat_for_avail = (booking.seatNumber or "AUTO").strip().upper()
+        try:
+            requests.put(
+                f"{flight_base}/availability/{seat_for_avail}/CONFIRMED",
+                json={
+                    "flightNum": booking.flightID,
+                    "bookingID": booking.id,
+                },
+                timeout=5,
+            )
+            requests.put(
+                f"{hotel_base}/availability/{int(booking.hotelID)}/CONFIRMED",
+                json={
+                    "roomType": booking.hotelRoomType or "STD",
+                    "bookingID": booking.id,
+                },
+                timeout=5,
+            )
+        except requests.RequestException as e:
+            warnings.append(f"Inventory availability PUT after confirm: {e}")
     except requests.RequestException as e:
         # If confirmation fails, rollback the holds.
         _release_all()
@@ -819,6 +876,21 @@ def create_booking():
             warnings.append(f"Loyalty postpay unreachable: {e}")
 
     t_ids_publish = traveller_profile_ids_for_event(booking)
+    manual_note = _post_notify_manual(
+        {
+            "source": "book_package",
+            "bookingID": booking.id,
+            "customerID": booking.customerID,
+            "email": booking.passengerEmail,
+            "userEmail": booking.passengerEmail,
+            "passengerPhone": booking.passengerPhone,
+            "status": "CONFIRMED",
+            "confirmationPdfNote": "Demo: PDF booking confirmation would be generated here.",
+        }
+    )
+    if manual_note:
+        warnings.append(manual_note)
+
     confirmed_ok = publish_event(
         "notify.user",
         {
@@ -1196,6 +1268,23 @@ def cancel_booking(booking_id: int):
         ), 500
 
     cancel_warnings: list[str] = []
+    try:
+        requests.put(
+            f"{flight_base}/availability/{seat_no}/RELEASED",
+            json={"flightNum": booking.flightID, "bookingID": booking_id},
+            timeout=5,
+        )
+        requests.put(
+            f"{hotel_base}/availability/{int(booking.hotelID)}/RELEASED",
+            json={
+                "roomType": booking.hotelRoomType or "STD",
+                "bookingID": booking_id,
+            },
+            timeout=5,
+        )
+    except requests.RequestException as e:
+        cancel_warnings.append(f"PUT availability after cancel: {e}")
+
     if booking.customerID:
         loyalty_url = os.environ.get("LOYALTY_URL", "http://localhost:5105/loyalty")
         try:
@@ -1257,9 +1346,26 @@ def cancel_booking(booking_id: int):
     )
     if not published:
         cancel_warnings.append(
-            "Could not publish booking.cancelled to RabbitMQ — check booking logs "
+            "Could not publish notify.user (cancellation) to RabbitMQ — check booking logs "
             "and that the rabbitmq service is reachable (notification/Twilio will not run)."
         )
+
+    manual_cancel = _post_notify_manual(
+        {
+            "source": "cancellation_sync",
+            "bookingID": booking_id,
+            "customerID": booking.customerID,
+            "email": booking.passengerEmail,
+            "userEmail": booking.passengerEmail,
+            "passengerPhone": booking.passengerPhone,
+            "refundAmount": round(amount, 2),
+            "refundAmt": round(amount, 2),
+            "status": "CANCELLED",
+            "note": "Diagram fallback: synchronous cancellation notice alongside AMQP.",
+        }
+    )
+    if manual_cancel:
+        cancel_warnings.append(manual_cancel)
 
     result = {
         "bookingID": booking_id,
@@ -1275,6 +1381,35 @@ def cancel_booking(booking_id: int):
     if cancel_warnings:
         out["warnings"] = cancel_warnings
     return jsonify(out), 200
+
+
+@app.route("/cancel-booking", methods=["POST"])
+def cancel_booking_diagram():
+    """SkyBundle diagram path: POST /cancel-booking { bookingID, userID?, ... }."""
+    raw_body = request.get_json(silent=True)
+    if not isinstance(raw_body, dict):
+        return _bad_request("Request body must be a JSON object")
+    bid = raw_body.get("bookingID")
+    if bid is None:
+        return _bad_request("bookingID is required")
+    try:
+        bid_int = int(bid)
+    except (TypeError, ValueError):
+        return _bad_request("bookingID must be an integer")
+    uid = raw_body.get("userID")
+    booking = Booking.query.get(bid_int)
+    if not booking:
+        return jsonify({"code": 404, "message": "Booking not found"}), 404
+    if uid is not None and booking.customerID is not None:
+        try:
+            if int(uid) != int(booking.customerID):
+                return jsonify(
+                    {"code": 403, "message": "userID does not match booking customerID"},
+                    403,
+                )
+        except (TypeError, ValueError):
+            return _bad_request("userID must be an integer when provided")
+    return cancel_booking(bid_int)
 
 
 def ensure_booking_columns():

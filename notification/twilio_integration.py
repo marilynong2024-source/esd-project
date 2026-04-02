@@ -1,20 +1,20 @@
 """
-Optional SMS via Twilio when the notification service consumes AMQP events.
+SMS via Twilio when the notification service consumes AMQP events.
 
-Set in `.env` / docker-compose (never commit real secrets):
-
-  TWILIO_ENABLED=true
-  TWILIO_ACCOUNT_SID=ACxxxxxxxx
-  TWILIO_AUTH_TOKEN=your_auth_token
-  TWILIO_FROM_NUMBER=+15551234567   # your Twilio SMS-capable number (E.164)
-  TWILIO_TO_NUMBER=+6591234567      # recipient (trial accounts: verify in Twilio console)
+Configure credentials in the UI (POST /twilio/config). They persist under
+`notification/data/twilio_runtime.json` (override with env `TWILIO_CONFIG_PATH`).
+In Docker, mount a volume on `/app/data` so that path stays writable and survives
+container restarts.
 
 Twilio docs: https://www.twilio.com/docs/sms
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
+from pathlib import Path
 from typing import Any
 
 try:
@@ -24,27 +24,103 @@ except ImportError:
     Client = None  # type: ignore[misc, assignment]
     TwilioRestException = Exception  # type: ignore[misc, assignment]
 
+_RUNTIME: dict[str, Any] = {}
+_DEFAULT_TWILIO_CONFIG = Path(__file__).resolve().parent / "data" / "twilio_runtime.json"
+_CONFIG_PATH = Path(os.environ.get("TWILIO_CONFIG_PATH", str(_DEFAULT_TWILIO_CONFIG)))
 
-def _enabled() -> bool:
-    v = os.environ.get("TWILIO_ENABLED", "").strip().lower()
-    return v in ("1", "true", "yes", "on")
+
+def load_persisted_config() -> None:
+    if not _CONFIG_PATH.is_file():
+        return
+    try:
+        raw = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return
+    if not isinstance(raw, dict):
+        return
+    for key in ("accountSid", "authToken", "fromNumber", "enabled"):
+        if key in raw:
+            _RUNTIME[key] = raw[key]
+
+
+def _persist_config() -> None:
+    try:
+        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        out = {
+            "accountSid": str(_RUNTIME.get("accountSid", "") or ""),
+            "authToken": str(_RUNTIME.get("authToken", "") or ""),
+            "fromNumber": str(_RUNTIME.get("fromNumber", "") or ""),
+            "enabled": bool(_RUNTIME.get("enabled")),
+        }
+        _CONFIG_PATH.write_text(json.dumps(out, indent=0), encoding="utf-8")
+    except OSError as e:
+        print(f"[twilio] could not persist config: {e}", flush=True)
+
+
+def get_twilio_public_config() -> dict[str, Any]:
+    sid = str(_RUNTIME.get("accountSid", "") or "")
+    masked = ""
+    if len(sid) > 6:
+        masked = sid[:2] + "…" + sid[-4:]
+    elif sid:
+        masked = "…"
+    return {
+        "enabled": bool(_RUNTIME.get("enabled")),
+        "accountSidMasked": masked,
+        "hasAccountSid": bool(sid),
+        "fromNumber": str(_RUNTIME.get("fromNumber", "") or ""),
+        "hasAuthToken": bool(str(_RUNTIME.get("authToken", "") or "").strip()),
+    }
+
+
+def apply_twilio_config(body: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        body = {}
+    if "enabled" in body:
+        _RUNTIME["enabled"] = bool(body["enabled"])
+    sid = str(body.get("accountSid") or "").strip()
+    if sid:
+        _RUNTIME["accountSid"] = sid
+    if "authToken" in body and str(body.get("authToken") or "").strip():
+        _RUNTIME["authToken"] = str(body["authToken"]).strip()
+    fn = str(body.get("fromNumber") or "").strip()
+    if fn:
+        _RUNTIME["fromNumber"] = fn
+    _persist_config()
+    return get_twilio_public_config()
+
+
+def _twilio_enabled() -> bool:
+    return bool(_RUNTIME.get("enabled"))
+
+
+def _twilio_credentials() -> tuple[str, str, str]:
+    return (
+        str(_RUNTIME.get("accountSid", "") or "").strip(),
+        str(_RUNTIME.get("authToken", "") or "").strip(),
+        str(_RUNTIME.get("fromNumber", "") or "").strip(),
+    )
 
 
 def send_sms(to_number: str, body: str) -> dict[str, Any]:
-    if not _enabled():
-        return {"skipped": True, "reason": "TWILIO_ENABLED is not true"}
+    if not _twilio_enabled():
+        return {
+            "skipped": True,
+            "reason": "Twilio is disabled — enable it under SMS settings in the UI",
+        }
 
     if Client is None:
         return {"error": "twilio package not installed in notification container"}
 
-    account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
-    from_number = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
-
+    account_sid, auth_token, from_number = _twilio_credentials()
     if not account_sid or not auth_token:
-        return {"error": "TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required"}
+        return {
+            "error": "Twilio Account SID and Auth Token required — save them in the UI (SMS settings)",
+        }
     if not from_number:
-        return {"error": "TWILIO_FROM_NUMBER is required (E.164)"}
+        return {
+            "error": "Twilio From number required (E.164) — set it in the UI",
+        }
 
     to_number = to_number.strip()
     if not to_number:
@@ -62,36 +138,51 @@ def send_sms(to_number: str, body: str) -> dict[str, Any]:
             "sid": msg.sid,
             "status": getattr(msg, "status", None),
         }
-    except TwilioException as e:
+    except TwilioRestException as e:
         return {"ok": False, "error": str(e)}
+
+
+def _normalize_phone_e164(raw: Any, default_cc: str = "65") -> str | None:
+    """Best-effort E.164 for Twilio; default country code for SG demo (65)."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    compact = re.sub(r"[\s\-().]", "", s)
+    if compact.startswith("+"):
+        digits = re.sub(r"\D", "", compact[1:])
+        if digits:
+            return "+" + digits
+        return None
+    digits_only = re.sub(r"\D", "", compact)
+    if not digits_only:
+        return None
+    if digits_only.startswith(default_cc) and len(digits_only) >= 2 + 8:
+        return "+" + digits_only
+    if len(digits_only) == 8 and digits_only[0] in "89":
+        return "+" + default_cc + digits_only
+    return None
+
+
+def _sms_is_booking_confirmation(routing_key: str, payload: dict[str, Any]) -> bool:
+    if routing_key == "booking.confirmed":
+        return True
+    if payload.get("cancelledAt"):
+        return False
+    return bool(payload.get("confirmedAt"))
 
 
 def send_sms_for_amqp_event(
     routing_key: str, event_payload: dict[str, Any]
 ) -> dict[str, Any]:
     """Send a short SMS summarising a RabbitMQ booking event."""
-    fallback_to = os.environ.get("TWILIO_TO_NUMBER", "").strip()
-
-    def normalize_to(raw: Any) -> str | None:
-        if raw is None:
-            return None
-        s = str(raw).strip()
-        if not s:
-            return None
-        s = s.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-        if s.startswith("00"):
-            s = "+" + s[2:]
-        # Twilio expects E.164; in this demo we require it to start with '+'.
-        if s.startswith("+"):
-            return s
-        return None
-
-    typed_to = normalize_to(event_payload.get("passengerPhone"))
-    to = typed_to or fallback_to
+    to = _normalize_phone_e164(event_payload.get("passengerPhone"))
     if not to:
         return {
             "skipped": True,
-            "reason": "No SMS destination: set passengerPhone (+E.164) in booking, or set TWILIO_TO_NUMBER",
+            "reason": "No SMS destination: enter a valid mobile on the booking form "
+            "(e.g. +65 9123 4567 or 91234567)",
         }
 
     bid = event_payload.get("bookingID", "?")
@@ -101,7 +192,7 @@ def send_sms_for_amqp_event(
         or event_payload.get("travellerDisplayName")
         or "Guest"
     )
-    if routing_key == "booking.confirmed":
+    if _sms_is_booking_confirmation(routing_key, event_payload):
         total = event_payload.get("totalPrice")
         flight = event_payload.get("flightID") or "?"
         dep = str(event_payload.get("departureTime") or "").replace("T", " ")[:16]
@@ -115,7 +206,7 @@ def send_sms_for_amqp_event(
         pct = event_payload.get("refundPercentage")
         amt = event_payload.get("refundAmount")
         body = (
-            f"[Travel demo] {routing_key} #{bid} ({who}). "
+            f"[Travel demo] Booking #{bid} cancelled/refunded ({who}). "
             f"Refund {pct}% (~{cur} {amt})."
         )
 

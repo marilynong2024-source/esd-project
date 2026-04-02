@@ -66,6 +66,7 @@ DISCOUNT_RULES = [
 
 
 @app.get("/discount-rule")
+@app.get("/discounts/bundle-rule")
 def discount_rule():
     # Diagram input (derived from bundle pricing composite):
     # customerId, flightNum, hotelId, roomType, numberOfTravellers, nights
@@ -82,10 +83,25 @@ def discount_rule():
         loyalty_out = _get_json(f"{LOYALTY_BASE}/{cid}/points")
         tier = (loyalty_out or {}).get("data", {}).get("tier")
 
-    # Base eligibility gates (make it "more restrictive")
+    # SkyBundle spec: if no specific bundle rule applies, default 10% bundle discount.
+    default_percent = 10.0
+
+    # Optional stricter tier-based rules (labs-style) apply on top of the baseline.
     eligible_bundle = travellers >= 2 and nights >= 3 and room_type == "DLX"
     if not eligible_bundle or not tier:
-        return jsonify({"code": 200, "data": {"discountPercent": 0.0, "discountID": None, "discountCode": None}}), 200
+        return jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "discountPercent": default_percent,
+                    "discountID": 0,
+                    "discountCode": "BUNDLE10_DEFAULT",
+                    "flightNum": flight_num,
+                    "hotelID": hotel_id,
+                    "note": "Default bundle discount (no tier-specific rule)",
+                },
+            }
+        ), 200
 
     def tier_rank(t: str) -> int:
         t = (t or "").strip().title()
@@ -100,10 +116,23 @@ def discount_rule():
         if r["active"] and tier_rank(r["requiredTier"]) >= 0 and customer_rank >= tier_rank(r["requiredTier"])
     ]
     if not matching:
-        return jsonify({"code": 200, "data": {"discountPercent": 0.0, "discountID": None, "discountCode": None}}), 200
+        return jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "discountPercent": default_percent,
+                    "discountID": 0,
+                    "discountCode": "BUNDLE10_DEFAULT",
+                    "flightNum": flight_num,
+                    "hotelID": hotel_id,
+                    "note": "No tier rule matched; default bundle discount",
+                },
+            }
+        ), 200
 
-    # Pick the highest eligible discount (deterministic)
+    # Pick the highest eligible discount (never below the 10% default).
     r = sorted(matching, key=lambda x: float(x.get("discountPercent") or 0), reverse=True)[0]
+    pct = max(float(r["discountPercent"]), default_percent)
     return jsonify(
         {
             "code": 200,
@@ -111,8 +140,7 @@ def discount_rule():
                 "discountID": r["discountID"],
                 "discountCode": r["discountCode"],
                 "requiredTier": r["requiredTier"],
-                "discountPercent": float(r["discountPercent"]),
-                # Expose diagram-ish DB columns (debug)
+                "discountPercent": pct,
                 "flightID": r["flightID"],
                 "hotelId": r["hotelId"],
                 "flightNum": flight_num,

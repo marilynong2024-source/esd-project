@@ -7,10 +7,17 @@ import pika
 import json
 
 from smu_integration import send_email_for_amqp_event
-from twilio_integration import send_sms_for_amqp_event
+from twilio_integration import (
+    apply_twilio_config,
+    get_twilio_public_config,
+    load_persisted_config,
+    send_sms_for_amqp_event,
+)
 
 app = Flask(__name__)
 CORS(app)
+
+load_persisted_config()
 
 NOTIFICATIONS = []
 
@@ -30,6 +37,20 @@ def notify_manual():
 @app.route("/notifications", methods=["GET"])
 def list_notifications():
     return jsonify({"code": 200, "data": NOTIFICATIONS}), 200
+
+
+@app.route("/twilio/config", methods=["GET"])
+def twilio_config_get():
+    return jsonify({"code": 200, "data": get_twilio_public_config()}), 200
+
+
+@app.route("/twilio/config", methods=["POST"])
+def twilio_config_post():
+    body = request.get_json()
+    if not isinstance(body, dict):
+        return jsonify({"code": 400, "message": "JSON object body required"}), 400
+    data = apply_twilio_config(body)
+    return jsonify({"code": 200, "data": data, "message": "Twilio settings saved"}), 200
 
 
 def start_amqp_consumer():
@@ -132,13 +153,12 @@ def start_amqp_consumer():
                     flush=True,
                 )
                 channel.basic_consume(queue=queue_name, on_message_callback=callback)
-                tw_en = os.environ.get("TWILIO_ENABLED", "")
-                tw_to = os.environ.get("TWILIO_TO_NUMBER", "")
-                tw_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+                tw = get_twilio_public_config()
                 print("[notification] Waiting for AMQP messages...", flush=True)
                 print(
-                    f"[notification] Twilio env: ENABLED={tw_en!r} TO_SET={bool(str(tw_to).strip())} "
-                    f"SID_SET={bool(str(tw_sid).strip())}",
+                    f"[notification] Twilio (UI/file config): enabled={tw.get('enabled')} "
+                    f"sid_set={tw.get('hasAccountSid')} "
+                    f"token_set={tw.get('hasAuthToken')} from={tw.get('fromNumber')!r}",
                     flush=True,
                 )
                 channel.start_consuming()

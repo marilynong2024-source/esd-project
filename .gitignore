@@ -1,4 +1,5 @@
 .env
+notification/data/
 *.pyc
 __pycache__/
 .venv/

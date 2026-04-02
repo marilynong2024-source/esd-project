@@ -15,6 +15,7 @@ services:
       HOTEL_URL: http://hotel:5103/hotel
       PAYMENT_URL: http://payment:5104/payment
       LOYALTY_URL: http://loyalty:5105/loyalty
+      NOTIFICATION_URL: http://notification:5106
       RABBIT_HOST: rabbitmq
       RABBIT_PORT: 5672
       EXCHANGE_NAME: travel_topic
@@ -27,6 +28,8 @@ services:
       FX_API_URL: ${FX_API_URL:-}
       SKIP_CATALOG_VALIDATION: ${SKIP_CATALOG_VALIDATION:-false}
     depends_on:
+      account:
+        condition: service_started
       flight:
         condition: service_started
       hotel:
@@ -34,6 +37,8 @@ services:
       payment:
         condition: service_started
       loyalty:
+        condition: service_started
+      notification:
         condition: service_started
       rabbitmq:
         condition: service_started
@@ -95,16 +100,14 @@ services:
     build: ./notification
     # ports:
     #   - "5106:5106"
-    # Load Twilio / SMU keys from project `.env` so real values are never replaced by
-    # empty `${VAR:-}` interpolation when Compose runs without that file in context.
-    env_file:
-      - .env
     environment:
       RABBIT_HOST: rabbitmq
       RABBIT_PORT: 5672
       EXCHANGE_NAME: travel_topic
       EXCHANGE_TYPE: topic
       QUEUE_NAME: notify.user
+    volumes:
+      - notification_twilio_data:/app/data
     depends_on:
       - rabbitmq
 
@@ -178,3 +181,5 @@ services:
       - graphql
       - bundle-pricing
 
+volumes:
+  notification_twilio_data:

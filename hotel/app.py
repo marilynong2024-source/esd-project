@@ -492,6 +492,7 @@ def availability():
     )
 
 
+@app.route("/hotels/price", methods=["GET"])
 @app.route("/price", methods=["GET"])
 def price():
     """
@@ -529,6 +530,52 @@ def price():
                     "pricePerNight": float(selected_room.get("pricePerNight") or 0),
                     "availableRooms": int(selected_room.get("availableRooms") or 0),
                     "includesBreakfast": bool(selected_room.get("includesBreakfast") or False),
+                },
+            }
+        ),
+        200,
+    )
+
+
+@app.route("/availability/<int:hotel_id>/<status>", methods=["PUT"])
+def update_room_availability(hotel_id: int, status: str):
+    """
+    Diagram: PUT /availability/{id}/{Status} — adjust hotel room inventory after booking.
+    Body: { roomType: STD|DLX, bookingID (optional) }
+    """
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+    room_type = (data.get("roomType") or "STD").strip().upper()
+    if room_type not in ("STD", "DLX"):
+        room_type = "STD"
+    st = str(status or "").strip().upper()
+    hotel = HOTELS.get(int(hotel_id))
+    if not hotel:
+        return jsonify({"code": 404, "message": "Hotel not found"}), 404
+    rooms = hotel.get("roomTypes") or []
+    selected = next((r for r in rooms if str(r.get("code", "")).upper() == room_type), None)
+    if not selected:
+        return jsonify({"code": 404, "message": "Room type not found"}), 404
+    try:
+        cur = int(selected.get("availableRooms") or 0)
+    except Exception:
+        cur = 0
+    if st in ("CONFIRMED", "BOOKED", "OCCUPIED"):
+        selected["availableRooms"] = max(0, cur - 1)
+    elif st in ("RELEASED", "AVAILABLE", "CANCELLED"):
+        selected["availableRooms"] = cur + 1
+    else:
+        return jsonify({"code": 400, "message": f"Unsupported status {st!r}"}), 400
+    return (
+        jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "hotelID": int(hotel_id),
+                    "roomType": room_type,
+                    "status": st,
+                    "availableRooms": int(selected.get("availableRooms") or 0),
                 },
             }
         ),

@@ -297,6 +297,7 @@ def availability():
     )
 
 
+@app.route("/flights/price", methods=["GET"])
 @app.route("/price", methods=["GET"])
 def price():
     """
@@ -399,6 +400,48 @@ def reserve_seat():
     return jsonify({"code": 200, "data": FLIGHT_RESERVATIONS[booking_id]}), 200
 
 
+@app.route("/availability/<seat_no>/<status>", methods=["PUT"])
+def update_seat_availability(seat_no: str, status: str):
+    """
+    Diagram: PUT /availability/{SeatNo}/{Status} — adjust flight seat inventory after booking.
+    Body: { flightNum (required), bookingID (optional) }
+    """
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+    flight_num = str(data.get("flightNum") or data.get("flightID") or "").strip().upper()
+    st = str(status or "").strip().upper()
+    if not flight_num:
+        return jsonify({"code": 400, "message": "flightNum is required in body"}), 400
+    flight = FLIGHTS.get(flight_num)
+    if not flight:
+        return jsonify({"code": 404, "message": "Flight not found"}), 404
+    try:
+        cur = int(flight.get("availableSeats") or 0)
+    except Exception:
+        cur = 0
+    if st in ("CONFIRMED", "BOOKED", "OCCUPIED"):
+        flight["availableSeats"] = max(0, cur - 1)
+    elif st in ("RELEASED", "AVAILABLE", "CANCELLED"):
+        flight["availableSeats"] = cur + 1
+    else:
+        return jsonify({"code": 400, "message": f"Unsupported status {st!r}"}), 400
+    return (
+        jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "seatNo": str(seat_no).strip().upper(),
+                    "status": st,
+                    "flightNum": flight_num,
+                    "availableSeats": int(flight.get("availableSeats") or 0),
+                },
+            }
+        ),
+        200,
+    )
+
+
 @app.route("/confirm-seat", methods=["PUT"])
 def confirm_seat():
     """
@@ -424,14 +467,22 @@ def confirm_seat():
 def release_seat():
     """
     Release a held seat (rollback) on payment failure.
-    Body: { bookingID }
+    Body: { bookingID } or { flightRef } (flightRef = flightNum string for diagram parity).
     """
     data = request.get_json(silent=True) or {}
     booking_id = data.get("bookingID") if isinstance(data, dict) else None
+    flight_ref = (data.get("flightRef") or data.get("flightNum") or "").strip().upper()
+    if booking_id is None and flight_ref:
+        for bid, rec in FLIGHT_RESERVATIONS.items():
+            if str(rec.get("flightNum", "")).strip().upper() == flight_ref and rec.get(
+                "status"
+            ) in ("HELD", "CONFIRMED"):
+                booking_id = bid
+                break
     try:
         booking_id = int(booking_id)
     except Exception:
-        return jsonify({"code": 400, "message": "bookingID is required (int)"}), 400
+        return jsonify({"code": 400, "message": "bookingID or resolvable flightRef is required"}), 400
 
     rec = FLIGHT_RESERVATIONS.get(booking_id)
     if not rec:

@@ -33,6 +33,26 @@ docker compose logs graphql --tail 120
 
 ---
 
+## Project requirements (IS213 checklist)
+
+Your **slides, report, video (`video.txt`), and eLearn zip** are still your team’s responsibility — this repo is the executable part. The implementation is intended to satisfy the course **minimum technical requirements**:
+
+| Requirement | How this project satisfies it |
+|-------------|-------------------------------|
+| ≥3 **interesting** user scenarios | Bundle search & price; book package (orchestration); cancel/refund + notifications. |
+| ≥3 atomic microservices, 3+ data entities | e.g. **booking** (+DB), **flight**, **hotel**, **loyalty**, **payment**, **discount**, **notification**, **account**, **bundle-pricing**, **graphql** — each with its own data/concerns. |
+| **OutSystems** | Traveller profiles integrated from booking service (see `TRAVELLER_PROFILE_*` env / OutSystems client). |
+| Service **reused** across scenarios | **Loyalty**, **payment**, **flight**, **hotel**, **notification** used in multiple flows. |
+| **External service** | **Twilio** (SMS) and/or **SMU notification** / simulated **payment** — use free tiers responsibly per course notes. |
+| ≥2 scenarios with **orchestration/choreography** | Booking orchestrates many HTTP calls; **RabbitMQ** `notify.user` choreography to notification (+ optional Twilio). |
+| Exclusive **data store** per service where applicable | e.g. booking MySQL; in-memory stores in demo services — document in report appendix. |
+| ≥1 service with a **DB** | **booking** + `booking-db` (MySQL in Compose). |
+| **HTTP** between services | Flask REST calls throughout. |
+| **Message-based** communication | RabbitMQ from booking → notification. |
+| **Web GUI** + **JSON** | `ui/` SPA-style form + JSON APIs. |
+| **Docker** + **Docker Compose** | `docker-compose.yml` (OutSystems excluded from Compose by design). |
+| **Beyond-the-labs** (for marks) | **GraphQL** gateway, **Kong** in compose, bundle composite, optional real Twilio, etc. — justify in report. |
+
 ## What Is Included
 
 - `booking`: create/cancel package bookings, DB persistence, refund logic

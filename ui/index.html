@@ -173,9 +173,21 @@
           </div>
 
           <div id="bookingStep1Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep1Tab">
+          <label class="label--hero-field">
+            Who is this booking for?
+            <select
+              id="customerID"
+              required
+              aria-label="Rewards wallet or guest checkout"
+            ></select>
+            <span class="muted field-hint"
+              >Signed-in members earn and spend reward coins. Choose <strong>Guest checkout</strong> if you only need a ticket and stay without a wallet.</span
+            >
+          </label>
           <label>
-            Who's booking?
-            <select id="customerID" required aria-label="Member or lead booker"></select>
+            Display name on the booking
+            <input type="text" id="bookerCustomName" placeholder="e.g. Jamie Tan" />
+            <span class="muted field-hint">Shown on your confirmation; can differ from the member name above.</span>
           </label>
 
           <div class="section-title section-title--spaced">Choose a bundle</div>
@@ -228,11 +240,25 @@
             </button>
           </div>
 
-          <label class="form-grid-1col">
-            Number of travellers
-            <select id="bundleNumberOfTravellers" aria-label="Number of travellers"></select>
-            <span class="muted">Group size for seats, rooms, and bundle discount rules (e.g. 2+ guests with 3+ nights).</span>
-          </label>
+          <div class="form-grid">
+            <label>
+              Adults (12+)
+              <select id="bundleAdults" aria-label="Number of adults"></select>
+            </label>
+            <label>
+              Children (2-11)
+              <select id="bundleChildren" aria-label="Number of children"></select>
+            </label>
+            <label>
+              Infants (&lt;2)
+              <select id="bundleInfants" aria-label="Number of infants"></select>
+            </label>
+            <label>
+              Total travellers
+              <input type="number" id="bundleNumberOfTravellers" aria-label="Total travellers" readonly />
+            </label>
+          </div>
+          <p class="muted">Group size for seats, rooms, and bundle discount rules.</p>
 
           <details class="bundle-advanced">
             <summary class="bundle-advanced__summary">Fine-tune route &amp; dates</summary>
@@ -293,15 +319,18 @@
             />
           </label>
           <label>
-            Mobile
+            Mobile (SMS)
             <input
               type="tel"
               id="passengerPhone"
               name="passengerPhone"
               autocomplete="tel"
               value="+65 9123 4567"
-              placeholder="+65 …"
+              placeholder="+65 … or 91234567"
             />
+            <span class="muted section-hint form-hint-inline"
+              >Used for booking confirmed / refund texts if Twilio is enabled in the sidebar.</span
+            >
           </label>
           </div>
 
@@ -312,8 +341,13 @@
             </div>
 
             <label>
-              Profiles for
-              <select id="travellerCustomerID" required aria-label="Member whose saved profiles to load"></select>
+              Which member’s saved passports?
+              <select
+                id="travellerCustomerID"
+                required
+                aria-label="Member whose saved traveller profiles to load"
+              ></select>
+              <span class="muted field-hint">Same people as under “Who is this booking for?” — we keep profiles per household member.</span>
             </label>
 
             <div class="actions-row form-grid-1col">
@@ -422,8 +456,16 @@
 
           <div id="bookingStep3Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep4Tab" hidden>
             <label>
-              Flight code
-              <input type="text" id="flightID" value="SQ001" required placeholder="e.g. SQ001, AK123" />
+              Flight
+              <input
+                type="text"
+                id="flightID"
+                value="SQ001"
+                required
+                placeholder="e.g. SQ001 — from your bundle or airline search"
+                autocomplete="off"
+              />
+              <span class="muted field-hint">Airline and flight number; we fill dates when you pick a bundle or change this field.</span>
             </label>
             <div class="form-grid">
               <label>
@@ -528,7 +570,7 @@
           </div>
 
           <label>
-            Room Type
+            Room type
             <select id="hotelRoomType">
               <option value="STD">Standard (Room only)</option>
               <option value="DLX">Deluxe (with breakfast)</option>
@@ -547,8 +589,17 @@
           </div>
 
           <label>
-            Total Package Price (Flight + Hotel)
-            <input type="number" id="totalPrice" value="1200" required />
+            Package total (S$)
+            <input
+              type="number"
+              id="totalPrice"
+              value="1200"
+              required
+              min="0"
+              step="0.01"
+              inputmode="decimal"
+            />
+            <span class="muted field-hint">Flight + hotel before rewards; tier and coins adjust what you pay in the next step.</span>
           </label>
           </div>
 
@@ -585,11 +636,14 @@
 
           <div id="panelLoyaltyPoints" class="segment-panel" role="tabpanel" aria-labelledby="tabLoyaltyPoints" hidden>
             <label id="coinsOffsetWrap">
-              Pay with loyalty coins (amount in cents)
+              Apply reward coins
               <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
-              <span class="muted">Coins come from the loyalty wallet for whoever is selected under Who's booking?</span>
+              <span class="muted field-hint"
+                >Each coin is 1 cent off your bill in this demo (e.g. 500 coins ≈ S$5.00).</span
+              >
               <div class="coins-meta">
-                Available coins: <strong id="coinsAvailableCents">-</strong> cents
+                Wallet: <strong id="coinsAvailableCents">-</strong> coins
+                <span class="muted coins-meta__sgd" id="coinsAvailableSgd"></span>
               </div>
               <div class="coins-quick-actions">
                 <button type="button" class="btn-secondary" id="coinsUseNoneBtn">
@@ -644,8 +698,8 @@
               <details class="advanced-details">
                 <summary>For developers &amp; instructors</summary>
                 <p class="muted advanced-details__body">
-                  Submits to <code>POST /booking</code>. Tier, coins, and companion IDs mirror what a full stack would send from
-                  OutSystems or loyalty services.
+                  Submits to <code>POST /booking</code> (diagram alias <code>POST /book-package</code>). Tier, coins, and
+                  companion IDs mirror what a full stack would send from OutSystems or loyalty services.
                 </p>
               </details>
             </div>
@@ -670,7 +724,16 @@
         <form id="cancelForm" class="form-grid-1col">
           <label>
             Booking reference
-            <input type="number" id="cancelBookingID" min="1" step="1" required placeholder="e.g. 42 — from your confirmation email" />
+            <input
+              type="number"
+              id="cancelBookingID"
+              min="1"
+              step="1"
+              required
+              inputmode="numeric"
+              placeholder="Number from your confirmation"
+              aria-label="Booking reference number from confirmation"
+            />
           </label>
           <p class="muted form-grid-1col muted--compact-top">
             This is the confirmation reference the system issued after payment — not your name, email, or login.
@@ -690,7 +753,8 @@
           <details class="advanced-details">
             <summary>Technical note</summary>
             <p class="muted advanced-details__body">
-              Calls <code>POST /booking/cancel/{id}</code>. Demo rules: customer-led hotel refunds may apply 7+ days before departure.
+              Calls <code>POST /booking/cancel/{id}</code> (diagram alias <code>POST /cancel-booking</code>). Demo rules:
+              customer-led hotel refunds may apply 7+ days before departure.
             </p>
           </details>
         </form>
@@ -735,8 +799,54 @@
 
         <pre id="result" class="code-block" aria-label="Latest confirmation response">{ }</pre>
 
+        <div class="section-title section-title--spaced">Text message alerts</div>
+        <p class="muted section-hint">
+          Optional: turn on real SMS to the mobile you enter for the lead traveller. Settings are saved with your demo
+          stack (instructors: see README / checklist for where credentials persist). Twilio trial accounts must use a
+          verified phone number.
+        </p>
+        <div class="form-grid form-grid--twilio" role="group" aria-label="SMS provider settings">
+          <label class="twilio-enable-row">
+            <input type="checkbox" id="twilioEnabled" />
+            <span>Send me SMS when my booking is confirmed or cancelled</span>
+          </label>
+          <p class="muted section-hint" id="twilioSidHint"></p>
+          <label>
+            Twilio account ID
+            <input
+              type="text"
+              id="twilioAccountSid"
+              name="twilioAccountSid"
+              autocomplete="off"
+              placeholder="From your Twilio console (leave blank to keep saved)"
+            />
+          </label>
+          <label>
+            Twilio auth token
+            <input
+              type="password"
+              id="twilioAuthToken"
+              name="twilioAuthToken"
+              autocomplete="off"
+              placeholder="Leave blank to keep current token"
+            />
+          </label>
+          <label>
+            Sender phone number
+            <input
+              type="tel"
+              id="twilioFromNumber"
+              name="twilioFromNumber"
+              autocomplete="off"
+              placeholder="+65 or +1 … (your Twilio SMS number)"
+            />
+          </label>
+          <button type="button" id="twilioSaveBtn" class="btn-secondary">Save text alert settings</button>
+          <p class="muted section-hint" id="twilioSaveStatus" hidden></p>
+        </div>
+
         <div class="section-title section-title--spaced">Trip updates</div>
-        <p class="muted section-hint">Background notifications (shown as structured data for class demos).</p>
+        <p class="muted section-hint">Technical log of confirmations and events — useful for class demos and debugging.</p>
         <pre id="notifications" class="code-block code-block--compact" aria-label="Notification log">{ }</pre>
 
         <div id="uiError" class="alert" role="alert"></div>

@@ -8,7 +8,17 @@ const GRAPHQL_BASE = "/api/graphql/graphql";
 const FLIGHT_BASE = "/api/flight";
 const BUNDLE_PRICE_BASE = "/api/bundle-price";
 // Keep REST hotel base as fallback path if GraphQL is down.
-const HOTEL_BASE = "http://localhost:5103";
+const HOTEL_BASE = "/api/hotel";
+const HOTEL_FALLBACK_IMAGE =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="520" height="300" viewBox="0 0 520 300">
+      <rect width="520" height="300" fill="#e2e8f0"/>
+      <rect x="24" y="24" width="472" height="252" rx="14" fill="#cbd5e1"/>
+      <text x="260" y="146" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#334155">Hotel image unavailable</text>
+      <text x="260" y="178" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#475569">Preview will still work</text>
+    </svg>`
+  );
 
 /**
  * Curated packages — multiple hubs worldwide. `region` drives filter chips:
@@ -192,9 +202,9 @@ function countriesUsedByPresets() {
 const bundleCardPriceCache = new Map();
 let bundleCardPriceTimer = null;
 
-/** Demo members — values are internal customer ids; labels are what travellers expect (name + hint). */
+/** Demo members — option value is internal id; label is guest-facing (no raw IDs in the UI). */
 const CUSTOMER_OPTIONS = [
-  { id: 1, label: "Ava Chen · Singapore" },
+  { id: 1, label: "Ava Chen" },
   { id: 2, label: "Ben Kumar" },
   { id: 3, label: "Casey Tan" },
   { id: 4, label: "Dana Ng" },
@@ -402,31 +412,65 @@ function setupBundleFilterListeners() {
 }
 
 function populateCustomerSelects() {
-  for (const id of ["customerID", "travellerCustomerID"]) {
-    const sel = document.getElementById(id);
-    if (!sel || sel.tagName !== "SELECT") continue;
-    sel.replaceChildren();
+  const bookSel = document.getElementById("customerID");
+  if (bookSel?.tagName === "SELECT") {
+    bookSel.replaceChildren();
+    const guest = document.createElement("option");
+    guest.value = "0";
+    guest.textContent = "Guest checkout — no rewards wallet";
+    bookSel.appendChild(guest);
     for (const c of CUSTOMER_OPTIONS) {
       const o = document.createElement("option");
       o.value = String(c.id);
       o.textContent = c.label;
-      sel.appendChild(o);
+      bookSel.appendChild(o);
     }
-    sel.value = "1";
+    bookSel.value = "1";
+  }
+
+  const travSel = document.getElementById("travellerCustomerID");
+  if (travSel?.tagName === "SELECT") {
+    travSel.replaceChildren();
+    for (const c of CUSTOMER_OPTIONS) {
+      const o = document.createElement("option");
+      o.value = String(c.id);
+      o.textContent = c.label;
+      travSel.appendChild(o);
+    }
+    travSel.value = "1";
   }
 }
 
+function syncBundleTravellerTotals() {
+  const adults = Number(document.getElementById("bundleAdults")?.value || 0);
+  const children = Number(document.getElementById("bundleChildren")?.value || 0);
+  const infants = Number(document.getElementById("bundleInfants")?.value || 0);
+  const total = Math.max(1, adults + children + infants);
+  const totalEl = document.getElementById("bundleNumberOfTravellers");
+  if (totalEl) totalEl.value = String(total);
+}
+
 function populateTravellerCountSelect() {
-  const sel = document.getElementById("bundleNumberOfTravellers");
-  if (!sel || sel.tagName !== "SELECT") return;
-  sel.replaceChildren();
-  for (let n = 1; n <= 12; n++) {
-    const o = document.createElement("option");
-    o.value = String(n);
-    o.textContent = n === 1 ? "1 guest" : `${n} guests`;
-    sel.appendChild(o);
-  }
-  sel.value = "2";
+  const adultsSel = document.getElementById("bundleAdults");
+  const childrenSel = document.getElementById("bundleChildren");
+  const infantsSel = document.getElementById("bundleInfants");
+  const fill = (sel, max, noun) => {
+    if (!sel || sel.tagName !== "SELECT") return;
+    sel.replaceChildren();
+    for (let n = 0; n <= max; n++) {
+      const o = document.createElement("option");
+      o.value = String(n);
+      o.textContent = `${n} ${noun}${n === 1 ? "" : "s"}`;
+      sel.appendChild(o);
+    }
+  };
+  fill(adultsSel, 12, "adult");
+  fill(childrenSel, 8, "child");
+  fill(infantsSel, 4, "infant");
+  if (adultsSel) adultsSel.value = "2";
+  if (childrenSel) childrenSel.value = "0";
+  if (infantsSel) infantsSel.value = "0";
+  syncBundleTravellerTotals();
 }
 
 function populateTripWindowSelect() {
@@ -1528,6 +1572,8 @@ function updateCoinsOffsetUI() {
     input.value = "0";
     input.disabled = true;
     if (availEl) availEl.textContent = "-";
+    const sgdHint = document.getElementById("coinsAvailableSgd");
+    if (sgdHint) sgdHint.textContent = "";
     if (btnNone) btnNone.disabled = true;
     if (btnAll) btnAll.disabled = true;
   } else {
@@ -1536,6 +1582,13 @@ function updateCoinsOffsetUI() {
 
     const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
     if (availEl) availEl.textContent = String(coinsAvailableCents);
+    const sgdHint = document.getElementById("coinsAvailableSgd");
+    if (sgdHint) {
+      sgdHint.textContent =
+        coinsAvailableCents > 0
+          ? `(up to S$${(coinsAvailableCents / 100).toFixed(2)} off this trip if you apply them all)`
+          : "";
+    }
     if (btnNone) btnNone.disabled = coinsAvailableCents <= 0;
     if (btnAll) btnAll.disabled = coinsAvailableCents <= 0;
 
@@ -1686,13 +1739,25 @@ function renderHotelResults(hotels) {
         )}${price ? ` · ${escapeHtml(price)}` : ""}${available ? ` · ${escapeHtml(available)}` : ""}</div>`;
       })
       .join("");
-    const totalRooms = (h.roomTypes || []).reduce((sum, rt) => {
+    const totalRoomsFromTypes = (h.roomTypes || []).reduce((sum, rt) => {
       const v = Number(rt?.availableRooms);
       return Number.isFinite(v) && v > 0 ? sum + v : sum;
     }, 0);
+    const totalRoomsTopLevel = Number(h.availableRooms);
+    const totalRooms = totalRoomsFromTypes > 0
+      ? totalRoomsFromTypes
+      : Number.isFinite(totalRoomsTopLevel) && totalRoomsTopLevel > 0
+        ? totalRoomsTopLevel
+        : 0;
     card.innerHTML = `
       <div class="hotel-card__img">
-        <img src="${escapeHtml(h.imageUrl || '')}" alt="${escapeHtml(h.name || 'Hotel')}" />
+        <img
+          src="${escapeHtml(h.imageUrl || HOTEL_FALLBACK_IMAGE)}"
+          alt="${escapeHtml(h.name || "Hotel")}"
+          loading="lazy"
+          referrerpolicy="no-referrer"
+          onerror="this.onerror=null;this.src='${HOTEL_FALLBACK_IMAGE}'"
+        />
       </div>
       <div class="hotel-card__body">
         <div class="hotel-card__top">
@@ -1704,7 +1769,7 @@ function renderHotelResults(hotels) {
     )}</div>
         <div class="hotel-card__amenities muted">${escapeHtml(h.amenities || '')}</div>
         <div class="hotel-card__rooms muted">
-          ${totalRooms > 0 ? `Rooms available: ${escapeHtml(String(totalRooms))} total` : "Rooms available: —"}
+          ${totalRooms > 0 ? `Rooms available: ${escapeHtml(String(totalRooms))}` : "Rooms available: —"}
           ${roomLines ? `<div style="margin-top:2px;">Room types:</div>${roomLines}` : ""}
         </div>
         <div class="hotel-card__actions">
@@ -1753,9 +1818,18 @@ async function searchHotels() {
   `;
   const gqlOut = await fetchGraphql(gqlQuery, { country, city, name });
   let hotels = gqlOut.body?.data?.hotelSearch ?? [];
+  const gqlDataLooksEmpty =
+    Array.isArray(hotels) &&
+    hotels.length > 0 &&
+    hotels.every((h) => {
+      const id = Number(h?.hotelID ?? 0);
+      const hasName = !!String(h?.name || "").trim();
+      const hasRoomsArray = Array.isArray(h?.roomTypes) && h.roomTypes.length > 0;
+      return (!id || Number.isNaN(id)) && hasName && !hasRoomsArray;
+    });
 
   // Graceful fallback to REST search for resilience in demos.
-  if (!gqlOut.ok) {
+  if (!gqlOut.ok || gqlDataLooksEmpty) {
     const qs = new URLSearchParams();
     if (country) qs.set("country", country);
     if (city) qs.set("city", city);
@@ -1815,7 +1889,9 @@ function applyDemoProfile() {
   const pn = document.getElementById("passengerName");
   const pe = document.getElementById("passengerEmail");
   const pp = document.getElementById("passengerPhone");
+  const bookerCustom = document.getElementById("bookerCustomName");
   if (pn) pn.value = p.passengerName ?? "";
+  if (bookerCustom) bookerCustom.value = p.passengerName ?? "";
   if (pe) pe.value = p.passengerEmail ?? "";
   if (pp) pp.value = p.passengerPhone ?? "";
   refreshTripContactSummary();
@@ -1850,6 +1926,14 @@ function applyDemoProfile() {
   document.getElementById("discountCode").value = p.discountCode || "";
   document.getElementById("coinsToSpendCents").value = p.coinsToSpendCents ?? 0;
   setTravellerProfileIdsInputFromDemo(p);
+  const adultsSel = document.getElementById("bundleAdults");
+  const childrenSel = document.getElementById("bundleChildren");
+  const infantsSel = document.getElementById("bundleInfants");
+  const inferredTravellers = 1 + Number(Array.isArray(p.rawTravellerProfileIds) ? p.rawTravellerProfileIds.length : 0);
+  if (adultsSel) adultsSel.value = String(Math.max(1, inferredTravellers));
+  if (childrenSel) childrenSel.value = "0";
+  if (infantsSel) infantsSel.value = "0";
+  syncBundleTravellerTotals();
   updateCoinsOffsetUI();
 
   updateSeatSelectionUI();
@@ -1884,12 +1968,19 @@ function setManualDefaults() {
   const pn0 = document.getElementById("passengerName");
   const pe0 = document.getElementById("passengerEmail");
   const pp0 = document.getElementById("passengerPhone");
-  if (pn0) pn0.value = "Ava Chen";
-  if (pe0) pe0.value = "ava.chen@example.com";
-  if (pp0) pp0.value = "+65 9123 4567";
+  const bookerCustom = document.getElementById("bookerCustomName");
+  if (pn0) pn0.value = "";
+  if (pe0) pe0.value = "";
+  if (pp0) pp0.value = "";
+  if (bookerCustom) bookerCustom.value = "";
   refreshTripContactSummary();
-  const bn = document.getElementById("bundleNumberOfTravellers");
-  if (bn) bn.value = "2";
+  const adultsSel = document.getElementById("bundleAdults");
+  const childrenSel = document.getElementById("bundleChildren");
+  const infantsSel = document.getElementById("bundleInfants");
+  if (adultsSel) adultsSel.value = "2";
+  if (childrenSel) childrenSel.value = "0";
+  if (infantsSel) infantsSel.value = "0";
+  syncBundleTravellerTotals();
   const bo = document.getElementById("bundleOrigin");
   const bd = document.getElementById("bundleDestination");
   if (bo) bo.value = "Singapore";
@@ -2003,6 +2094,68 @@ async function refreshNotifications() {
     null,
     2
   );
+}
+
+async function loadTwilioConfig() {
+  const hint = document.getElementById("twilioSidHint");
+  const enabledEl = document.getElementById("twilioEnabled");
+  const fromEl = document.getElementById("twilioFromNumber");
+  const sidEl = document.getElementById("twilioAccountSid");
+  const tokenEl = document.getElementById("twilioAuthToken");
+  const out = await fetchJson(`${NOTIFICATION_BASE}/twilio/config`);
+  if (out.networkError || !out.ok || !out.body?.data) {
+    if (hint) {
+      hint.textContent =
+        "Could not load Twilio status — start the stack (Docker) and ensure /api/notification is reachable.";
+    }
+    return;
+  }
+  const d = out.body.data;
+  if (enabledEl) enabledEl.checked = !!d.enabled;
+  if (fromEl) fromEl.value = d.fromNumber || "";
+  if (sidEl) sidEl.value = "";
+  if (tokenEl) tokenEl.value = "";
+  if (hint) {
+    if (d.hasAccountSid && d.accountSidMasked) {
+      hint.textContent = `Current Account SID: ${d.accountSidMasked}`;
+    } else {
+      hint.textContent = "No Account SID saved yet — paste it on first setup.";
+    }
+  }
+}
+
+async function saveTwilioSettings() {
+  const status = document.getElementById("twilioSaveStatus");
+  const uiError = document.getElementById("uiError");
+  clearError(uiError);
+  const body = {
+    enabled: document.getElementById("twilioEnabled")?.checked ?? false,
+    accountSid: document.getElementById("twilioAccountSid")?.value?.trim() || "",
+    authToken: document.getElementById("twilioAuthToken")?.value || "",
+    fromNumber: document.getElementById("twilioFromNumber")?.value?.trim() || "",
+  };
+  const out = await fetchJson(`${NOTIFICATION_BASE}/twilio/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!status) return;
+  status.hidden = false;
+  if (out.networkError || !out.ok) {
+    status.textContent =
+      out.errorMessage || out.body?.message || `Save failed (HTTP ${out.status})`;
+    setError(uiError, status.textContent);
+  } else {
+    status.textContent = out.body?.message || "Saved.";
+    const tokenEl = document.getElementById("twilioAuthToken");
+    const sidEl = document.getElementById("twilioAccountSid");
+    if (tokenEl) tokenEl.value = "";
+    if (sidEl) sidEl.value = "";
+    await loadTwilioConfig();
+  }
+  setTimeout(() => {
+    status.hidden = true;
+  }, 5000);
 }
 
 async function copyLatestResult() {
@@ -2531,7 +2684,7 @@ async function loadTravellerProfiles() {
   const customerID = Number(customerIdRaw || 0);
   if (!customerID || customerID < 1) {
     if (errEl) {
-      errEl.textContent = "Choose a member under Profiles for.";
+      errEl.textContent = "Choose which member’s profiles to load in the traveller step.";
       errEl.hidden = false;
     }
     if (listEl) listEl.textContent = "";
@@ -2884,8 +3037,11 @@ function setupTravellerProfilesUI() {
   const bookingCustomerInput = document.getElementById("customerID");
   if (bookingCustomerInput && customerInput) {
     bookingCustomerInput.addEventListener("change", () => {
-      customerInput.value = bookingCustomerInput.value;
-      // Refresh saved traveller list + the selectors used in Trip tab.
+      const bid = Number(bookingCustomerInput.value || 0);
+      // Guest checkout has no wallet; keep passport profiles on a real member account.
+      if (bid > 0) {
+        customerInput.value = String(bid);
+      }
       void loadTravellerProfiles();
     });
   }
@@ -3031,6 +3187,11 @@ function initUI() {
 
   // Initial load
   refreshNotifications();
+  void loadTwilioConfig();
+  document.getElementById("twilioSaveBtn")?.addEventListener("click", () => {
+    clearError(document.getElementById("uiError"));
+    void saveTwilioSettings();
+  });
   updateBreakfastAddonUI();
   void syncFlightScheduleUI();
   const hotelId = Number(document.getElementById("hotelID")?.value || 0);
@@ -3062,9 +3223,19 @@ function initUI() {
     }
   });
 
-  document.getElementById("bundleNumberOfTravellers")?.addEventListener("change", () => {
-    scheduleBundleCardPriceRefresh();
-    if (selectedBundlePresetId) void searchBundlePricing();
+  for (const id of ["bundleAdults", "bundleChildren", "bundleInfants"]) {
+    document.getElementById(id)?.addEventListener("change", () => {
+      syncBundleTravellerTotals();
+      scheduleBundleCardPriceRefresh();
+      if (selectedBundlePresetId) void searchBundlePricing();
+    });
+  }
+
+  document.getElementById("bookerCustomName")?.addEventListener("input", () => {
+    const custom = document.getElementById("bookerCustomName")?.value?.trim() || "";
+    const nameEl = document.getElementById("passengerName");
+    if (nameEl && custom) nameEl.value = custom;
+    refreshTripContactSummary();
   });
 
   ["totalPrice", "discountCode"].forEach((id) => {
