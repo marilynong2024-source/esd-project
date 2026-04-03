@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -199,6 +202,134 @@ for (
     }
 
 
+_GEN_SEQ = 0
+
+
+def _next_flight_num(prefix: str) -> str:
+    global _GEN_SEQ
+    while True:
+        _GEN_SEQ += 1
+        n = _GEN_SEQ % 10000
+        pref = str(prefix).upper()
+        cand = f"{pref}{n:04d}"
+        if len(cand) > 8:
+            cand = f"{pref}{n % 9999:04d}"
+        if cand not in FLIGHTS:
+            return cand
+
+
+def _merge_programmatic_catalog() -> None:
+    """Hundreds of demo flights for dropdowns and availability (in-memory)."""
+    route_specs: list[tuple[str, str, str, str, int, float]] = [
+        ("Singapore", "Tokyo", "SIN", "NRT", 400, 520),
+        ("Singapore", "Bangkok", "SIN", "BKK", 100, 210),
+        ("Singapore", "Bali", "SIN", "DPS", 170, 195),
+        ("Singapore", "Sydney", "SIN", "SYD", 510, 560),
+        ("Singapore", "London", "SIN", "LHR", 820, 990),
+        ("Singapore", "Paris", "SIN", "CDG", 840, 1010),
+        ("Singapore", "Kuala Lumpur", "SIN", "KUL", 70, 98),
+        ("Tokyo", "Singapore", "NRT", "SIN", 415, 530),
+        ("Tokyo", "Bangkok", "NRT", "BKK", 340, 420),
+        ("Tokyo", "Sydney", "NRT", "SYD", 550, 890),
+        ("London", "Paris", "LHR", "CDG", 85, 175),
+        ("London", "Tokyo", "LHR", "NRT", 745, 940),
+        ("London", "Singapore", "LHR", "SIN", 830, 1040),
+        ("Paris", "London", "CDG", "LHR", 90, 168),
+        ("Paris", "Tokyo", "CDG", "NRT", 770, 950),
+        ("Sydney", "Singapore", "SYD", "SIN", 520, 570),
+        ("Sydney", "Melbourne", "SYD", "MEL", 95, 110),
+        ("Melbourne", "Sydney", "MEL", "SYD", 95, 108),
+        ("Bangkok", "Singapore", "BKK", "SIN", 110, 205),
+        ("Bangkok", "Bali", "BKK", "DPS", 195, 245),
+        ("Bangkok", "Tokyo", "BKK", "NRT", 355, 470),
+        ("Bali", "Singapore", "DPS", "SIN", 160, 188),
+        ("Kuala Lumpur", "Singapore", "KUL", "SIN", 72, 92),
+        ("Seoul", "Bangkok", "ICN", "BKK", 340, 430),
+        ("Seoul", "Tokyo", "ICN", "NRT", 145, 235),
+        ("Seoul", "Singapore", "ICN", "SIN", 400, 510),
+        ("Manila", "Singapore", "MNL", "SIN", 215, 200),
+        ("Manila", "Tokyo", "MNL", "NRT", 270, 380),
+        ("Dubai", "London", "DXB", "LHR", 475, 640),
+        ("Dubai", "Singapore", "DXB", "SIN", 485, 590),
+        ("Frankfurt", "Singapore", "FRA", "SIN", 780, 880),
+        ("Amsterdam", "London", "AMS", "LHR", 85, 155),
+        ("Amsterdam", "Singapore", "AMS", "SIN", 795, 900),
+        ("Los Angeles", "Tokyo", "LAX", "NRT", 660, 720),
+        ("San Francisco", "Singapore", "SFO", "SIN", 1000, 1180),
+        ("Ho Chi Minh City", "Singapore", "SGN", "SIN", 120, 165),
+        ("Hanoi", "Bangkok", "HAN", "BKK", 110, 145),
+        ("Jakarta", "Singapore", "CGK", "SIN", 100, 125),
+        ("Chennai", "Singapore", "MAA", "SIN", 240, 280),
+    ]
+    dep_slots = ["06:20", "08:55", "11:30", "14:15", "17:40", "20:25", "23:10"]
+    carriers: list[tuple[str, str]] = [
+        ("Singapore Airlines", "SQ"),
+        ("Scoot", "TR"),
+        ("AirAsia", "AK"),
+        ("Jetstar Asia", "3K"),
+        ("British Airways", "BA"),
+        ("Japan Airlines", "JL"),
+        ("ANA", "NH"),
+        ("Qantas", "QF"),
+        ("Thai Airways", "TG"),
+        ("Cathay Pacific", "CX"),
+        ("Emirates", "EK"),
+        ("Korean Air", "KE"),
+        ("Philippine Airlines", "PR"),
+        ("Vietnam Airlines", "VN"),
+        ("Garuda Indonesia", "GA"),
+        ("United Airlines", "UA"),
+        ("Delta Air Lines", "DL"),
+        ("Lufthansa", "LH"),
+        ("KLM", "KL"),
+    ]
+    base_day0 = datetime(2026, 6, 1, tzinfo=None)
+
+    for rxi, (oc, dc, apio, apd, dur_mins, price_mid) in enumerate(route_specs):
+        for si, hhmm in enumerate(dep_slots):
+            airline, prefix = carriers[(rxi + si * 3) % len(carriers)]
+            flight_num = _next_flight_num(prefix)
+            h, m = (int(hhmm[:2]), int(hhmm[3:]))
+            dep_dt = base_day0 + timedelta(days=(rxi + si) % 28, hours=h, minutes=m)
+            arr_dt = dep_dt + timedelta(minutes=int(dur_mins))
+            dep_s = dep_dt.strftime("%Y-%m-%dT%H:%M")
+            arr_s = arr_dt.strftime("%Y-%m-%dT%H:%M")
+            jitter = ((rxi * 17 + si * 31) % 90) - 45
+            economy = max(59.0, float(price_mid) + jitter * 0.4)
+            biz = (
+                round(economy * 2.8, 2)
+                if prefix in ("SQ", "BA", "JL", "NH", "QF", "EK", "KE", "LH", "KL")
+                else None
+            )
+            seats = max(24, 320 - (rxi * 9 + si * 11) % 260)
+            online = _online_seat_selection(flight_num)
+            FLIGHTS[flight_num] = {
+                "flightNum": flight_num,
+                "flightNumber": flight_num,
+                "airline": airline,
+                "origin": apio,
+                "destination": apd,
+                "originCity": oc,
+                "destinationCity": dc,
+                "departureTime": dep_s,
+                "arrivalTime": arr_s,
+                "durationMins": int(dur_mins),
+                "economyPrice": round(economy, 2),
+                "businessPrice": biz,
+                "availableSeats": int(seats),
+                "onlineSeatSelection": online,
+                "seatNote": (
+                    "Standard online seat map (demo)."
+                    if online
+                    else "Seat assignment at check-in/airport (demo)."
+                ),
+                "imageUrl": f"https://picsum.photos/seed/{flight_num}/400/200",
+            }
+
+
+_merge_programmatic_catalog()
+
+
 @app.route("/flight/<flight_num>", methods=["GET"])
 def get_flight(flight_num: str):
     flight = FLIGHTS.get(flight_num.upper())
@@ -225,10 +356,30 @@ def search_flights():
         "bali": "indonesia",
         "kuala lumpur": "malaysia",
         "paris": "france",
+        "seoul": "south korea",
+        "manila": "philippines",
+        "dubai": "uae",
+        "melbourne": "australia",
+        "frankfurt": "germany",
+        "amsterdam": "netherlands",
+        "los angeles": "usa",
+        "san francisco": "usa",
+        "ho chi minh city": "vietnam",
+        "hanoi": "vietnam",
+        "jakarta": "indonesia",
+        "chennai": "india",
     }
+
+    min_seats = int(request.args.get("minSeats") or "0")
 
     results = []
     for _, f in FLIGHTS.items():
+        if min_seats > 0:
+            try:
+                if int(f.get("availableSeats") or 0) < min_seats:
+                    continue
+            except (TypeError, ValueError):
+                continue
         if origin_city and str(f.get("originCity", "")).lower() != origin_city:
             continue
         if destination_city and str(f.get("destinationCity", "")).lower() != destination_city:

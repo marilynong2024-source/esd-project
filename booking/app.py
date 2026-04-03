@@ -15,6 +15,14 @@ from traveller_os import (
     snapshot_display_names,
     fetch_byaccount_rows,
 )
+
+
+def _traveller_profile_env_required() -> bool:
+    return os.environ.get("TRAVELLER_PROFILE_REQUIRED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 from fx_quote import optional_fx_snapshot
 from catalog_validate import validate_flight_and_hotel
 try:
@@ -1000,12 +1008,24 @@ def get_reserved_seats_for_flight(flight_id: str):
     if not fid:
         return jsonify({"code": 400, "message": "flight_id is required"}), 400
 
-    rows = (
-        Booking.query.filter(func.upper(Booking.flightID) == fid)
-        .filter(Booking.seatNumber.isnot(None))
-        .filter(func.upper(func.coalesce(Booking.status, "")) == "CONFIRMED")
-        .all()
-    )
+    try:
+        rows = (
+            Booking.query.filter(func.upper(Booking.flightID) == fid)
+            .filter(Booking.seatNumber.isnot(None))
+            .filter(func.upper(func.coalesce(Booking.status, "")) == "CONFIRMED")
+            .all()
+        )
+    except sa_exc.SQLAlchemyError:
+        app.logger.exception("get_reserved_seats_for_flight DB query failed")
+        return (
+            jsonify(
+                {
+                    "code": 503,
+                    "message": "Booking database temporarily unavailable for seat lookup.",
+                }
+            ),
+            503,
+        )
 
     seats = []
     seen = set()
@@ -1026,13 +1046,25 @@ def traveller_profiles_byaccount(customer_id: int):
         return (
             jsonify(
                 {
-                    "code": 500,
-                    "message": "Traveller profile service not configured (TRAVELLER_PROFILE_BASE_URL is empty).",
+                    "code": 200,
+                    "data": [],
+                    "message": "Traveller profile service not configured (set TRAVELLER_PROFILE_BASE_URL to enable).",
                 }
             ),
-            500,
+            200,
         )
     if err:
+        if not _traveller_profile_env_required():
+            return (
+                jsonify(
+                    {
+                        "code": 200,
+                        "data": [],
+                        "message": err,
+                    }
+                ),
+                200,
+            )
         return jsonify({"code": 502, "message": err}), 502
     return jsonify({"code": 200, "data": rows or []}), 200
 

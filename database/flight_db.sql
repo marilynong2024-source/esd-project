@@ -39,6 +39,14 @@ VALUES
   ('KL1004', 'KL', 'KLM', 'BigAirline', 'AMS', 'LHR', '2026-07-07 15:30:00', '2026-07-07 15:55:00', 'Standard', 1, 110.00, 300.00, 165.00, 24),
   ('AF1681', 'AF', 'Air France', 'BigAirline', 'LHR', 'CDG', '2026-07-08 12:00:00', '2026-07-08 14:15:00', 'Standard', 1, 130.00, 300.00, 220.00, 20);
 
+-- ---------------------------------------------------------------------------
+-- Large catalog (301 rows): same flights as the Python `flight` microservice.
+-- Import into a MySQL schema that defines `flights` as above, e.g.:
+--   mysql -u USER -p DATABASE < database/flight_db_generated.sql
+-- Regenerate after editing flight/app.py:
+--   python database/gen_flight_sql.py
+-- ---------------------------------------------------------------------------
+
 -- Diagram-aligned seat reservation table (FlightDB)
 CREATE TABLE IF NOT EXISTS FlightReservations (
   id INT AUTO_INCREMENT PRIMARY KEY,

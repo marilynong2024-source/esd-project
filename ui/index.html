@@ -6,7 +6,7 @@
   <title>Horizon Packages — Flight &amp; hotel bundles</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -28,27 +28,108 @@
     </div>
   </header>
 
-  <section class="hero" aria-labelledby="hero-heading">
-    <div class="hero__content">
+  <section class="hero hero--package" aria-labelledby="hero-heading">
+    <div class="hero__content hero__content--compact">
       <p class="hero__eyebrow">Horizon Packages</p>
       <h1 id="hero-heading">Book flight + hotel in a few steps</h1>
-      <p class="hero__lede">
-        Choose your flights and stay, use loyalty perks when you're signed in, then confirm.
-        Your <strong>confirmation and wallet</strong> stay on the right so you always know where you are.
+      <p class="hero__lede hero__lede--short">
+        Search like a travel site, then refine bundles, travellers, hotel, and flights below.
       </p>
-      <ul class="hero__trust" role="list">
-        <li>Flights and hotels matched from our live catalog</li>
-        <li>Optional seat map when the airline allows online selection</li>
-        <li>After you pay, your reference and receipt appear in the summary panel</li>
-      </ul>
     </div>
-    <div class="hero__art" aria-hidden="true">
-      <div class="hero__card-float">
-        <span class="hero__price-label">Sample package from</span>
-        <span class="hero__price">S$520</span>
-        <span class="hero__price-note">Demo data — adjust in the form</span>
+
+    <div class="package-search" aria-labelledby="package-search-title">
+      <div class="package-search__head">
+        <h2 id="package-search-title" class="package-search__title">Flight + Hotel</h2>
+      </div>
+      <div class="package-search__body">
+        <fieldset class="package-search__trip-type">
+          <legend class="visually-hidden">Trip type</legend>
+          <label class="package-search__radio">
+            <input type="radio" name="packageTripType" value="return" checked />
+            Return
+          </label>
+          <label class="package-search__radio">
+            <input type="radio" name="packageTripType" value="oneway" />
+            One-way
+          </label>
+        </fieldset>
+
+        <div class="package-search__route">
+          <label class="package-search__field">
+            <span class="package-search__label">From</span>
+            <select id="packageSearchFrom" class="package-search__control" aria-label="Origin city"></select>
+          </label>
+          <span class="package-search__plane" aria-hidden="true">✈</span>
+          <label class="package-search__field">
+            <span class="package-search__label">To</span>
+            <select id="packageSearchTo" class="package-search__control" aria-label="Destination city"></select>
+          </label>
+        </div>
+
+        <div class="package-search__dates">
+          <label class="package-search__field package-search__field--date">
+            <span class="package-search__label">Depart</span>
+            <input type="date" id="packageDepartDate" class="package-search__control" value="2026-05-01" />
+          </label>
+          <span class="package-search__nights muted" id="packageNightsHint">— nights —</span>
+          <label class="package-search__field package-search__field--date" id="packageReturnWrap">
+            <span class="package-search__label">Return</span>
+            <input type="date" id="packageReturnDate" class="package-search__control" value="2026-05-06" />
+          </label>
+        </div>
+
+        <div class="package-search__meta" id="packageTripSummary">
+          <span id="packageTripSummaryText">1 room · 2 adults · Economy</span>
+        </div>
+
+        <div class="package-search__pax form-grid package-search__pax-grid">
+          <label>
+            Rooms
+            <select id="packageRooms" class="package-search__control" aria-label="Rooms">
+              <option value="1" selected>1 room</option>
+              <option value="2">2 rooms</option>
+              <option value="3">3 rooms</option>
+            </select>
+          </label>
+          <label>
+            Adults
+            <select id="packageAdults" class="package-search__control" aria-label="Adults">
+              <option value="1">1 adult</option>
+              <option value="2" selected>2 adults</option>
+              <option value="3">3 adults</option>
+              <option value="4">4 adults</option>
+              <option value="5">5 adults</option>
+              <option value="6">6 adults</option>
+            </select>
+          </label>
+          <label>
+            Cabin
+            <select id="packageCabin" class="package-search__control" aria-label="Cabin class">
+              <option value="economy" selected>Economy</option>
+              <option value="premium">Premium economy</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="package-search__checkbox">
+          <input type="checkbox" id="packageFlexibleDates" />
+          Show packages that allow different hotel dates or nearby cities (demo filter)
+        </label>
+
+        <div class="package-search__actions">
+          <span class="package-search__badge" aria-hidden="true">Bundle savings · demo</span>
+          <button type="button" class="btn-primary package-search__submit" id="packageSearchBtn">
+            Search flights + hotels
+          </button>
+        </div>
       </div>
     </div>
+
+    <ul class="hero__trust hero__trust--below" role="list">
+      <li>Flights and hotels from the demo catalog</li>
+      <li>Optional seat map when the airline allows online selection</li>
+      <li>Confirmation and wallet stay in the summary panel</li>
+    </ul>
   </section>
 
   <nav class="booking-flow" aria-label="How booking works">
@@ -159,6 +240,18 @@
             5. Loyalty &amp; payment
           </button>
         </nav>
+
+        <div class="booking-step-nav" aria-label="Step navigation">
+          <button type="button" class="btn-secondary booking-step-nav__back" id="bookingStepBack">
+            Back
+          </button>
+          <p class="booking-step-nav__progress muted" id="bookingStepProgress" aria-live="polite">
+            Step 1 of 5 — Choose bundle
+          </p>
+          <button type="button" class="btn-primary booking-step-nav__next" id="bookingStepNext">
+            Next
+          </button>
+        </div>
 
         <form id="createForm" class="form-grid">
           <label class="form-grid-1col form-label--demo">
@@ -344,7 +437,6 @@
               Which member’s saved passports?
               <select
                 id="travellerCustomerID"
-                required
                 aria-label="Member whose saved traveller profiles to load"
               ></select>
               <span class="muted field-hint">Same people as under “Who is this booking for?” — we keep profiles per household member.</span>
@@ -370,17 +462,18 @@
 
               <label>
                 Full name
-                <input type="text" id="travellerEditFullName" required />
+                <!-- not `required`: editor is often hidden; Save validates instead -->
+                <input type="text" id="travellerEditFullName" autocomplete="name" />
               </label>
 
               <div class="form-grid">
                 <label>
                   Passport number
-                  <input type="text" id="travellerEditPassportNumber" required />
+                  <input type="text" id="travellerEditPassportNumber" autocomplete="off" />
                 </label>
                 <label>
                   Passport expiry (YYYY-MM-DD)
-                  <input type="date" id="travellerEditPassportExpiry" required />
+                  <input type="date" id="travellerEditPassportExpiry" />
                 </label>
               </div>
 
@@ -457,15 +550,12 @@
           <div id="bookingStep3Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep4Tab" hidden>
             <label>
               Flight
-              <input
-                type="text"
-                id="flightID"
-                value="SQ001"
-                required
-                placeholder="e.g. SQ001 — from your bundle or airline search"
-                autocomplete="off"
-              />
-              <span class="muted field-hint">Airline and flight number; we fill dates when you pick a bundle or change this field.</span>
+              <select id="flightID" required aria-label="Choose flight for this route">
+                <option value="">— Loading flights for your route… —</option>
+              </select>
+              <span class="muted field-hint" id="flightSelectHint"
+                >Flights come from the catalog with at least one seat left. Dates update when you pick a flight.</span
+              >
             </label>
             <div class="form-grid">
               <label>

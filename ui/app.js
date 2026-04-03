@@ -242,66 +242,102 @@ function getFilteredPresets() {
   });
 }
 
-function populateBundleFilterSelects() {
-  const regSel = document.getElementById("bundleFilterRegion");
-  if (regSel) {
-    regSel.replaceChildren();
+/**
+ * @param {boolean} preserve If true, keep region/country/from/to when options still valid (fixes country not tracking region).
+ */
+function populateBundleFilterSelects(preserve = true) {
+  const regEl = document.getElementById("bundleFilterRegion");
+  const prevReg = preserve && regEl ? regEl.value : "all";
+  const countryEl = document.getElementById("bundleFilterCountry");
+  const prevCountry = preserve && countryEl ? countryEl.value : "all";
+  const fromEl = document.getElementById("bundleFilterFrom");
+  const prevFrom = preserve && fromEl ? fromEl.value : "all";
+  const toEl = document.getElementById("bundleFilterTo");
+  const prevTo = preserve && toEl ? toEl.value : "all";
+
+  if (regEl) {
+    regEl.replaceChildren();
     for (const r of BUNDLE_REGION_OPTIONS) {
       const o = document.createElement("option");
       o.value = r.value;
       o.textContent = r.label;
-      regSel.appendChild(o);
+      regEl.appendChild(o);
     }
-    regSel.value = "all";
+    const regOk = [...regEl.options].some((o) => o.value === prevReg);
+    regEl.value = regOk ? prevReg : "all";
   }
-  const origins = [...new Set(BUNDLE_PRESETS.map((p) => p.origin))].sort();
-  const dests = [...new Set(BUNDLE_PRESETS.map((p) => p.destination))].sort();
-  const fromSel = document.getElementById("bundleFilterFrom");
-  if (fromSel) {
-    fromSel.replaceChildren();
+
+  const effectiveReg = regEl?.value || "all";
+
+  if (countryEl) {
+    countryEl.replaceChildren();
+    const allC = document.createElement("option");
+    allC.value = "all";
+    allC.textContent = "Any country";
+    countryEl.appendChild(allC);
+    const countrySlugs = countriesUsedByPresets(effectiveReg);
+    for (const slug of countrySlugs) {
+      const o = document.createElement("option");
+      o.value = slug;
+      o.textContent = BUNDLE_COUNTRY_LABEL[slug] || slug;
+      countryEl.appendChild(o);
+    }
+    const countryOk =
+      prevCountry === "all" || countrySlugs.includes(prevCountry);
+    countryEl.value = countryOk ? prevCountry : "all";
+  }
+
+  const effectiveCountry = countryEl?.value || "all";
+
+  const presetsForCities = BUNDLE_PRESETS.filter((p) => {
+    if (effectiveReg !== "all" && p.region !== effectiveReg) return false;
+    if (effectiveCountry !== "all") {
+      const o = CITY_COUNTRY_SLUG[p.origin];
+      const d = CITY_COUNTRY_SLUG[p.destination];
+      if (o !== effectiveCountry && d !== effectiveCountry) return false;
+    }
+    return true;
+  });
+
+  const origins = [...new Set(presetsForCities.map((p) => p.origin))].sort();
+  const dests = [...new Set(presetsForCities.map((p) => p.destination))].sort();
+
+  if (fromEl) {
+    fromEl.replaceChildren();
     const allO = document.createElement("option");
     allO.value = "all";
     allO.textContent = "Any city";
-    fromSel.appendChild(allO);
+    fromEl.appendChild(allO);
     for (const city of origins) {
       const o = document.createElement("option");
       o.value = city;
       o.textContent = city;
-      fromSel.appendChild(o);
+      fromEl.appendChild(o);
     }
-    fromSel.value = "all";
+    const fromOk = prevFrom === "all" || origins.includes(prevFrom);
+    fromEl.value = fromOk ? prevFrom : "all";
   }
-  const toSel = document.getElementById("bundleFilterTo");
-  if (toSel) {
-    toSel.replaceChildren();
+
+  if (toEl) {
+    let destCandidates = presetsForCities;
+    const fromVal = fromEl?.value || "all";
+    if (fromVal !== "all") {
+      destCandidates = destCandidates.filter((p) => p.origin === fromVal);
+    }
+    const destsFiltered = [...new Set(destCandidates.map((p) => p.destination))].sort();
+    toEl.replaceChildren();
     const allT = document.createElement("option");
     allT.value = "all";
     allT.textContent = "Any city";
-    toSel.appendChild(allT);
-    for (const city of dests) {
+    toEl.appendChild(allT);
+    for (const city of destsFiltered.length ? destsFiltered : dests) {
       const o = document.createElement("option");
       o.value = city;
       o.textContent = city;
-      toSel.appendChild(o);
+      toEl.appendChild(o);
     }
-    toSel.value = "all";
-  }
-  const countrySel = document.getElementById("bundleFilterCountry");
-  if (countrySel) {
-    // When Region is specific (e.g. Europe & UK), only show countries from that region.
-    const currentRegion = regSel ? regSel.value || "all" : "all";
-    countrySel.replaceChildren();
-    const allC = document.createElement("option");
-    allC.value = "all";
-    allC.textContent = "Any country";
-    countrySel.appendChild(allC);
-    for (const slug of countriesUsedByPresets(currentRegion)) {
-      const o = document.createElement("option");
-      o.value = slug;
-      o.textContent = BUNDLE_COUNTRY_LABEL[slug] || slug;
-      countrySel.appendChild(o);
-    }
-    countrySel.value = "all";
+    const toOk = prevTo === "all" || [...toEl.options].some((o) => o.value === prevTo);
+    toEl.value = toOk ? prevTo : "all";
   }
 }
 
@@ -502,6 +538,11 @@ function applyTripWindowFromSelect() {
     depEl.value = parts[0].trim();
     retEl.value = parts[1].trim();
   }
+  const pd = document.getElementById("packageDepartDate");
+  const pr = document.getElementById("packageReturnDate");
+  if (pd && depEl?.value) pd.value = sliceDateFromLocal(depEl.value);
+  if (pr && retEl?.value) pr.value = sliceDateFromLocal(retEl.value);
+  updatePackageNightsHint();
 }
 
 function syncTripWindowFromDateInputs() {
@@ -591,6 +632,8 @@ const DEMO_PROFILES = [
     passengerEmail: "ava.chen@example.com",
     passengerPhone: "+65 9123 4567",
     customerID: 1,
+    bundleOrigin: "Singapore",
+    bundleDestination: "Tokyo",
     flightID: "SQ001",
     hotelID: 1,
     hotelRoomType: "STD",
@@ -610,6 +653,8 @@ const DEMO_PROFILES = [
     passengerEmail: "ava.chen@example.com",
     passengerPhone: "+65 9123 4567",
     customerID: 1,
+    bundleOrigin: "Singapore",
+    bundleDestination: "Tokyo",
     flightID: "SQ001",
     rawTravellerProfileIds: [9, 10],
     hotelID: 1,
@@ -630,6 +675,8 @@ const DEMO_PROFILES = [
     passengerEmail: "ben.kumar@example.com",
     passengerPhone: "+65 8123 0000",
     customerID: 2,
+    bundleOrigin: "Singapore",
+    bundleDestination: "Sydney",
     flightID: "SQ002",
     hotelID: 1,
     hotelRoomType: "DLX",
@@ -649,6 +696,8 @@ const DEMO_PROFILES = [
     passengerEmail: "casey.tan@example.com",
     passengerPhone: "+65 9000 1111",
     customerID: 3,
+    bundleOrigin: "Singapore",
+    bundleDestination: "Kuala Lumpur",
     flightID: "AK123",
     hotelID: 1,
     hotelRoomType: "STD",
@@ -668,6 +717,8 @@ const DEMO_PROFILES = [
     passengerEmail: "dana.wong@example.com",
     passengerPhone: "+65 8444 2222",
     customerID: 4,
+    bundleOrigin: "Singapore",
+    bundleDestination: "Bangkok",
     flightID: "TR789",
     hotelID: 1,
     hotelRoomType: "STD",
@@ -687,6 +738,8 @@ const DEMO_PROFILES = [
     passengerEmail: "elena.ruiz@corp-demo.sg",
     passengerPhone: "+65 9333 8888",
     customerID: 5,
+    bundleOrigin: "Singapore",
+    bundleDestination: "Tokyo",
     flightID: "SQ001",
     hotelID: 1,
     hotelRoomType: "DLX",
@@ -950,7 +1003,7 @@ function setBundleResultVisible(_isVisible) {
   /* Breakdown panel removed — totals live on cards + payment step */
 }
 
-function applyBundlePricingResult(bundle, inputsForThisCall) {
+async function applyBundlePricingResult(bundle, inputsForThisCall) {
   if (!bundle || typeof bundle !== "object") return;
   latestBundlePricing = bundle;
   lastBundleParams = inputsForThisCall || lastBundleParams;
@@ -971,9 +1024,18 @@ function applyBundlePricingResult(bundle, inputsForThisCall) {
     updateBundleCardPriceLabels();
   }
 
-  // Fill booking core fields from bundle result.
+  await refreshFlightDropdownFromRoute();
   const flightIdEl = document.getElementById("flightID");
-  if (flightIdEl && bundle.flightNum) flightIdEl.value = String(bundle.flightNum);
+  if (flightIdEl && bundle.flightNum) {
+    const fn = String(bundle.flightNum).toUpperCase();
+    if (![...flightIdEl.options].some((o) => o.value === fn)) {
+      const opt = document.createElement("option");
+      opt.value = fn;
+      opt.textContent = `${fn} · from bundle quote`;
+      flightIdEl.appendChild(opt);
+    }
+    flightIdEl.value = fn;
+  }
 
   const hotelIdEl = document.getElementById("hotelID");
   if (hotelIdEl && Number.isFinite(Number(bundle.hotelID))) {
@@ -1064,7 +1126,14 @@ async function searchBundlePricing(loyaltyCoinsToUseCentsOverride = null) {
     return;
   }
 
-  applyBundlePricingResult(data, { departDate, returnDate, origin, destination, travellers, customerId });
+  await applyBundlePricingResult(data, {
+    departDate,
+    returnDate,
+    origin,
+    destination,
+    travellers,
+    customerId,
+  });
 }
 
 let bundleRefreshToken = 0;
@@ -1092,7 +1161,10 @@ async function refreshBundleForCoins() {
   const data = out.body?.data;
   const code = out.body?.code;
   if (code !== 200 || !data) return;
-  applyBundlePricingResult(data, { ...lastBundleParams, departDate: lastBundleParams.departDate });
+  await applyBundlePricingResult(data, {
+    ...lastBundleParams,
+    departDate: lastBundleParams.departDate,
+  });
 }
 
 function clearBundleSelectionState() {
@@ -1184,7 +1256,7 @@ function extractAirlineCode(flightId) {
   const m = String(flightId || "")
     .trim()
     .toUpperCase()
-    .match(/^([A-Z]{2})/);
+    .match(/^([A-Z0-9]{2})/);
   return m ? m[1] : "";
 }
 
@@ -1199,7 +1271,7 @@ function getSeatPolicy(flightId) {
       onlineSeatSelection: false,
       airlineCode: "",
       airlineName: "",
-      reason: "Enter a flight number (e.g. SQ001 or AK123).",
+      reason: "Choose a flight from the list for your route.",
     };
   }
   const rules = {
@@ -1396,6 +1468,89 @@ function updateSeatSelectionUI() {
   }
 
   updateSeatGroupSummary();
+}
+
+/**
+ * Populate flight dropdown from catalog: only flights with seats on bundle origin → destination cities.
+ */
+async function refreshFlightDropdownFromRoute() {
+  const sel = document.getElementById("flightID");
+  if (!sel || sel.tagName !== "SELECT") return;
+
+  const origin = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const dest = document.getElementById("bundleDestination")?.value?.trim() || "";
+  const keep = sel.value;
+
+  sel.replaceChildren();
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent =
+    origin && dest
+      ? "— Choose a flight (with seats) —"
+      : "— Set origin & destination in bundle / search first —";
+  sel.appendChild(ph);
+
+  const hint = document.getElementById("flightSelectHint");
+  if (!origin || !dest) {
+    sel.disabled = true;
+    if (hint) {
+      hint.textContent =
+        "Use the hero search, package filters, or Fine-tune route to set both cities.";
+    }
+    updateSeatSelectionUI();
+    return;
+  }
+
+  sel.disabled = false;
+  const qs = new URLSearchParams();
+  qs.set("originCity", origin);
+  qs.set("destinationCity", dest);
+  qs.set("minSeats", "1");
+  const out = await fetchJson(`${FLIGHT_BASE}/flight/search?${qs.toString()}`);
+
+  if (out.networkError || !out.ok || !Array.isArray(out.body?.data)) {
+    if (hint) hint.textContent = "Could not load flights for this route.";
+    updateSeatSelectionUI();
+    return;
+  }
+
+  const flights = [...out.body.data];
+  flights.sort((a, b) => {
+    const ta = String(a.departureTime || "");
+    const tb = String(b.departureTime || "");
+    if (ta !== tb) return ta.localeCompare(tb);
+    return (Number(a.economyPrice) || 0) - (Number(b.economyPrice) || 0);
+  });
+
+  for (const f of flights) {
+    const fn = String(f.flightNum || f.flightNumber || "").toUpperCase();
+    if (!fn) continue;
+    const seats = Number(f.availableSeats ?? 0);
+    if (seats < 1) continue;
+    const dep = String(f.departureTime || "").replace("T", " ").slice(0, 16);
+    const price = Number(f.economyPrice ?? 0);
+    const air = String(f.airline || "").slice(0, 28);
+    const opt = document.createElement("option");
+    opt.value = fn;
+    opt.textContent = `${fn} · ${air} · ${dep} · ${seats} seats · S$${price.toFixed(0)}`;
+    sel.appendChild(opt);
+  }
+
+  if (hint) {
+    hint.textContent =
+      flights.length === 0
+        ? `No flights with seats found for ${origin} → ${dest}. Try another route.`
+        : `${flights.length} flight(s) with seats: ${origin} → ${dest}.`;
+  }
+
+  if (keep && [...sel.options].some((o) => o.value === keep)) {
+    sel.value = keep;
+  } else if (sel.options.length > 1) {
+    sel.selectedIndex = 1;
+  }
+
+  updateSeatSelectionUI();
+  void syncFlightScheduleUI();
 }
 
 async function syncFlightScheduleUI() {
@@ -1880,7 +2035,7 @@ function populateDemoProfileOptions() {
   });
 }
 
-function applyDemoProfile() {
+async function applyDemoProfile() {
   const sel = document.getElementById("demoProfile");
   if (!sel || !sel.value) return;
   const p = DEMO_PROFILES.find((x) => x.id === sel.value);
@@ -1900,7 +2055,12 @@ function applyDemoProfile() {
   if (pe) pe.value = p.passengerEmail ?? "";
   if (pp) pp.value = p.passengerPhone ?? "";
   refreshTripContactSummary();
-  document.getElementById("flightID").value = p.flightID;
+
+  const bo = document.getElementById("bundleOrigin");
+  const bd = document.getElementById("bundleDestination");
+  if (p.bundleOrigin && bo) bo.value = p.bundleOrigin;
+  if (p.bundleDestination && bd) bd.value = p.bundleDestination;
+
   const hotelId = Number(p.hotelID);
   document.getElementById("hotelID").value = hotelId;
   document.getElementById("hotelRoomType").value = p.hotelRoomType;
@@ -1941,6 +2101,18 @@ function applyDemoProfile() {
   syncBundleTravellerTotals();
   updateCoinsOffsetUI();
 
+  await refreshFlightDropdownFromRoute();
+  const fsel = document.getElementById("flightID");
+  if (fsel && p.flightID) {
+    const fn = String(p.flightID).toUpperCase();
+    if (![...fsel.options].some((o) => o.value === fn)) {
+      const opt = document.createElement("option");
+      opt.value = fn;
+      opt.textContent = `${fn} · demo profile`;
+      fsel.appendChild(opt);
+    }
+    fsel.value = fn;
+  }
   updateSeatSelectionUI();
   void syncFlightScheduleUI();
   // Refresh traveller profile list + selectors so the demo can pick by name.
@@ -1961,9 +2133,14 @@ function applyDemoProfile() {
     document.getElementById("loyaltyTier").textContent = "-";
     refreshPricePreview();
   }
+  if (document.getElementById("packageSearchFrom")) {
+    populatePackageSearchSelects();
+    syncPackageSearchFromBundleFields();
+    updatePackageTripSummary();
+  }
 }
 
-function setManualDefaults() {
+async function setManualDefaults() {
   clearBundleSelectionState();
   document.getElementById("demoProfile").value = "";
   document.getElementById("customerID").value = "1";
@@ -2003,10 +2180,10 @@ function setManualDefaults() {
   if (bfc) bfc.value = "all";
   if (bff) bff.value = "all";
   if (bft) bft.value = "all";
+  populateBundleFilterSelects(true);
   populateBundlePackageSelect();
   renderBundleGallery();
   scheduleBundleCardPriceRefresh();
-  document.getElementById("flightID").value = "SQ001";
   document.getElementById("hotelID").value = 1;
   document.getElementById("hotelRoomType").value = "STD";
   document.getElementById("hotelIncludesBreakfast").checked = false;
@@ -2030,9 +2207,21 @@ function setManualDefaults() {
     Array.from(compSel.options || []).forEach((opt) => (opt.selected = false));
   }
   clearSeatSelection();
+  await refreshFlightDropdownFromRoute();
+  const fsel = document.getElementById("flightID");
+  if (fsel && [...fsel.options].some((o) => o.value === "SQ001")) {
+    fsel.value = "SQ001";
+  } else if (fsel?.options?.length > 1) {
+    fsel.selectedIndex = 1;
+  }
   updateSeatSelectionUI();
   void syncFlightScheduleUI();
   void updateLoyaltySummary(1);
+  if (document.getElementById("packageSearchFrom")) {
+    populatePackageSearchSelects();
+    syncPackageSearchFromBundleFields();
+    updatePackageTripSummary();
+  }
 }
 
 function showResult(obj, meta = "") {
@@ -2508,14 +2697,17 @@ function setupLoyaltyPaymentTabs() {
   tabPayment.addEventListener("click", () => setActive("payment"));
 }
 
+const BOOKING_FLOW_STEPS = [
+  { tabId: "bookingStep1Tab", panelId: "bookingStep1Panel", label: "Choose bundle" },
+  { tabId: "bookingStep2Tab", panelId: "bookingStep4Panel", label: "Traveller profile" },
+  { tabId: "bookingStep3Tab", panelId: "bookingStep2Panel", label: "Hotel" },
+  { tabId: "bookingStep4Tab", panelId: "bookingStep3Panel", label: "Flights" },
+  { tabId: "bookingStep5Tab", panelId: "bookingStep5Panel", label: "Loyalty & payment" },
+];
+
 function setupBookingFlowTabs() {
-  const steps = [
-    { tabId: "bookingStep1Tab", panelId: "bookingStep1Panel" },
-    { tabId: "bookingStep2Tab", panelId: "bookingStep4Panel" },
-    { tabId: "bookingStep3Tab", panelId: "bookingStep2Panel" },
-    { tabId: "bookingStep4Tab", panelId: "bookingStep3Panel" },
-    { tabId: "bookingStep5Tab", panelId: "bookingStep5Panel" },
-  ];
+  const steps = BOOKING_FLOW_STEPS;
+  let activeBookingStepIndex = 0;
 
   const tabEls = {};
   const panelEls = {};
@@ -2524,9 +2716,30 @@ function setupBookingFlowTabs() {
     panelEls[s.panelId] = document.getElementById(s.panelId);
   }
 
+  const backBtn = document.getElementById("bookingStepBack");
+  const nextBtn = document.getElementById("bookingStepNext");
+  const progressEl = document.getElementById("bookingStepProgress");
+
+  const updateStepNav = () => {
+    const idx = activeBookingStepIndex;
+    const last = steps.length - 1;
+    if (backBtn) backBtn.disabled = idx <= 0;
+    if (nextBtn) {
+      nextBtn.hidden = false;
+      nextBtn.textContent = idx >= last ? "Go to confirm" : "Next";
+    }
+    if (progressEl) {
+      const stepMeta = steps[idx];
+      progressEl.textContent = `Step ${idx + 1} of ${steps.length} — ${stepMeta?.label ?? ""}`;
+    }
+  };
+
   const setActiveStep = (stepIndex) => {
+    activeBookingStepIndex = Math.max(0, Math.min(steps.length - 1, stepIndex));
+    const idx = activeBookingStepIndex;
+
     for (let i = 0; i < steps.length; i++) {
-      const isActive = i === stepIndex;
+      const isActive = i === idx;
       const { tabId, panelId } = steps[i];
       const tab = tabEls[tabId];
       const panel = panelEls[panelId];
@@ -2537,26 +2750,224 @@ function setupBookingFlowTabs() {
         tab.tabIndex = isActive ? 0 : -1;
       }
     }
-    const activePanelId = steps[stepIndex]?.panelId;
-    if (activePanelId)
-      document.getElementById(activePanelId)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
-    // Step 2 (index 1) includes traveller profile CRUD + selectors.
-    if (stepIndex === 1) {
+    const activePanelId = steps[idx]?.panelId;
+    if (activePanelId) {
+      document.getElementById(activePanelId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    if (idx === 1) {
       const listEl = document.getElementById("travellerProfilesList");
       if (listEl && latestTravellerRows.length === 0) {
         void loadTravellerProfiles();
       }
     }
+    if (idx === 3) {
+      void refreshFlightDropdownFromRoute();
+    }
+
+    updateStepNav();
   };
+
+  backBtn?.addEventListener("click", () => setActiveStep(activeBookingStepIndex - 1));
+  nextBtn?.addEventListener("click", () => {
+    const last = steps.length - 1;
+    if (activeBookingStepIndex >= last) {
+      document.getElementById("createBtn")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    setActiveStep(activeBookingStepIndex + 1);
+  });
 
   steps.forEach((s, idx) => {
     tabEls[s.tabId]?.addEventListener("click", () => setActiveStep(idx));
   });
 
-  // Ensure correct initial visibility (HTML defaults should already handle this).
-  const initial = 0;
-  setActiveStep(initial);
+  setActiveStep(0);
+}
+
+function populatePackageSearchSelects() {
+  const fromS = document.getElementById("packageSearchFrom");
+  const toS = document.getElementById("packageSearchTo");
+  const bo = document.getElementById("bundleOrigin");
+  const bd = document.getElementById("bundleDestination");
+  if (!fromS || !toS || !bo || !bd) return;
+  const preserveFrom = fromS.value;
+  const preserveTo = toS.value;
+  fromS.replaceChildren();
+  toS.replaceChildren();
+  Array.from(bo.options).forEach((o) => {
+    fromS.appendChild(new Option(o.textContent, o.value));
+  });
+  Array.from(bd.options).forEach((o) => {
+    toS.appendChild(new Option(o.textContent, o.value));
+  });
+  if ([...fromS.options].some((o) => o.value === preserveFrom)) {
+    fromS.value = preserveFrom;
+  } else {
+    fromS.value = bo.value;
+  }
+  if ([...toS.options].some((o) => o.value === preserveTo)) {
+    toS.value = preserveTo;
+  } else {
+    toS.value = bd.value;
+  }
+}
+
+function sliceDateFromLocal(dt) {
+  if (!dt) return "";
+  const s = String(dt);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+function updatePackageNightsHint() {
+  const dep = document.getElementById("packageDepartDate")?.value;
+  const ret = document.getElementById("packageReturnDate")?.value;
+  const isReturn =
+    document.querySelector('input[name="packageTripType"]:checked')?.value === "return";
+  const el = document.getElementById("packageNightsHint");
+  if (!el) return;
+  if (!isReturn || !dep || !ret) {
+    el.textContent = "—";
+    return;
+  }
+  const d0 = new Date(`${dep}T12:00:00`);
+  const d1 = new Date(`${ret}T12:00:00`);
+  const nights = Math.max(0, Math.round((d1 - d0) / 86400000));
+  el.textContent = nights === 1 ? "1 night" : `${nights} nights`;
+}
+
+function updatePackageTripSummary() {
+  const rooms = document.getElementById("packageRooms")?.value || "1";
+  const adults = document.getElementById("packageAdults")?.value || "2";
+  const cabin = document.getElementById("packageCabin");
+  const cabinLabel = cabin?.selectedOptions?.[0]?.textContent || "Economy";
+  const t = document.getElementById("packageTripSummaryText");
+  if (t) {
+    t.textContent = `${rooms} room${rooms === "1" ? "" : "s"} · ${adults} adult${adults === "1" ? "" : "s"} · ${cabinLabel}`;
+  }
+}
+
+function applyPackageSearchToBundle() {
+  const fromS = document.getElementById("packageSearchFrom");
+  const toS = document.getElementById("packageSearchTo");
+  const bo = document.getElementById("bundleOrigin");
+  const bd = document.getElementById("bundleDestination");
+  if (bo && fromS) bo.value = fromS.value;
+  if (bd && toS) bd.value = toS.value;
+
+  const dep = document.getElementById("packageDepartDate")?.value;
+  const ret = document.getElementById("packageReturnDate")?.value;
+  const isReturn =
+    document.querySelector('input[name="packageTripType"]:checked')?.value === "return";
+  const depEl = document.getElementById("bundleDepartDateTime");
+  const retEl = document.getElementById("bundleReturnDateTime");
+  if (dep && depEl) {
+    depEl.value = dep.length <= 10 ? `${dep}T10:00` : dep;
+  }
+  if (isReturn && ret && retEl) {
+    retEl.value = ret.length <= 10 ? `${ret}T11:00` : ret;
+  } else if (!isReturn && dep && retEl) {
+    const d = new Date(`${dep}T12:00:00`);
+    d.setDate(d.getDate() + 1);
+    retEl.value = d.toISOString().slice(0, 16);
+  }
+
+  const adults = Math.max(1, Number(document.getElementById("packageAdults")?.value || 2));
+  const adultsSel = document.getElementById("bundleAdults");
+  if (adultsSel) adultsSel.value = String(adults);
+  syncBundleTravellerTotals();
+}
+
+function runPackageSearch() {
+  applyPackageSearchToBundle();
+  const bfr = document.getElementById("bundleFilterRegion");
+  const bfc = document.getElementById("bundleFilterCountry");
+  if (bfr) bfr.value = "all";
+  if (bfc) bfc.value = "all";
+  populateBundleFilterSelects(true);
+  const fromS = document.getElementById("packageSearchFrom");
+  const toS = document.getElementById("packageSearchTo");
+  const bff = document.getElementById("bundleFilterFrom");
+  const bft = document.getElementById("bundleFilterTo");
+  if (bff && fromS) bff.value = fromS.value;
+  if (bft && toS) bft.value = toS.value;
+  populateBundleFilterSelects(true);
+  onBundleFiltersChanged();
+  const flex = document.getElementById("packageFlexibleDates")?.checked;
+  if (!flex) {
+    void searchBundlePricing();
+  } else {
+    const st = document.getElementById("bundleStatus");
+    if (st) {
+      st.textContent =
+        "Flexible search on: browse packages below, then use Fine-tune or Recalculate if needed.";
+    }
+    scheduleBundleCardPriceRefresh();
+  }
+  document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  void refreshFlightDropdownFromRoute();
+}
+
+function syncPackageSearchFromBundleFields() {
+  const bo = document.getElementById("bundleOrigin");
+  const bd = document.getElementById("bundleDestination");
+  const fromS = document.getElementById("packageSearchFrom");
+  const toS = document.getElementById("packageSearchTo");
+  if (fromS && bo && [...fromS.options].some((o) => o.value === bo.value)) {
+    fromS.value = bo.value;
+  }
+  if (toS && bd && [...toS.options].some((o) => o.value === bd.value)) {
+    toS.value = bd.value;
+  }
+  const depEl = document.getElementById("bundleDepartDateTime");
+  const retEl = document.getElementById("bundleReturnDateTime");
+  const pd = document.getElementById("packageDepartDate");
+  const pr = document.getElementById("packageReturnDate");
+  if (pd && depEl?.value) pd.value = sliceDateFromLocal(depEl.value);
+  if (pr && retEl?.value) pr.value = sliceDateFromLocal(retEl.value);
+  updatePackageNightsHint();
+}
+
+function setupPackageSearchUI() {
+  populatePackageSearchSelects();
+  syncPackageSearchFromBundleFields();
+  updatePackageNightsHint();
+  updatePackageTripSummary();
+
+  document.querySelectorAll('input[name="packageTripType"]').forEach((r) =>
+    r.addEventListener("change", () => {
+      const retWrap = document.getElementById("packageReturnWrap");
+      const isReturn =
+        document.querySelector('input[name="packageTripType"]:checked')?.value === "return";
+      if (retWrap) retWrap.hidden = !isReturn;
+      updatePackageNightsHint();
+    })
+  );
+
+  ["packageDepartDate", "packageReturnDate"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", updatePackageNightsHint);
+  });
+  ["packageRooms", "packageAdults", "packageCabin"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", updatePackageTripSummary);
+  });
+
+  document.getElementById("packageSearchBtn")?.addEventListener("click", () => {
+    runPackageSearch();
+  });
+
+  const bo = document.getElementById("bundleOrigin");
+  const bd = document.getElementById("bundleDestination");
+  bo?.addEventListener("change", () => {
+    populatePackageSearchSelects();
+    syncPackageSearchFromBundleFields();
+    void refreshFlightDropdownFromRoute();
+  });
+  bd?.addEventListener("change", () => {
+    populatePackageSearchSelects();
+    syncPackageSearchFromBundleFields();
+    void refreshFlightDropdownFromRoute();
+  });
 }
 
 function refreshTripContactSummary() {
@@ -2729,13 +3140,24 @@ async function loadTravellerProfiles() {
   }
 
   const data = out.body?.data ?? [];
+  const apiHint = out.body?.message;
   latestTravellerRows = Array.isArray(data) ? data : [];
 
   if (!listEl) return;
   listEl.innerHTML = "";
 
   if (!latestTravellerRows.length) {
-    listEl.textContent = "No saved traveller profiles for this member yet.";
+    const lowerHint = String(apiHint || "").toLowerCase();
+    if (lowerHint.includes("not configured")) {
+      travellerProfilesServiceAvailable = false;
+    }
+    if (errEl && apiHint) {
+      errEl.textContent = apiHint;
+      errEl.hidden = false;
+    }
+    listEl.textContent = apiHint
+      ? ""
+      : "No saved traveller profiles for this member yet.";
     resetTravellerEdit();
     return;
   }
@@ -3111,12 +3533,13 @@ function initUI() {
   updateSeatSelectionUI();
   populateCustomerSelects();
   populateTravellerCountSelect();
-  populateBundleFilterSelects();
+  populateBundleFilterSelects(false);
   populateBundleRouteSelectsFromPresets();
   populateTripWindowSelect();
   applyTripWindowFromSelect();
   populateBundlePackageSelect();
   setupBundleFineTuneListeners();
+  setupPackageSearchUI();
   setupBundleFilterListeners();
   renderBundleGallery();
   setupBundleGalleryNav();
@@ -3128,18 +3551,16 @@ function initUI() {
   setupTravellerProfilesUI();
   refreshTripContactSummary();
   updateSeatGroupSummary();
+  void refreshFlightDropdownFromRoute();
 
-  document.getElementById("demoProfile").addEventListener("change", applyDemoProfile);
-  document.getElementById("loadDemoBtn").addEventListener("click", applyDemoProfile);
+  document.getElementById("demoProfile").addEventListener("change", () => void applyDemoProfile());
+  document.getElementById("loadDemoBtn").addEventListener("click", () => void applyDemoProfile());
   document.getElementById("newManualBtn").addEventListener("click", () => {
-    setManualDefaults();
-    showResult({ info: "Ready — edit the form, then confirm & pay when done." }, "Ready to edit");
+    void setManualDefaults().then(() =>
+      showResult({ info: "Ready — edit the form, then confirm & pay when done." }, "Ready to edit")
+    );
   });
-  document.getElementById("flightID").addEventListener("input", () => {
-    updateSeatSelectionUI();
-    void syncFlightScheduleUI();
-  });
-  document.getElementById("flightID").addEventListener("change", () => {
+  document.getElementById("flightID")?.addEventListener("change", () => {
     updateSeatSelectionUI();
     void syncFlightScheduleUI();
   });
@@ -3210,6 +3631,17 @@ function initUI() {
 
   document.getElementById("customerID").addEventListener("change", () => {
     const id = Number(document.getElementById("customerID").value || 0);
+    const travAcc = document.getElementById("travellerCustomerID");
+    if (travAcc && travAcc.tagName === "SELECT" && travAcc.options.length) {
+      const ids = new Set(
+        Array.from(travAcc.options).map((o) => Number(o.value))
+      );
+      if (id > 0 && ids.has(id)) {
+        travAcc.value = String(id);
+      } else {
+        travAcc.value = travAcc.options[0].value;
+      }
+    }
     updateCoinsOffsetUI();
     scheduleBundleCardPriceRefresh();
     if (id) {
