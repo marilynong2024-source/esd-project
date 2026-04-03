@@ -1,0 +1,138 @@
+================================================================================
+SkyBundle / Horizon Packages — REPORT ↔ CODE ALIGNMENT (fact check)
+================================================================================
+Use this to edit the written report and diagrams so markers can verify against
+the repo. Paths are relative to esd-project/.
+
+--------------------------------------------------------------------------------
+ARCHITECTURE NOTE (all scenarios)
+--------------------------------------------------------------------------------
+- "Composite" behaviour in the diagrams is implemented mainly as ORCHESTRATION
+  inside the Booking microservice (booking/app.py) and Bundle Pricing
+  (bundle_pricing/app.py), not as separate Java processes named on the diagram.
+- Flight, Hotel, Loyalty, Payment, Account, Discount, Notification are separate
+  Flask services in Docker.
+- Runtime catalog/loyalty are largely IN-MEMORY in this demo; init_db.sql
+  FlightDB/HotelDB/LoyaltyDB are diagram/lab mirrors (see database/DATABASE_GUIDE.txt).
+- Payment is SIMULATED (no live Stripe charge path in payment/app.py).
+- Twilio is real when configured; SMS is triggered from notification after AMQP.
+
+--------------------------------------------------------------------------------
+USER SCENARIO 1 — Search & price bundle
+--------------------------------------------------------------------------------
+UI proxy: GET /api/bundle-price → bundle-pricing:5111/bundle-price
+(nginx ui.conf). Kong: GET http://localhost:9000/bundle-pricing/bundle-price
+or via UI same-origin as above.
+
+Query params implemented (bundle_pricing/app.py):
+  origin, destination, departDate, returnDate, numberOfTravellers,
+  customerId OR customerID,
+  optional: roomType (STD|DLX), loyaltyCoinsToUseCents OR coinsToSpendCents
+
+ACTUAL call order inside bundle_pricing when customerId > 0 (matches diagram
+Account → Loyalty → Flight → Hotel → Discount):
+  1) GET  http://account:5100/account/{id}  (404 if missing; 403 if not Active)
+  2) GET  http://loyalty:5105/loyalty/{id}/points  (tier/coins for quote)
+  3) GET  http://flight:5102/availability
+  4) GET  http://flight:5102/flights/price   (alias /price)
+  5) GET  http://hotel:5103/availability
+  6) GET  http://hotel:5103/hotels/price     (alias /price)
+  7) GET  http://discount:5112/discounts/bundle-rule
+       (discount/app.py may GET loyalty again for tier — redundant but OK)
+  Coin offset in finalTotal reuses step (2) data (no second loyalty GET).
+
+When customerId is 0 (anonymous quote): steps 1–2 skipped; discount still called
+with customerId=0 (no personal tier from loyalty in that path).
+
+Errors (JSON body: code, message): 503 upstream unreachable, non-JSON, empty body,
+or loyalty/discount failure; 404 no matching flight/hotel or unknown flight/hotel
+price; 400 bad/missing params (e.g. returnDate before departDate); 409 not enough
+seats/rooms; 403 inactive account; 500 unexpected handler bug (logged).
+
+Response fields (typical): flightPrice, hotelPrice, listPriceTotal, discount,
+loyaltyUsed, finalTotal, discountPercent, flightNum, hotelID, chosenRoomType,
+nights; when customerId > 0 also tier, bookingCount, coinBalanceCents.
+tierDiscount / maxCoinOffset as separate keys are not returned; tier affects
+discount via discount service.
+
+Discount service: GET /discounts/bundle-rule (or /discount-rule). It does not
+take a free-text promo from the UI in bundle flow; tier rules are SILVER10/
+GOLD15/PLAT20 style inside discount/app.py. UI promo codes for booking are
+applied on the Pay step in the web app (ui/app.js), not in bundle_pricing.
+
+INTRO: Replace "TBC SINCE SEARCH FUNCTION IS NOT UP YET" — bundle search/price
+is implemented (package search + bundle-price + gallery).
+
+--------------------------------------------------------------------------------
+USER SCENARIO 2 — Book travel package
+--------------------------------------------------------------------------------
+UI: POST /api/booking/ with JSON (nginx rewrites to booking service).
+Endpoints: POST /book-package and POST /booking (same handler).
+
+The orchestrator is the BOOKING service, not a separate "Issue Booking Package"
+container. Wording: "Booking service orchestrates …" is accurate.
+
+Approximate order (booking/app.py create_booking):
+  - INSERT booking status PENDING (early persistence — not POST to another
+    Booking microservice at the end)
+  - POST flight …/reserve-seat  (payload includes seatNos, travellers, etc.)
+  - POST hotel …/hold-room
+  - GET  loyalty …/loyalty/{customerID}/points
+  - POST loyalty …/loyalty/{customerID}/redeem  (coins — BEFORE payment)
+  - POST payment …/payment/process  (bookingID, amount, currency — simulated)
+  - PUT  flight …/availability/{seat}/CONFIRMED (and hotel CONFIRMED)
+  - UPDATE booking status CONFIRMED
+  - POST loyalty …/loyalty/{customerID}/earn  (AFTER confirm — increments
+    bookingCount, updates tier, earns coins)
+  - POST notify/manual (optional) + AMQP publish routing_key notify.user
+  - Notification consumes notify.user (+ booking.cancelled) and may Twilio SMS
+
+CORRECTION vs draft report: Redeem coins happens BEFORE payment, not after.
+Earn happens AFTER confirmation, not before POST to a separate Booking API.
+
+Traveller validation: via booking/traveller_os + OutSystems REST or local demo
+(TRAVELLER_PROFILE_LOCAL_DEMO) — not a single simple "TravellerDB GET" as in ERD.
+You can say "traveller profiles resolved via booking service (OutSystems or demo)."
+
+Payment body: { bookingID, amount, currency } — not a detailed paymentDetails
+object to Stripe.
+
+15-minute hold: implement seat-holds in flight service; wording "15 minutes"
+should match flight/app.py hold TTL if cited precisely (verify before claiming).
+
+--------------------------------------------------------------------------------
+USER SCENARIO 3 — Cancellation
+--------------------------------------------------------------------------------
+UI: POST /api/booking/cancel/{id} or POST /api/booking/cancel-booking
+(body: bookingID, optional userID, cancelSource).
+
+Orchestrator: same Booking service (loads Booking from DB — not HTTP GET to
+another Booking service).
+
+Order (simplified): refund POST payment …/refund-payment → release flight/
+hotel inventory (PUT …/RELEASED and similar) → POST loyalty …/refund (NOT
+/loyalty/.../adjust) → update booking row CANCELLED → AMQP notify.user →
+notification may SMS.
+
+CORRECTION: Use POST /loyalty/{customerID}/refund (loyalty/app.py), not /adjust.
+Adjust exists as legacy alias in code paths — cite /refund for clarity.
+
+Booking update is SQLAlchemy on the same service, not PUT /bookings/{id} to
+another host.
+
+--------------------------------------------------------------------------------
+KONG / GRAPHQL (Beyond the labs)
+--------------------------------------------------------------------------------
+kong.yml services and strip_path: false — matches draft.
+UI default is nginx /api/* to Docker DNS, not Kong port 9000 — mention both.
+
+--------------------------------------------------------------------------------
+EXTERNAL SERVICES TABLE
+--------------------------------------------------------------------------------
+Twilio: OK.
+Optional sentence: Payment integration is simulated; document as Stripe-shaped
+refund/process endpoints for diagram parity.
+
+================================================================================
+END
+================================================================================

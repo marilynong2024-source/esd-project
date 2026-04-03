@@ -1,3 +1,5 @@
+from typing import Any
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime, timedelta
@@ -11,9 +13,13 @@ import pika
 import json
 
 from traveller_os import (
-    validate_travellers_for_booking,
-    snapshot_display_names,
     fetch_byaccount_rows,
+    local_demo_enabled,
+    snapshot_display_names,
+    traveller_profile_create_local,
+    traveller_profile_delete_local,
+    traveller_profile_update_local,
+    validate_travellers_for_booking,
 )
 
 
@@ -38,6 +44,45 @@ except ImportError:  # Local dev fallback
         update_traveller_profile,
         delete_traveller_profile,
     )
+
+
+def _traveller_create_profile(payload: dict):
+    if local_demo_enabled():
+        return traveller_profile_create_local(payload)
+    return create_traveller_profile(payload)
+
+
+def _traveller_update_profile(payload: dict):
+    if local_demo_enabled():
+        return traveller_profile_update_local(payload)
+    return update_traveller_profile(payload)
+
+
+def _traveller_delete_profile(payload: dict):
+    if local_demo_enabled():
+        return traveller_profile_delete_local(payload)
+    return delete_traveller_profile(payload)
+
+
+def _traveller_upstream_error_response(result: Any) -> tuple[Any, int] | None:
+    """If OutSystems client returned an error dict, build (jsonify(...), status). Else None."""
+    if not isinstance(result, dict):
+        return None
+    if not result.get("_error"):
+        return None
+    msg = str(result.get("_error") or "Traveller Profile upstream error")
+    return (
+        jsonify(
+            {
+                "code": 503,
+                "message": msg,
+                "upstreamStatus": result.get("_httpStatus"),
+                "detail": (result.get("_raw") or "")[:800] or None,
+            }
+        ),
+        503,
+    )
+
 
 app = Flask(__name__)
 CORS(app)
@@ -646,8 +691,8 @@ def create_booking():
         return _bad_request(f"Missing required field: {e.args[0]!r}")
 
     try:
-    db.session.add(booking)
-    db.session.commit()
+        db.session.add(booking)
+        db.session.commit()
     except sa_exc.SQLAlchemyError as e:
         db.session.rollback()
         print(f"[booking] DB error on create: {e}")
@@ -1225,7 +1270,18 @@ def get_reserved_seats_for_flight(flight_id: str):
 
 @app.route("/travellerprofiles/byaccount/<int:customer_id>", methods=["GET"])
 def traveller_profiles_byaccount(customer_id: int):
-    err, rows = fetch_byaccount_rows(customer_id)
+    try:
+        err, rows = fetch_byaccount_rows(customer_id)
+    except Exception as e:
+        return (
+            jsonify(
+                {
+                    "code": 500,
+                    "message": f"Traveller profile lookup failed: {e}",
+                }
+            ),
+            500,
+        )
     if err:
         if not _traveller_profile_env_required():
             return (
@@ -1238,7 +1294,7 @@ def traveller_profiles_byaccount(customer_id: int):
                 ),
                 200,
             )
-        return jsonify({"code": 502, "message": err}), 502
+        return jsonify({"code": 503, "message": err}), 503
     return jsonify({"code": 200, "data": rows or []}), 200
 
 
@@ -1256,7 +1312,7 @@ def traveller_get(traveller_profile_id: int):
     if err:
         if not _traveller_profile_env_required():
             return jsonify({"code": 200, "data": {}, "message": err}), 200
-        return jsonify({"code": 502, "message": err}), 502
+        return jsonify({"code": 503, "message": err}), 503
     for row in rows or []:
         if _traveller_profile_row_id(row) == int(traveller_profile_id):
             return jsonify({"code": 200, "data": row}), 200
@@ -1268,7 +1324,7 @@ def traveller_create():
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict):
         return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
-    result = create_traveller_profile(payload)
+    result = _traveller_create_profile(payload)
     return jsonify({"code": 200, "data": result}), 200
 
 
@@ -1279,7 +1335,7 @@ def traveller_update(traveller_profile_id: int):
         return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
     payload.setdefault("Id", int(traveller_profile_id))
     payload.setdefault("TravellerProfileId", int(traveller_profile_id))
-    result = update_traveller_profile(payload)
+    result = _traveller_update_profile(payload)
     return jsonify({"code": 200, "data": result}), 200
 
 
@@ -1295,7 +1351,16 @@ def traveller_profile_update(traveller_profile_id: int):
     payload.setdefault("Id", int(traveller_profile_id))
     payload.setdefault("TravellerProfileId", int(traveller_profile_id))
 
-    result = update_traveller_profile(payload)
+    try:
+        result = _traveller_update_profile(payload)
+    except Exception as e:
+        return (
+            jsonify({"code": 500, "message": f"Traveller profile update failed: {e}"}),
+            500,
+        )
+    bad = _traveller_upstream_error_response(result)
+    if bad:
+        return bad
     return jsonify({"code": 200, "data": result}), 200
 
 
@@ -1305,7 +1370,26 @@ def traveller_profile_create():
     if not isinstance(payload, dict):
         return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
 
-    result = create_traveller_profile(payload)
+    try:
+        result = _traveller_create_profile(payload)
+    except Exception as e:
+        return (
+            jsonify({"code": 500, "message": f"Traveller profile create failed: {e}"}),
+            500,
+        )
+    bad = _traveller_upstream_error_response(result)
+    if bad:
+        return bad
+    if result is None:
+        return (
+            jsonify(
+                {
+                    "code": 503,
+                    "message": "CreateTravellerProfile returned no data (check OutSystems REST response).",
+                }
+            ),
+            503,
+        )
     return jsonify({"code": 200, "data": result}), 200
 
 
@@ -1321,7 +1405,16 @@ def traveller_profile_delete(traveller_profile_id: int):
     payload.setdefault("Id", int(traveller_profile_id))
     payload.setdefault("TravellerProfileId", int(traveller_profile_id))
 
-    result = delete_traveller_profile(payload)
+    try:
+        result = _traveller_delete_profile(payload)
+    except Exception as e:
+        return (
+            jsonify({"code": 500, "message": f"Traveller profile delete failed: {e}"}),
+            500,
+        )
+    bad = _traveller_upstream_error_response(result)
+    if bad:
+        return bad
     return jsonify({"code": 200, "data": result}), 200
 
 
@@ -1476,7 +1569,7 @@ def cancel_booking(booking_id: int):
     booking.cancellationPolicyID = policy_id
     booking.cancellationTimestamp = now.isoformat()
     try:
-    db.session.commit()
+        db.session.commit()
     except sa_exc.SQLAlchemyError as e:
         db.session.rollback()
         print(f"[booking] DB error after refund for booking {booking_id}: {e}")

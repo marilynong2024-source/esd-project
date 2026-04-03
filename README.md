@@ -99,7 +99,7 @@ Your **slides, report, video (`video.txt`), and eLearn zip** are still your team
 | Booking / packages | **MySQL 8** (`booking-db`) | `BOOKING_DB_URL` (booking service); `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` (MySQL container) | Default URL: `mysql+pymysql://travel_user:travel_pass@booking-db:3306/travel_booking`. Host port **3307** → container 3306. Data dir persisted on volume **`booking_mysql_data`**. |
 | Accounts | **JSON file** | `ACCOUNT_STORE_PATH` (default in compose: `/app/data/accounts.json`) | Volume **`account_data`**. Mirrors **CustomerDB** concept from the diagram; not MySQL in this stack. |
 | Flight, hotel, loyalty, payment, discount, notification | **In-process memory** | (none for DB) | Restart clears state; say so in the report. |
-| Traveller profiles (diagram: TravellerDB) | **OutSystems REST** (optional) | `TRAVELLER_PROFILE_BASE_URL`, `TRAVELLER_PROFILE_REQUIRED`, `TRAVELLER_PROFILE_UPDATE_PATH`, `TRAVELLER_PROFILE_DELETE_PATH` | When URL is empty, booking uses demo fallbacks per code. |
+| Traveller profiles (diagram: TravellerDB) | **OutSystems REST** and/or **in-memory demo** | `TRAVELLER_PROFILE_BASE_URL`, `TRAVELLER_PROFILE_LOCAL_DEMO`, `TRAVELLER_PROFILE_REQUIRED`, `TRAVELLER_PROFILE_UPDATE_PATH`, `TRAVELLER_PROFILE_DELETE_PATH` | `LOCAL_DEMO=true` → no cloud calls; `false` + URL set → live REST (see **`database/DATABASE_GUIDE.txt`** §1a). |
 
 ### Table columns by logical database (`init_db.sql`)
 
@@ -135,7 +135,7 @@ On first startup, the booking app may add **`seatNumbersJson`** via `ensure_book
 
 - **TravellerProfiles:** `ID`, `CustomerID`, `FullName`, `PassportNumber`, `Nationality`, `DateOfBirth`, `MealPreference`, `CreatedAt`
 
-See **`database/README.md`** for how this relates to Compose and why duplicate `database/*.sql` files were removed.
+See **`database/DATABASE_GUIDE.txt`** (full data-store map and keys) and **`database/README.md`** (Compose vs `init_db.sql` and removed duplicate SQL files).
 
 ---
 

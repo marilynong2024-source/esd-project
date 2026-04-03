@@ -29,12 +29,12 @@ GET /byaccount/{customerID}
 
 Override base with env TRAVELLER_PROFILE_BASE_URL if the host/path ever changes.
 
-For update/delete:
-- Defaults assume the OutSystems operation names are `UpdateTravellerProfile`
-  and `DeleteTravellerProfile`.
-- If the operation names differ, override with env vars:
-  - `TRAVELLER_PROFILE_UPDATE_PATH`
-  - `TRAVELLER_PROFILE_DELETE_PATH`
+For update/delete (this OutSystems REST expose):
+- **PUT** `.../UpdateTravellerProfile?TravellerProfileID={id}` with JSON body
+- **DELETE** `.../DeleteTravellerProfile?TravellerProfileID={id}`
+
+Operation names are configurable via `TRAVELLER_PROFILE_UPDATE_PATH` and
+`TRAVELLER_PROFILE_DELETE_PATH` if your module uses different method names.
 """
 
 from __future__ import annotations
@@ -83,18 +83,38 @@ def _unwrap_list(body: Any) -> list[dict[str, Any]]:
 
 def create_traveller_profile(data: dict[str, Any]) -> Any:
     """POST .../CreateTravellerProfile — pass through the JSON your OutSystems action expects."""
-    r = requests.post(
-        f"{_base_url()}/CreateTravellerProfile",
-        json=data,
-        headers={"Content-Type": "application/json"},
-        timeout=15,
-    )
+    url = f"{_base_url()}/CreateTravellerProfile"
+    try:
+        r = requests.post(
+            url,
+            json=data,
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        return {
+            "_error": f"CreateTravellerProfile request failed: {e}",
+            "_url": url,
+        }
     if r.status_code in (200, 201):
         try:
-            return r.json()
+            j = r.json()
+            if isinstance(j, dict):
+                return j
+            if isinstance(j, int):
+                return {"Id": j, "TravellerProfileId": j}
+            return {"_raw": j}
         except Exception:
+            raw = (r.text or "").strip()
+            if raw.isdigit():
+                oid = int(raw)
+                return {"Id": oid, "TravellerProfileId": oid}
             return {"_raw": r.text}
-    return None
+    return {
+        "_error": f"CreateTravellerProfile HTTP {r.status_code}",
+        "_httpStatus": r.status_code,
+        "_raw": (r.text or "")[:800],
+    }
 
 
 def get_all_traveller_profiles() -> list[dict[str, Any]] | None:
@@ -133,46 +153,88 @@ def _delete_path() -> str:
     return os.environ.get("TRAVELLER_PROFILE_DELETE_PATH", "DeleteTravellerProfile").strip()
 
 
+def _traveller_profile_id_from_payload(data: dict[str, Any]) -> int | None:
+    for key in ("TravellerProfileId", "TravellerProfileID", "Id", "id"):
+        raw = data.get(key)
+        if raw is None:
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def update_traveller_profile(data: dict[str, Any]) -> Any:
     """
-    POST .../<UpdateTravellerProfile> (operation name configurable by env).
+    PUT .../<UpdateTravellerProfile>?TravellerProfileID={id} with JSON body.
 
-    The OutSystems update action typically expects:
-    - CustomerID
-    - Id/TravellerProfileId
-    - FullName, PassportNumber, PassportExpiry, DateOfBirth, Nationality, ...
+    JSON should include CustomerID, Id/TravellerProfileId, and fields to update.
     """
-    r = requests.post(
-        f"{_base_url()}/{_update_path()}",
-        json=data,
-        headers={"Content-Type": "application/json"},
-        timeout=20,
-    )
+    path = _update_path()
+    tid = _traveller_profile_id_from_payload(data)
+    if tid is None:
+        return {"_error": "Update requires Id or TravellerProfileId in the JSON body"}
+    url = f"{_base_url()}/{path}?TravellerProfileID={tid}"
+    try:
+        r = requests.put(
+            url,
+            json=data,
+            headers={"Content-Type": "application/json"},
+            timeout=20,
+        )
+    except requests.RequestException as e:
+        return {"_error": f"{path} request failed: {e}", "_url": url}
     if r.status_code in (200, 201):
         try:
-            return r.json()
+            j = r.json()
+            if isinstance(j, dict):
+                return j
+            if isinstance(j, bool):
+                return {"_ok": j}
+            return {"_result": j}
         except Exception:
+            raw = (r.text or "").strip().lower()
+            if raw in ("true", "false"):
+                return {"_ok": raw == "true"}
             return {"_raw": r.text}
-    return {"_httpStatus": r.status_code, "_raw": r.text[:500]}
+    return {
+        "_error": f"{path} HTTP {r.status_code}",
+        "_httpStatus": r.status_code,
+        "_raw": (r.text or "")[:800],
+    }
 
 
 def delete_traveller_profile(data: dict[str, Any]) -> Any:
     """
-    POST .../<DeleteTravellerProfile> (operation name configurable by env).
+    DELETE .../<DeleteTravellerProfile>?TravellerProfileID={id}
 
-    The OutSystems delete action typically expects:
-    - CustomerID
-    - Id/TravellerProfileId
+    JSON body is not required; Id / TravellerProfileId are read from `data`.
     """
-    r = requests.post(
-        f"{_base_url()}/{_delete_path()}",
-        json=data,
-        headers={"Content-Type": "application/json"},
-        timeout=20,
-    )
+    path = _delete_path()
+    tid = _traveller_profile_id_from_payload(data)
+    if tid is None:
+        return {"_error": "Delete requires Id or TravellerProfileId in the payload"}
+    url = f"{_base_url()}/{path}?TravellerProfileID={tid}"
+    try:
+        r = requests.delete(url, timeout=20)
+    except requests.RequestException as e:
+        return {"_error": f"{path} request failed: {e}", "_url": url}
     if r.status_code in (200, 201):
         try:
-            return r.json()
+            j = r.json()
+            if isinstance(j, dict):
+                return j
+            if isinstance(j, bool):
+                return {"_ok": j}
+            return {"_result": j}
         except Exception:
+            raw = (r.text or "").strip().lower()
+            if raw in ("true", "false"):
+                return {"_ok": raw == "true"}
             return {"_raw": r.text}
-    return {"_httpStatus": r.status_code, "_raw": r.text[:500]}
+    return {
+        "_error": f"{path} HTTP {r.status_code}",
+        "_httpStatus": r.status_code,
+        "_raw": (r.text or "")[:800],
+    }

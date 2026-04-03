@@ -508,15 +508,20 @@ def availability():
     - city (destination)
     - country (optional)
     - roomType (STD/DLX) optional; defaults to STD if not provided
+    - minRooms (optional, default 1): only hotels with at least this many free rooms
+      for the requested room type qualify.
 
     Returns:
-    - a single hotelID with availableRooms for the selected room type
+    - a single hotelID with availableRooms for the selected room type.
+    - Among qualifying hotels, picks the lowest pricePerNight (value bundle); ties
+      broken by higher remaining inventory.
     """
     city_q = (request.args.get("city") or request.args.get("destination") or "").strip().lower()
     country_q = (request.args.get("country") or "").strip().lower()
     room_type = (request.args.get("roomType") or request.args.get("room_code") or "STD").strip().upper()
     if room_type not in ("STD", "DLX"):
         room_type = "STD"
+    min_rooms = max(1, _parse_int(request.args.get("minRooms"), 1))
 
     def _norm(s: str) -> str:
         return (s or "").strip().lower()
@@ -547,14 +552,24 @@ def availability():
         if not selected_room:
             continue
         avail_rooms = int(selected_room.get("availableRooms") or 0)
-        # Pick the hotel with the most available rooms for this room type.
-        if chosen is None or avail_rooms > chosen[1]:
-            chosen = (hotel, avail_rooms)
+        if avail_rooms < min_rooms:
+            continue
+        try:
+            price_pn = float(selected_room.get("pricePerNight") or 0)
+        except (TypeError, ValueError):
+            price_pn = float("inf")
+        # Bundle / value pricing: cheapest qualifying nightly rate, tie-break more inventory.
+        if chosen is None:
+            chosen = (hotel, avail_rooms, price_pn)
+        elif price_pn < chosen[2]:
+            chosen = (hotel, avail_rooms, price_pn)
+        elif price_pn == chosen[2] and avail_rooms > chosen[1]:
+            chosen = (hotel, avail_rooms, price_pn)
 
     if not chosen:
         return jsonify({"code": 404, "message": "No matching room type availability"}), 404
 
-    hotel, avail_rooms = chosen
+    hotel, avail_rooms, _price_key = chosen
     return (
         jsonify(
             {

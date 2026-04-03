@@ -136,48 +136,54 @@
       </a>
       <nav class="site-nav" aria-label="Primary">
         <span id="sessionBadge" class="session-badge" aria-live="polite"></span>
-        <button
-          type="button"
-          class="btn-secondary btn--nav"
-          id="myAccountNavBtn"
-          hidden
-          aria-controls="panelMyAccount"
-        >
-          My Account
-        </button>
-        <button
-          type="button"
-          class="btn-secondary btn--nav"
-          id="myBookingsNavBtn"
-          hidden
-          aria-controls="panelMyBookings"
-        >
-          My Bookings
-        </button>
-        <button
-          type="button"
-          class="btn-secondary btn--nav"
-          id="cancelNavBtn"
-          aria-controls="step-manage"
-        >
-          Cancel booking
-        </button>
-        <button type="button" class="btn-secondary btn--nav" id="logoutBtn" aria-label="Log out">
+        <div class="site-nav__cluster" role="group" aria-label="Booking and account">
+          <button
+            type="button"
+            class="btn-primary btn--nav"
+            id="bookingNavBtn"
+            aria-controls="step-book"
+          >
+            Booking
+          </button>
+          <button
+            type="button"
+            class="btn-secondary btn--nav"
+            id="myAccountNavBtn"
+            hidden
+            aria-controls="segment-account"
+          >
+            My Account
+          </button>
+          <button
+            type="button"
+            class="btn-secondary btn--nav"
+            id="myBookingsNavBtn"
+            hidden
+            aria-controls="accountBookingsSection"
+          >
+            My Bookings
+          </button>
+          <button
+            type="button"
+            class="btn-secondary btn--nav"
+            id="cancelNavBtn"
+            aria-controls="step-manage"
+          >
+            Cancel booking
+          </button>
+        </div>
+        <button type="button" class="btn-secondary btn--nav site-nav__logout" id="logoutBtn" aria-label="Log out">
           Log out
         </button>
       </nav>
     </div>
   </header>
 
-  <section class="hero hero--package" aria-labelledby="hero-heading">
-    <div class="hero__content hero__content--compact">
-      <h1 id="hero-heading">Flight + hotel</h1>
-      <p class="hero__lede hero__lede--short">Search here, then finish booking in the form below.</p>
-    </div>
-
+  <section class="hero hero--package" aria-labelledby="package-search-title">
     <div class="package-search" aria-labelledby="package-search-title">
       <div class="package-search__head">
-        <h2 id="package-search-title" class="package-search__title">Flight + Hotel</h2>
+        <h1 id="package-search-title" class="package-search__title">Horizon Packages</h1>
+        <p class="package-search__tagline">Search route, dates, and travellers — then continue under Plan &amp; pay.</p>
       </div>
       <div class="package-search__body">
         <fieldset class="package-search__trip-type">
@@ -483,42 +489,49 @@
           </div>
           <div id="bundleStatus" class="muted" aria-live="polite"></div>
 
-          <p class="section-title form-grid-1col section-title--flush">Lead traveller</p>
-          <label class="form-grid-1col">
-            Full name (as on travel ID)
-            <input
-              type="text"
-              id="passengerName"
-              name="passengerName"
-              required
-              autocomplete="name"
-              value="Ava Chen"
-              placeholder="e.g. Ava Chen"
-            />
-          </label>
-          <label>
-            Email
-            <input
-              type="email"
-              id="passengerEmail"
-              name="passengerEmail"
-              autocomplete="email"
-              value="ava.chen@example.com"
-              placeholder="you@example.com"
-            />
-          </label>
-          <label>
-            Mobile (SMS)
-            <input
-              type="tel"
-              id="passengerPhone"
-              name="passengerPhone"
-              autocomplete="tel"
-              value="+65 9123 4567"
-              placeholder="+65 … or 91234567"
-            />
-            <span class="muted section-hint form-hint-inline">For SMS alerts if you turn them on →</span>
-          </label>
+          <div class="lead-contact-card form-grid-1col" id="leadContactCard">
+            <p class="lead-contact-card__title">Lead traveller</p>
+            <p class="lead-contact-card__lede muted" id="leadContactLede">
+              Same name, email, and phone as your account after sign-in — adjust here only if someone else is travelling or you need different contact details for this trip.
+            </p>
+            <div class="lead-contact-card__fields form-grid">
+              <label class="form-grid-1col">
+                Full name (as on travel ID)
+                <input
+                  type="text"
+                  id="passengerName"
+                  name="passengerName"
+                  required
+                  autocomplete="name"
+                  value="Ava Chen"
+                  placeholder="e.g. Ava Chen"
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  id="passengerEmail"
+                  name="passengerEmail"
+                  autocomplete="email"
+                  value="ava.chen@example.com"
+                  placeholder="you@example.com"
+                />
+              </label>
+              <label>
+                Mobile (SMS)
+                <input
+                  type="tel"
+                  id="passengerPhone"
+                  name="passengerPhone"
+                  autocomplete="tel"
+                  value="+65 9123 4567"
+                  placeholder="+65 … or 91234567"
+                />
+                <span class="muted section-hint form-hint-inline">Confirmations &amp; optional SMS alerts →</span>
+              </label>
+            </div>
+          </div>
           </div>
 
           <div id="bookingStep4Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep2Tab" hidden>
@@ -582,11 +595,26 @@
               <div class="form-grid">
                 <label>
                   Seat preference
-                  <input type="text" id="travellerEditSeatPreference" />
+                  <select id="travellerEditSeatPreference" aria-label="Seat preference">
+                    <option value="">No preference</option>
+                    <option value="Window">Window</option>
+                    <option value="Aisle">Aisle</option>
+                    <option value="Middle">Middle</option>
+                    <option value="Exit row">Exit row</option>
+                  </select>
                 </label>
                 <label>
                   Meal preference
-                  <input type="text" id="travellerEditMealPreference" />
+                  <select id="travellerEditMealPreference" aria-label="Meal preference">
+                    <option value="">No preference</option>
+                    <option value="Standard">Standard / regular</option>
+                    <option value="Vegetarian">Vegetarian</option>
+                    <option value="Vegan">Vegan</option>
+                    <option value="Halal">Halal</option>
+                    <option value="Kosher">Kosher</option>
+                    <option value="Gluten-free">Gluten-free</option>
+                    <option value="Child meal">Child meal</option>
+                  </select>
                 </label>
               </div>
 
@@ -623,12 +651,17 @@
 
             <div class="section-title section-title--spaced">For booking</div>
 
+            <p class="traveller-lead-hint" id="travellerEmptyHint" hidden></p>
+
             <label class="form-grid-1col">
               Lead traveller
-              <select id="leadTravellerSelect">
-                <option value="">— Select —</option>
+              <select id="leadTravellerSelect" aria-describedby="leadTravellerSelectHint">
+                <option value="">Choose who flies as the lead passenger</option>
               </select>
             </label>
+            <p class="muted traveller-lead-select-hint" id="leadTravellerSelectHint">
+              Each option shows the traveller’s <strong>full name</strong> first. After the dash, <strong>passport ends in …</strong> are the last digits of the passport on file (to tell similar names apart).
+            </p>
 
             <select id="companionTravellerSelect" multiple size="5" hidden></select>
           </div>
@@ -782,60 +815,34 @@
               <input type="text" id="discountCode" placeholder="SILVER10 / GOLD15 / PLAT20" />
             </label>
 
-          <nav class="segment-tabs" aria-label="Loyalty points and payment">
-            <button
-              type="button"
-              class="segment-tab"
-              id="tabLoyaltyPoints"
-              role="tab"
-              aria-selected="false"
-              aria-controls="panelLoyaltyPoints"
-              tabindex="-1"
-            >
-              Coins
-            </button>
-            <button
-              type="button"
-              class="segment-tab segment-tab--active"
-              id="tabPayment"
-              role="tab"
-              aria-selected="true"
-              aria-controls="panelPayment"
-              tabindex="0"
-            >
-              Payment
-            </button>
-          </nav>
-
-          <div id="panelLoyaltyPoints" class="segment-panel" role="tabpanel" aria-labelledby="tabLoyaltyPoints" hidden>
-            <label id="coinsOffsetWrap">
-              Coins to use
-              <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
-              <span class="muted field-hint">1 coin = 1¢ off (e.g. 500 ≈ S$5).</span>
+          <div id="panelPayment" class="segment-panel pay-step" role="region" aria-label="Discounts, rewards, and payment">
+            <div class="pay-step__rewards" id="coinsOffsetWrap">
+              <div class="section-title section-title--flush">Use reward balance (optional)</div>
+              <p class="muted pay-step__hint">
+                Wallet balance is shown below. Enter how many <strong>cents</strong> to apply (100¢ = S$1 off). The rest is paid by card.
+              </p>
+              <label class="pay-step__coins-field">
+                Cents to apply
+                <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
+              </label>
               <div class="coins-meta">
-                Wallet: <strong id="coinsAvailableCents">-</strong> coins
+                Available: <strong id="coinsAvailableCents">-</strong>
                 <span class="muted coins-meta__sgd" id="coinsAvailableSgd"></span>
               </div>
               <div class="coins-quick-actions">
-                <button type="button" class="btn-secondary" id="coinsUseNoneBtn">
-                  Use 0
-                </button>
-                <button type="button" class="btn-secondary" id="coinsUseAllBtn">
-                  Use all
-                </button>
+                <button type="button" class="btn-secondary" id="coinsUseNoneBtn">Clear rewards</button>
+                <button type="button" class="btn-secondary" id="coinsUseAllBtn">Use maximum</button>
               </div>
-            </label>
-          </div>
+            </div>
 
-          <div id="panelPayment" class="segment-panel" role="tabpanel" aria-labelledby="tabPayment">
-            <p class="payment-estimate">
-              <span class="payment-estimate__label">Estimated to pay</span>
-              <strong id="computedTotalPrice" class="payment-estimate__value">-</strong>
-            </p>
-            <details class="advanced-details payment-estimate__details">
-              <summary>How the total is calculated</summary>
+            <details class="pay-step__due-details">
+              <summary class="pay-step__due-summary">
+                <span class="pay-step__due-label">Amount due today</span>
+                <strong id="computedTotalPrice" class="pay-step__due-value">-</strong>
+                <span class="muted pay-step__due-currency">SGD</span>
+              </summary>
               <p class="muted advanced-details__body">
-                Order: tier discount → promo code → coins. Each coin is 1¢ off.
+                Order: member tier discount → promo code (SILVER10 / GOLD15 / PLAT20) → reward cents. Tier upgrades after each completed trip (Silver 2+, Gold 5+, Platinum 10+).
               </p>
             </details>
 
@@ -871,7 +878,7 @@
                 <input type="text" id="paymentCardCvc" placeholder="123" inputmode="numeric" autocomplete="cc-csc" />
               </label>
             </div>
-            <p class="muted field-hint" id="paymentSplitHint">Any remainder is charged to card.</p>
+            <p class="muted field-hint" id="paymentSplitHint">Card is only required if amount due is above zero.</p>
 
             <label class="form-grid-1col" id="breakfastAddonWrap">
               Extras
@@ -886,7 +893,7 @@
                 <span aria-hidden="true">✓</span>
                 <span>Confirm &amp; pay</span>
               </button>
-              <p class="muted form-after-submit-hint">Confirmation appears in <strong>Your summary</strong> →</p>
+              <p class="muted form-after-submit-hint">After pay, a confirmation dialog opens. You can review your wallet on <strong>My Account</strong>.</p>
               <details class="advanced-details">
                 <summary>API note (instructors)</summary>
                 <p class="muted advanced-details__body">
@@ -955,6 +962,52 @@
 
       </div>
 
+      <div id="segment-account" class="segment-panel account-page" hidden>
+        <div class="account-page__toolbar">
+          <button type="button" class="btn-secondary" id="accountBackToBookingBtn">
+            ← Back to booking
+          </button>
+        </div>
+        <section class="card account-page__hero" aria-labelledby="accountPageHeading">
+          <p class="muted account-page__eyebrow">Member</p>
+          <h2 id="accountPageHeading" class="account-page__title">
+            <span id="accountPageName">-</span>
+          </h2>
+          <p class="account-page__email muted" id="accountPageEmail">-</p>
+        </section>
+
+        <div class="account-page__stats">
+          <article class="account-stat-card">
+            <h3 class="account-stat-card__label">Reward balance</h3>
+            <p class="account-stat-card__value" id="accountPageBalance">-</p>
+            <p class="muted account-stat-card__hint" id="accountPageBalanceHint"></p>
+          </article>
+          <article class="account-stat-card">
+            <h3 class="account-stat-card__label">Tier</h3>
+            <p class="account-stat-card__value" id="accountPageTier">-</p>
+            <p class="muted account-stat-card__hint" id="accountPageTierHint"></p>
+          </article>
+          <article class="account-stat-card account-stat-card--wide">
+            <h3 class="account-stat-card__label">How tiers work</h3>
+            <p class="muted account-stat-card__body" id="accountPageProgramCopy">
+              Tiers are based on <strong>completed bookings</strong> in this demo: Bronze (0–1), Silver (2–4), Gold (5–9), Platinum (10+). Each trip also earns reward cents you can spend on the next booking.
+            </p>
+            <p class="account-stat-card__progress" id="accountPageNextTier" aria-live="polite"></p>
+          </article>
+        </div>
+
+        <section class="card account-page__bookings" id="accountBookingsSection">
+          <div class="card-header">
+            <div class="card-header__titles">
+              <h3 class="account-page__section-title">My bookings</h3>
+              <p class="card-sub">Recent trips for this account.</p>
+            </div>
+            <button type="button" class="btn-secondary" id="myBookingsRefreshBtn">Refresh</button>
+          </div>
+          <div id="myBookingsList" class="traveller-list" aria-label="My bookings list"></div>
+        </section>
+      </div>
+
       <div id="segment-travellers" class="segment-panel" hidden></div>
     </div>
 
@@ -968,61 +1021,35 @@
         </div>
 
         <div class="loyalty-panel">
-          <div class="section-title">Wallet</div>
-        <div class="summary-row">
-          <span class="label">Coins</span>
-          <span class="value" id="loyaltyCoins">-</span>
-        </div>
-        <div class="summary-row">
-          <span class="label">Tier</span>
-          <span class="value" id="loyaltyTier">-</span>
-        </div>
-        </div>
-
-        <div id="memberPanels">
-          <div id="panelMyAccount" class="segment-panel" hidden>
-            <div class="section-title section-title--spaced">Account</div>
-            <div class="summary-row">
-              <span class="label">Name</span>
-              <span class="value" id="myAccountName">-</span>
-            </div>
-            <div class="summary-row">
-              <span class="label">Email</span>
-              <span class="value" id="myAccountEmail">-</span>
-            </div>
-            <div class="summary-row">
-              <span class="label">Coins</span>
-              <span class="value" id="myAccountCoins">-</span>
-            </div>
-            <div class="summary-row">
-              <span class="label">Tier</span>
-              <span class="value" id="myAccountTier">-</span>
-            </div>
+          <div class="section-title">Wallet snapshot</div>
+          <p class="muted sidebar-wallet-hint">Full details on <strong>My Account</strong>.</p>
+          <div class="summary-row">
+            <span class="label">Reward balance</span>
+            <span class="value" id="loyaltyCoins">-</span>
           </div>
-
-          <div id="panelMyBookings" class="segment-panel" hidden>
-            <div class="section-title section-title--spaced">Bookings</div>
-            <div class="actions-row actions-row--tight-top">
-              <button type="button" class="btn-secondary" id="myBookingsRefreshBtn">
-                Refresh
-              </button>
-            </div>
-            <div id="myBookingsList" class="traveller-list" aria-label="My bookings list"></div>
+          <div class="summary-row">
+            <span class="label">Tier</span>
+            <span class="value" id="loyaltyTier">-</span>
           </div>
         </div>
 
-        <div class="section-title section-title--spaced">Confirmation</div>
-        <div class="result-header">
-          <span class="result-header__label">Status</span>
-          <span id="resultStatus" class="muted"></span>
-        </div>
+        <!-- Hidden fields for scripts that still sync account row data -->
+        <span id="myAccountName" hidden></span>
+        <span id="myAccountEmail" hidden></span>
+        <span id="myAccountCoins" hidden></span>
+        <span id="myAccountTier" hidden></span>
 
-        <div class="actions-row">
-          <button type="button" id="copyResultBtn" class="btn-secondary">Copy</button>
-          <button type="button" id="refreshNotifBtn" class="btn-secondary">Refresh</button>
-        </div>
+        <div class="section-title section-title--spaced">Last action</div>
+        <p id="resultStatus" class="result-status-line muted" aria-live="polite"></p>
 
-        <pre id="result" class="code-block" aria-label="Latest confirmation response">{ }</pre>
+        <details class="advanced-details sidebar-json-details">
+          <summary>Technical details (JSON)</summary>
+          <div class="actions-row actions-row--tight-top">
+            <button type="button" id="copyResultBtn" class="btn-secondary">Copy JSON</button>
+            <button type="button" id="refreshNotifBtn" class="btn-secondary">Refresh activity</button>
+          </div>
+          <pre id="result" class="code-block code-block--compact" aria-label="Latest API response">{ }</pre>
+        </details>
 
         <div class="section-title section-title--spaced">SMS (optional)</div>
         <label class="twilio-enable-row">
@@ -1076,6 +1103,33 @@
       </section>
     </div>
   </main>
+
+  <div
+    id="bookingConfirmModal"
+    class="modal-overlay"
+    hidden
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="bookingConfirmTitle"
+  >
+    <div class="modal-card">
+      <div class="modal-card__icon" aria-hidden="true">✓</div>
+      <h2 id="bookingConfirmTitle" class="modal-card__title">Booking confirmed</h2>
+      <p class="modal-card__lede muted" id="bookingConfirmLede"></p>
+      <dl class="modal-card__facts">
+        <div><dt>Reference</dt><dd id="bookingConfirmId">-</dd></div>
+        <div><dt>Flight</dt><dd id="bookingConfirmFlight">-</dd></div>
+        <div><dt>Hotel</dt><dd id="bookingConfirmHotel">-</dd></div>
+        <div><dt>Total</dt><dd id="bookingConfirmTotal">-</dd></div>
+        <div><dt>Departure</dt><dd id="bookingConfirmDep">-</dd></div>
+      </dl>
+      <p class="modal-card__loyalty muted" id="bookingConfirmLoyalty"></p>
+      <div class="modal-card__actions">
+        <button type="button" class="btn-primary" id="bookingConfirmOkBtn">Done</button>
+        <button type="button" class="btn-secondary" id="bookingConfirmAccountBtn">View My Account</button>
+      </div>
+    </div>
+  </div>
 
   <footer class="site-footer">
     <p>Horizon Packages · demo</p>

@@ -21,6 +21,8 @@ services:
       EXCHANGE_NAME: travel_topic
       EXCHANGE_TYPE: topic
       TRAVELLER_PROFILE_BASE_URL: ${TRAVELLER_PROFILE_BASE_URL:-}
+      # false = call OutSystems REST (real integration). true = in-memory demo only (no cloud).
+      TRAVELLER_PROFILE_LOCAL_DEMO: ${TRAVELLER_PROFILE_LOCAL_DEMO:-false}
       TRAVELLER_PROFILE_REQUIRED: ${TRAVELLER_PROFILE_REQUIRED:-false}
       TRAVELLER_PROFILE_UPDATE_PATH: ${TRAVELLER_PROFILE_UPDATE_PATH:-UpdateTravellerProfile}
       TRAVELLER_PROFILE_DELETE_PATH: ${TRAVELLER_PROFILE_DELETE_PATH:-DeleteTravellerProfile}
@@ -68,6 +70,8 @@ services:
     build: ./payment
     # ports:
     #   - "5104:5104"
+    env_file:
+      - .env
 
   loyalty:
     build: ./loyalty
@@ -102,6 +106,7 @@ services:
     # ports:
     #   - "5111:5111"
     depends_on:
+      - account
       - flight
       - hotel
       - loyalty
@@ -111,6 +116,8 @@ services:
     build: ./notification
     # ports:
     #   - "5106:5106"
+    env_file:
+      - .env
     environment:
       RABBIT_HOST: rabbitmq
       RABBIT_PORT: 5672

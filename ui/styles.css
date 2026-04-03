@@ -131,9 +131,80 @@ body {
 .site-nav {
   display: flex;
   align-items: center;
-  gap: 12px 20px;
+  gap: 10px 14px;
   flex-wrap: wrap;
   font-size: 0.8125rem;
+}
+
+/* Tight segmented group: Booking · Account · Bookings · Cancel */
+.site-nav__cluster {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  max-width: min(100%, calc(100vw - 32px));
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.06);
+}
+
+.site-nav__cluster .btn--nav {
+  border-radius: 0 !important;
+  border: none !important;
+  margin: 0;
+  flex: 0 0 auto;
+  border-left: 1px solid var(--border) !important;
+  box-shadow: none !important;
+}
+
+.site-nav__cluster .btn--nav:first-child {
+  border-left: none !important;
+}
+
+.site-nav__logout {
+  flex-shrink: 0;
+}
+
+/* Lead traveller contact — one visual block (account defaults, editable per trip) */
+.lead-contact-card {
+  margin-top: 4px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(
+    160deg,
+    rgba(13, 148, 136, 0.07) 0%,
+    rgba(255, 255, 255, 0.92) 48%
+  );
+  box-shadow: 0 1px 0 rgba(13, 148, 136, 0.06);
+}
+
+.lead-contact-card__title {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.lead-contact-card__lede {
+  margin: 0 0 12px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  max-width: 52ch;
+}
+
+.lead-contact-card__fields {
+  margin: 0;
+  align-items: start;
+}
+
+.lead-contact-card__fields label {
+  margin-bottom: 0;
 }
 
 .site-nav__link {
@@ -215,6 +286,16 @@ body {
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.package-search__tagline {
+  margin: 8px 0 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
+  max-width: 52ch;
 }
 
 .package-search__body {
@@ -1078,8 +1159,11 @@ button {
 
 .form-submit-wrap .btn-primary {
   width: 100%;
-  max-width: 320px;
+  max-width: min(100%, 32rem);
   margin-top: 8px;
+  padding: 12px 28px;
+  font-size: 1rem;
+  justify-content: center;
 }
 
 .actions-row {
@@ -1128,16 +1212,24 @@ button {
   line-height: 1.45;
 }
 
+/* Inline notices — teal-tinted to match brand (avoids orange/peach clash with ocean UI). */
 .alert {
-  background: #fff7ed;
-  color: #9a3412;
-  border: 1px solid #fed7aa;
+  background: rgba(13, 148, 136, 0.08);
+  color: #115e59;
+  border: 1px solid rgba(13, 148, 136, 0.28);
   border-radius: 10px;
   padding: 12px 14px;
   font-size: 0.8125rem;
   margin-top: 12px;
   display: none;
   white-space: pre-wrap;
+}
+
+/* Stronger emphasis only when you add .alert--strong in markup */
+.alert.alert--strong {
+  background: rgba(234, 88, 12, 0.1);
+  color: #9a3412;
+  border-color: rgba(234, 88, 12, 0.35);
 }
 
 .result-header {
@@ -1688,6 +1780,16 @@ button.seat--zone-exit_row.seat--window {
   margin-top: auto;
 }
 
+/* Pay step: Next is hidden — Back left, progress label centred in remaining width */
+.booking-step-nav:has(.booking-step-nav__next[hidden]) {
+  justify-content: flex-start;
+}
+
+.booking-step-nav:has(.booking-step-nav__next[hidden]) .booking-step-nav__progress {
+  flex: 1;
+  text-align: center;
+}
+
 .booking-step-nav__progress {
   flex: 1 1 160px;
   text-align: center;
@@ -1741,6 +1843,17 @@ button.seat--zone-exit_row.seat--window {
 }
 
 /* ——— Traveller Profiles UI ——— */
+.traveller-lead-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: rgba(13, 148, 136, 0.06);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--ocean);
+  color: var(--text);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
 .traveller-list {
   display: flex;
   flex-direction: column;
@@ -1920,12 +2033,25 @@ button.seat--zone-exit_row.seat--window {
 
 /* Traveller selects should fill the label width */
 #leadTravellerSelect,
-#companionTravellerSelect {
+#companionTravellerSelect,
+#travellerEditSeatPreference,
+#travellerEditMealPreference {
   width: 100%;
 }
 
 #companionTravellerSelect {
   min-height: 110px;
+}
+
+.traveller-lead-select-hint {
+  margin: -4px 0 10px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  max-width: 48rem;
+}
+
+.traveller-edit-status:empty {
+  display: none;
 }
 
 .seat-hold-timer {
@@ -2081,13 +2207,19 @@ button.seat--zone-exit_row.seat--window {
   }
 }
 
+/* Header user chip: same family as nav buttons (white pill + border), not mint fill */
 .session-badge {
   font-weight: 600;
-  color: var(--ocean-dark);
+  color: var(--text);
   padding: 6px 12px;
-  background: rgba(13, 148, 136, 0.1);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 0.8125rem;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .btn--nav {
@@ -2096,8 +2228,331 @@ button.seat--zone-exit_row.seat--window {
   border-radius: 999px;
 }
 
+/* One visual system for header nav: no heavy glow on primary; secondary pills harmonize */
+.site-nav .btn-primary {
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.06);
+}
+
+.site-nav .btn-primary:hover {
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.22);
+}
+
+.site-nav .btn-secondary {
+  box-shadow: none;
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.site-nav .btn-secondary:hover {
+  border-color: rgba(13, 148, 136, 0.4);
+  background: rgba(13, 148, 136, 0.06);
+  color: var(--ocean-dark);
+}
+
+/* Inside cluster, borders are vertical dividers — hover uses tint only */
+.site-nav__cluster .btn-secondary {
+  background: transparent;
+}
+
+.site-nav__cluster .btn-secondary:hover {
+  border-color: transparent !important;
+  background: rgba(13, 148, 136, 0.08);
+}
+
+.site-nav__cluster .btn-primary:hover {
+  filter: brightness(1.03);
+}
+
 /* Traveller count controls are now in the top package search bar.
    Hide the duplicate group-size picker in the bundle step to avoid repetition. */
 #bundleTravellerCountsRow {
   display: none;
+}
+
+/* ——— Pay step: single column (rewards + payment, no tab switch) ——— */
+.pay-step__rewards {
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  background: rgba(13, 148, 136, 0.06);
+  border: 1px solid rgba(13, 148, 136, 0.2);
+  border-radius: var(--radius);
+}
+
+.pay-step__hint {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+}
+
+.pay-step__coins-field {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.pay-step__due-details {
+  margin: 0 0 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 14px;
+  background: var(--card);
+}
+
+.pay-step__due-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  padding: 12px 0;
+  font-weight: 600;
+}
+
+.pay-step__due-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pay-step__due-label {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.pay-step__due-value {
+  font-size: 1.35rem;
+  color: var(--ocean-dark);
+}
+
+.pay-step__due-currency {
+  font-size: 0.85rem;
+}
+
+.pay-step__due-details[open] .pay-step__due-summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.pay-step__due-details .advanced-details__body {
+  margin: 10px 0 14px;
+}
+
+/* ——— Booking confirmation modal ——— */
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(28, 25, 23, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  backdrop-filter: blur(2px);
+}
+
+.modal-overlay[hidden] {
+  display: none !important;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--card);
+  border-radius: calc(var(--radius) + 4px);
+  box-shadow: var(--shadow-lg);
+  padding: 28px 26px 22px;
+  text-align: center;
+}
+
+.modal-card__icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  background: rgba(13, 148, 136, 0.15);
+  color: var(--ocean-dark);
+  font-size: 1.5rem;
+  line-height: 52px;
+  font-weight: 700;
+}
+
+.modal-card__title {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+}
+
+.modal-card__lede {
+  margin: 0 0 18px;
+  font-size: 0.95rem;
+}
+
+.modal-card__facts {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--bg);
+  text-align: left;
+  display: grid;
+  gap: 10px 12px;
+}
+
+.modal-card__facts > div {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.modal-card__facts dt {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.modal-card__facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.modal-card__loyalty {
+  margin: 0 0 20px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.modal-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-card__actions .btn-primary,
+.modal-card__actions .btn-secondary {
+  width: 100%;
+  justify-content: center;
+}
+
+/* ——— My Account full page ——— */
+.account-page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.account-page__toolbar {
+  margin-bottom: 16px;
+}
+
+.account-page__hero {
+  margin-bottom: 20px;
+  padding: 22px 24px;
+  background: linear-gradient(135deg, rgba(13, 148, 136, 0.1), rgba(13, 148, 136, 0.02));
+  border: 1px solid rgba(13, 148, 136, 0.18);
+}
+
+.account-page__eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--ocean-dark);
+}
+
+.account-page__title {
+  margin: 0;
+  font-size: 1.65rem;
+  line-height: 1.2;
+}
+
+.account-page__email {
+  margin: 8px 0 0;
+  font-size: 0.95rem;
+}
+
+.account-page__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 560px) {
+  .account-page__stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+.account-stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+}
+
+.account-stat-card--wide {
+  grid-column: 1 / -1;
+}
+
+.account-stat-card__label {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.account-stat-card__value {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ocean-dark);
+}
+
+.account-stat-card__hint {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+}
+
+.account-stat-card__body {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.account-stat-card__progress {
+  margin: 12px 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ocean-dark);
+}
+
+.account-page__bookings .card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.account-page__section-title {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.sidebar-wallet-hint {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+}
+
+.result-status-line {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  min-height: 1.25em;
+}
+
+.sidebar-json-details {
+  margin-top: 8px;
 }

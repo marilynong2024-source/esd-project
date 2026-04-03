@@ -1,3 +1,6 @@
+import os
+import re
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
@@ -7,6 +10,54 @@ CORS(app)
 
 PAYMENTS = {}
 NEXT_ID = 1
+
+
+def _stripe_secret_status() -> dict:
+    raw = (os.environ.get("STRIPE_SECRET_KEY") or "").strip()
+    if not raw:
+        return {
+            "configured": False,
+            "secretKeyLooksValid": False,
+            "hint": "Set STRIPE_SECRET_KEY in .env (sk_test_... or sk_live_...). "
+            "Publishable keys (pk_...) are for the browser only.",
+        }
+    ok = bool(re.match(r"^sk_(test|live)_", raw))
+    bad_pk = raw.startswith("pk_")
+    hint = None
+    if bad_pk:
+        hint = "Value starts with pk_ — that is a publishable key. Use a secret key (sk_test_...)."
+    elif not ok:
+        hint = "Secret keys normally start with sk_test_ or sk_live_."
+    return {
+        "configured": True,
+        "secretKeyLooksValid": ok,
+        "keyPrefix": raw[:7] + "…" if len(raw) > 7 else "set",
+        "hint": hint,
+    }
+
+
+@app.route("/payment/health", methods=["GET"])
+def payment_health():
+    """
+    Stack checks: simulated payment engine + whether Stripe env looks usable.
+    Card charges still use the in-memory simulator unless you extend process_payment.
+    """
+    stripe = _stripe_secret_status()
+    return (
+        jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "service": "payment",
+                    "engine": "simulated_in_memory",
+                    "stripeEnv": stripe,
+                    "note": "Booking calls this service over Docker network; optional Stripe "
+                    "real charges require implementing PaymentIntent in app.py.",
+                },
+            }
+        ),
+        200,
+    )
 
 
 @app.route("/payment", methods=["POST"])

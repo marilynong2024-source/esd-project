@@ -30,17 +30,38 @@ _CONFIG_PATH = Path(os.environ.get("TWILIO_CONFIG_PATH", str(_DEFAULT_TWILIO_CON
 
 
 def load_persisted_config() -> None:
-    if not _CONFIG_PATH.is_file():
-        return
-    try:
-        raw = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        return
-    if not isinstance(raw, dict):
-        return
-    for key in ("accountSid", "authToken", "fromNumber", "enabled"):
-        if key in raw:
-            _RUNTIME[key] = raw[key]
+    if _CONFIG_PATH.is_file():
+        try:
+            raw = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            raw = None
+        if isinstance(raw, dict):
+            for key in ("accountSid", "authToken", "fromNumber", "enabled"):
+                if key in raw:
+                    _RUNTIME[key] = raw[key]
+    _apply_twilio_from_environment()
+
+
+def _apply_twilio_from_environment() -> None:
+    """
+    Docker Compose can pass TWILIO_* from .env into the notification container.
+    Non-empty env values override the JSON file so the stack works without
+    opening the UI first.
+    """
+    sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+    from_num = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
+    if sid:
+        _RUNTIME["accountSid"] = sid
+    if token:
+        _RUNTIME["authToken"] = token
+    if from_num:
+        _RUNTIME["fromNumber"] = from_num
+    en = os.environ.get("TWILIO_ENABLED", "").strip().lower()
+    if en in ("1", "true", "yes", "on"):
+        _RUNTIME["enabled"] = True
+    elif en in ("0", "false", "no", "off"):
+        _RUNTIME["enabled"] = False
 
 
 def _persist_config() -> None:

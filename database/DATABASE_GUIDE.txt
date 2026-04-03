@@ -1,0 +1,422 @@
+================================================================================
+  HORIZON PACKAGES / TRIP BOOKING — DATABASE & DATA STORES GUIDE
+================================================================================
+
+What this file is
+  Where data lives, how schemas relate, what keys mean.
+  For demos, reports, and debugging.
+
+  File name: DATABASE_GUIDE.txt  (in this database/ folder). Pair with
+  database/README.md (short) and the project README “Databases” section.
+
+
+Where the real SQL lives
+  - Canonical multi-DB script:  init_db.sql  (project root)
+  - Docker vs full seed:         database/README.md
+
+
+================================================================================
+  CONTENTS
+================================================================================
+
+  1.   Big picture (3 storage types)
+  1a.  OutSystems (REST — not MySQL here)
+  2.   Logical databases in init_db.sql  (2.1 … 2.6)
+  3.   Cross-cutting IDs
+  4.   Account microservice (JSON)
+  5.   How to run init_db.sql
+  6.   Quick reference — primary keys
+
+
+================================================================================
+  1. BIG PICTURE
+================================================================================
+
+The course uses several LOGICAL MySQL databases (one “owner” per atomic store).
+That matches microservices: each service is the only writer of its own store.
+
+
+In THIS repo you have THREE kinds of storage
+  (read the letter that matches what you’re debugging)
+
+
+  --------------------------------------------------------------------------
+  A)  MySQL — Docker booking-db (what Compose runs by default)
+  --------------------------------------------------------------------------
+
+      Database:     travel_booking
+      Main table:   bookings
+      Note:         SQLAlchemy may add columns at startup (e.g. seatNumbersJson)
+
+
+  --------------------------------------------------------------------------
+  B)  MySQL — full diagram seed (init_db.sql)
+  --------------------------------------------------------------------------
+
+      Creates:      FlightDB, HotelDB, CustomerDB, travel_booking,
+                    LoyaltyDB, TravellerDB  (+ ledger tables)
+
+      When to use:  SQL labs, ERD screenshots, full local MySQL
+
+      Docker:       Compose does NOT run this file automatically.
+
+
+  --------------------------------------------------------------------------
+  C)  NOT MySQL — runtime services (diagram DBs = slides / SQL only)
+  --------------------------------------------------------------------------
+
+      ACCOUNT          JSON file (e.g. accounts.json in volume)
+                       Demo logins align with CustomerDB seed emails.
+
+      FLIGHT / HOTEL   In-memory catalog + seat/hold logic
+                       (does not read FlightDB/HotelDB unless you wire it).
+
+      LOYALTY          In-memory balances + transactions
+                       API: `coins` (cents). LoyaltyDB in init_db.sql is the
+                       slide schema; the running service does not use MySQL.
+
+      OUTSYSTEMS       Traveller profiles in the cloud (HTTPS REST).
+                       MySQL TravellerDB = diagram mirror only.
+
+                       Live UI traveller CRUD → OutSystems when
+                       TRAVELLER_PROFILE_LOCAL_DEMO=false.
+
+
+================================================================================
+  1a. OUTSYSTEMS (“DATABASE” — PLATFORM STORE, NOT IN THIS REPO)
+================================================================================
+
+
+  [ What it is ]
+
+      OutSystems stores entities in a platform-managed DB (often SQL Server
+      in their cloud). That schema is NOT in init_db.sql.
+
+      This project talks to it with HTTPS REST only
+      (see travellerprofile/outsystems_client.py).
+
+
+  [ Entity you care about ]
+
+      Traveller Profile — one row per passenger/companion for a customer
+      (passport, DOB, prefs, emergency contact, …).
+
+
+  [ Keys ]
+
+      TravellerProfileID / Id / TravellerProfileId
+          Primary key inside OutSystems for one profile.
+          Create may return JSON or a bare number — booking client normalizes it.
+          Update / Delete query param:  TravellerProfileID={id}
+
+      CustomerID
+          Must match CustomerDB.customer_id, account id, booking.customerID.
+          List profiles:  GET .../byaccount/{customerID}
+
+      PassportNumber
+          Business id; may be unique in your module (like TravellerDB SQL).
+
+
+  [ Typical REST paths ]   (under TRAVELLER_PROFILE_BASE_URL)
+
+      POST    /CreateTravellerProfile
+      GET     /GetAllTravellerProfiles
+      GET     /byaccount/{customerID}
+      PUT     /UpdateTravellerProfile?TravellerProfileID={id}
+      DELETE  /DeleteTravellerProfile?TravellerProfileID={id}
+
+      Override segments:  TRAVELLER_PROFILE_UPDATE_PATH,
+                          TRAVELLER_PROFILE_DELETE_PATH
+
+
+  [ Create body fields ]   (seed / demo)
+
+      CustomerID, FullName, PassportNumber, PassportExpiry, DateOfBirth,
+      Nationality, SeatPreference, MealPreference,
+      EmergencyContactName, EmergencyContactPhone, Relationship
+
+
+  [ Env ]
+
+      TRAVELLER_PROFILE_BASE_URL      REST root (no trailing slash)
+      TRAVELLER_PROFILE_LOCAL_DEMO    true = in-memory demo rows, no cloud call
+
+
+  [ vs section 2.6 TravellerDB ]
+
+      init_db TravellerProfiles = relational / lab mirror.
+      Integrated web app → OutSystems as live store when demo mode is off.
+      Keep CustomerID aligned everywhere.
+
+
+================================================================================
+  2. LOGICAL DATABASES IN init_db.sql
+================================================================================
+
+
+--------------------------------------------------------------------------------
+  2.1  FlightDB
+--------------------------------------------------------------------------------
+
+  Table: Flight
+  -------------
+    PK:   flightID   INT AUTO_INCREMENT
+
+    Columns:
+      flightNumber, airline
+      origin, destination          (IATA)
+      originCity, destinationCity
+      departureTime, arrivalTime   DATETIME
+      durationMins
+      economyPrice, businessPrice  DECIMAL  (some seed rows use NULL business)
+      totalSeats, availableSeats
+      status                       default SCHEDULED
+      imageUrl
+
+    FK:   none
+
+
+  Table: FlightReservations
+  -------------------------
+    PK:   id   INT AUTO_INCREMENT
+
+    Columns:
+      BookingID, FlightNum, SeatNo, Status, CreatedAt
+
+    FK:   none (BookingID links logically to travel_booking)
+
+
+--------------------------------------------------------------------------------
+  2.2  HotelDB
+--------------------------------------------------------------------------------
+
+  Table: Hotel
+  -------------
+    PK:   hotelID
+
+    Columns:
+      name, city, country, address, starRating, description,
+      imageUrl, amenities (comma-separated)
+
+
+  Table: RoomType
+  ---------------
+    PK:   roomTypeID
+    FK:   hotelID → Hotel(hotelID)
+
+    Columns:
+      typeName, pricePerNight, maxGuests,
+      totalRooms, availableRooms, description, imageUrl
+
+
+  Table: HotelBookings
+  --------------------
+    PK:   id
+
+    Columns:
+      BookingID, HotelID, RoomType, CheckIn, CheckOut,
+      NumberOfKeys, Status, CreatedAt
+
+    FK:   none (logical link to bookings)
+
+
+--------------------------------------------------------------------------------
+  2.3  CustomerDB
+--------------------------------------------------------------------------------
+
+  Table: customer_accounts
+  -----------------------
+    PK:   customer_id   INT AUTO_INCREMENT   ← UI “customerID”, loyalty, OutSystems
+
+    UQ:   email
+
+    Other:
+      password_hash, first_name, last_name, phone_number,
+      date_of_birth, nationality, account_status,
+      created_at, updated_at
+
+
+  Table: CustomerProfile
+  ----------------------
+    PK:   customerID   (same as customer_accounts.customer_id)
+    FK:   customerID → customer_accounts  ON DELETE/UPDATE CASCADE
+
+    Columns:
+      Nationality, CreatedAt, AccountStatus
+
+
+--------------------------------------------------------------------------------
+  2.4  travel_booking   (Docker MySQL — booking service)
+--------------------------------------------------------------------------------
+
+  Table: bookings
+  ---------------
+    PK:   id   INT AUTO_INCREMENT
+
+    Core:
+      customerID              → CustomerDB.customer_id
+      flightID                VARCHAR  flight NUMBER string (e.g. SQ001),
+                              NOT FK to FlightDB.flightID
+      hotelID                 INT  (HotelDB seed)
+      hotelRoomType           e.g. STD, DLX
+      hotelIncludesBreakfast
+      departureTime           VARCHAR  ISO-style for API
+      totalPrice, currency, fareType, loyaltyTier, status, noOfRooms
+
+    Cancellation / refund:
+      refundPercentage, refundAmount,
+      cancellationPolicyID, cancellationTimestamp
+
+    Seat / traveller:
+      seatNumber              first seat (legacy)
+      seatNumbersJson         JSON array of all seats — added at runtime by
+                              booking ensure_booking_columns() if missing;
+                              not in original init_db CREATE TABLE
+      travellerProfileId, travellerDisplayName, travellerProfileIdsJson
+      adultCount, childCount, infantCount
+      passengerName, passengerEmail, passengerPhone
+
+    FK:   none in init_db
+
+
+  Table: PackageBookings
+  ----------------------
+    CREATE TABLE LIKE bookings  — optional split for packages
+
+
+  Table: BundleCatalog
+  --------------------
+    PK:   bundleCode   e.g. PKG_TOKYO
+
+    Columns:
+      title, originCity, destinationCity, defaultNights,
+      highlight, displayOrder
+
+    Reference data for UI — not a booking row.
+
+
+--------------------------------------------------------------------------------
+  2.5  LoyaltyDB
+--------------------------------------------------------------------------------
+
+  Table: LoyaltyAccounts
+  ---------------------
+    PK:   ID
+    UQ:   CustomerID
+
+    Columns:
+      PointsBalance, TierLevel, UpdatedAt
+
+    Note:
+      Seed name: PointsBalance.
+      Live API:  same number as `coins` (+ `points` alias).
+      Demo values match loyalty/app.py in-memory defaults.
+
+
+  Table: LoyaltyTransactions
+  -------------------------
+    PK:   ID
+
+    Columns:
+      CustomerID, BookingID (→ bookings.id),
+      PointsChanged, TransactionDate, Reason
+
+    FK:   none
+
+
+--------------------------------------------------------------------------------
+  2.6  TravellerDB   (SQL mirror — live profiles often OutSystems)
+--------------------------------------------------------------------------------
+
+  Table: TravellerProfiles
+  -----------------------
+    PK:   ID
+    UQ:   PassportNumber
+    FK:   CustomerID → CustomerDB.customer_accounts  CASCADE
+
+    Columns:
+      FullName, PassportNumber, Nationality, DateOfBirth,
+      MealPreference, CreatedAt
+
+
+  IMPORTANT
+  ---------
+    Web UI traveller edit usually hits OUTSYSTEMS (REST), not this table.
+    Use this schema for ERD / SQL homework; keep CustomerID consistent with
+    OutSystems when you explain integration.
+
+
+================================================================================
+  3. CROSS-CUTTING IDS
+================================================================================
+
+  customer_id   (CustomerDB.customer_accounts)
+      Same as:  booking.customerID, LoyaltyAccounts.CustomerID,
+                TravellerProfiles.CustomerID, OutSystems CustomerID.
+
+  bookings.id
+      Referenced logically by:  LoyaltyTransactions.BookingID,
+                                FlightReservations.BookingID,
+                                HotelBookings.BookingID.
+
+  OutSystems Id / TravellerProfileId
+      Stored in booking/UI as:  travellerProfileIdsJson or travellerProfileId.
+
+
+================================================================================
+  4. ACCOUNT MICROSERVICE (NOT MYSQL)
+================================================================================
+
+  Env:     ACCOUNT_STORE_PATH
+  Docker:  /app/data/accounts.json
+
+  JSON accounts for signup/session; aligned with CustomerDB seed emails
+  (Ava / Ben demos).
+
+
+================================================================================
+  5. HOW TO APPLY init_db.sql
+================================================================================
+
+  1.  MySQL user with CREATE DATABASE.
+
+  2.  mysql ... < init_db.sql
+
+  3.  Docker booking-db only creates travel_booking via MYSQL_DATABASE.
+      Full multi-DB script → run on a full MySQL (or import chosen parts).
+
+  Regenerate bulk tail:
+
+      python scripts/generate_init_db_bulk.py
+
+
+================================================================================
+  6. QUICK REFERENCE — PRIMARY / UNIQUE KEYS
+================================================================================
+
+  FlightDB.Flight                      PK flightID
+  FlightDB.FlightReservations          PK id
+
+  HotelDB.Hotel                        PK hotelID
+  HotelDB.RoomType                     PK roomTypeID;  FK hotelID -> Hotel
+  HotelDB.HotelBookings                PK id
+
+  CustomerDB.customer_accounts         PK customer_id;  UQ email
+  CustomerDB.CustomerProfile           PK customerID;  FK -> customer_accounts
+
+  travel_booking.bookings              PK id
+  travel_booking.BundleCatalog         PK bundleCode
+
+  LoyaltyDB.LoyaltyAccounts            PK ID;  UQ CustomerID
+  LoyaltyDB.LoyaltyTransactions        PK ID
+
+  TravellerDB.TravellerProfiles        PK ID;  UQ PassportNumber;
+                                       FK CustomerID -> CustomerDB.customer_accounts
+
+  OutSystems.Traveller Profile (REST)  PK Id / TravellerProfileId;
+                                       CustomerID same as customer_id (no SQL in repo)
+
+
+================================================================================
+  End of DATABASE_GUIDE.txt
+================================================================================

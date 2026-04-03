@@ -141,8 +141,15 @@ schema = graphene.Schema(query=Query)
 
 
 @app.get("/")
+@app.get("/health")
 def health():
     return jsonify({"code": 200, "message": "GraphQL gateway is running", "endpoint": "/graphql"}), 200
+
+
+@app.get("/graphql/health")
+def health_under_graphql_prefix():
+    """Kong forwards /graphql/* with strip_path false — same response as /health."""
+    return health()
 
 
 @app.post("/graphql")

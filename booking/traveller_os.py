@@ -6,17 +6,22 @@ Booking-side hook to teammate’s Traveller Profile REST (OutSystems).
 `travellerprofile/outsystems_client.py` (do not duplicate teammate’s OutSystems
 logic here).
 
-Env: TRAVELLER_PROFILE_BASE_URL, TRAVELLER_PROFILE_REQUIRED
+Env: TRAVELLER_PROFILE_BASE_URL, TRAVELLER_PROFILE_REQUIRED, TRAVELLER_PROFILE_LOCAL_DEMO
 
-When TRAVELLER_PROFILE_BASE_URL is unset or blank, uses the same default base as
-travellerprofile/outsystems_client.py so Docker + empty .env still reach OutSystems.
-Override TRAVELLER_PROFILE_BASE_URL in `.env` if your team uses another host.
+When TRAVELLER_PROFILE_LOCAL_DEMO is true, byaccount + CRUD use an in-process store so the UI
+works without OutSystems (avoids nginx 502 when cloud is unreachable). Docker Compose defaults
+LOCAL_DEMO to false so booking calls OutSystems.
+
+When LOCAL_DEMO is false and TRAVELLER_PROFILE_BASE_URL is unset or blank, uses the same default
+base as travellerprofile/outsystems_client.py. Override TRAVELLER_PROFILE_BASE_URL for your host.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 import os
+import threading
 from typing import Any
 
 import requests
@@ -25,6 +30,148 @@ _DEFAULT_TRAVELLER_PROFILE_BASE = (
     "https://personal-zhhppbon.outsystemscloud.com/"
     "TravellerProfileService/rest/TravellerProfileAPI"
 )
+
+_demo_lock = threading.Lock()
+_demo_profiles: dict[int, list[dict[str, Any]]] | None = None
+_demo_next_id = 100
+
+
+def local_demo_enabled() -> bool:
+    """When true, traveller CRUD is served in-process (no OutSystems HTTP). Avoids nginx 502 when cloud is down."""
+    return os.environ.get("TRAVELLER_PROFILE_LOCAL_DEMO", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _ensure_demo_store() -> dict[int, list[dict[str, Any]]]:
+    global _demo_profiles, _demo_next_id
+    with _demo_lock:
+        if _demo_profiles is None:
+            _demo_profiles = {
+                1: [
+                    {
+                        "Id": 1,
+                        "CustomerID": 1,
+                        "FullName": "Ava Chen",
+                        "PassportNumber": "E1234567A",
+                        "PassportExpiry": "2030-06-01",
+                        "DateOfBirth": "1995-02-14",
+                        "Nationality": "Singapore",
+                        "MealPreference": "Vegetarian",
+                        "SeatPreference": "",
+                    },
+                    {
+                        "Id": 2,
+                        "CustomerID": 1,
+                        "FullName": "Liam Chen",
+                        "PassportNumber": "E7654321B",
+                        "PassportExpiry": "2031-01-15",
+                        "DateOfBirth": "1992-07-11",
+                        "Nationality": "Singapore",
+                        "MealPreference": "None",
+                        "SeatPreference": "",
+                    },
+                ],
+                2: [
+                    {
+                        "Id": 3,
+                        "CustomerID": 2,
+                        "FullName": "Ben Kumar",
+                        "PassportNumber": "K9988776C",
+                        "PassportExpiry": "2029-12-01",
+                        "DateOfBirth": "1991-08-03",
+                        "Nationality": "India",
+                        "MealPreference": "Halal",
+                        "SeatPreference": "",
+                    },
+                ],
+            }
+            _demo_next_id = 100
+        return _demo_profiles
+
+
+def _demo_find_row(profile_id: int) -> tuple[int, int, dict[str, Any]] | None:
+    """Return (customer_id, index_in_list, row) or None."""
+    store = _ensure_demo_store()
+    pid = int(profile_id)
+    for cid, rows in store.items():
+        for i, row in enumerate(rows):
+            if _row_id(row) == pid:
+                return cid, i, row
+    return None
+
+
+def traveller_profile_create_local(data: dict[str, Any]) -> dict[str, Any]:
+    store = _ensure_demo_store()
+    cid = int(data.get("CustomerID") or 0)
+    if cid < 1:
+        return {"_error": "CustomerID is required"}
+    global _demo_next_id
+    with _demo_lock:
+        _demo_next_id += 1
+        new_id = _demo_next_id
+        row: dict[str, Any] = {
+            "Id": new_id,
+            "TravellerProfileId": new_id,
+            "CustomerID": cid,
+            "FullName": (data.get("FullName") or "").strip(),
+            "PassportNumber": (data.get("PassportNumber") or "").strip(),
+            "PassportExpiry": (data.get("PassportExpiry") or "").strip(),
+            "DateOfBirth": (data.get("DateOfBirth") or "").strip(),
+            "Nationality": (data.get("Nationality") or "").strip(),
+            "SeatPreference": (data.get("SeatPreference") or "").strip(),
+            "MealPreference": (data.get("MealPreference") or "").strip(),
+            "EmergencyContactName": (data.get("EmergencyContactName") or "").strip(),
+            "EmergencyContactPhone": (data.get("EmergencyContactPhone") or "").strip(),
+            "Relationship": (data.get("Relationship") or "").strip(),
+        }
+        store.setdefault(cid, []).append(row)
+        return copy.deepcopy(row)
+
+
+def traveller_profile_update_local(data: dict[str, Any]) -> dict[str, Any]:
+    tid = _row_id(data)
+    if tid is None:
+        return {"_error": "Id / TravellerProfileId is required"}
+    found = _demo_find_row(tid)
+    if not found:
+        return {"_error": f"Traveller profile {tid} not found"}
+    cid, idx, _prev = found
+    store = _ensure_demo_store()
+    with _demo_lock:
+        row = store[cid][idx]
+        for key in (
+            "FullName",
+            "PassportNumber",
+            "PassportExpiry",
+            "DateOfBirth",
+            "Nationality",
+            "SeatPreference",
+            "MealPreference",
+            "EmergencyContactName",
+            "EmergencyContactPhone",
+            "Relationship",
+        ):
+            if key in data and data[key] is not None:
+                row[key] = str(data[key]).strip()
+        return copy.deepcopy(row)
+
+
+def traveller_profile_delete_local(data: dict[str, Any]) -> dict[str, Any]:
+    tid = _row_id(data)
+    if tid is None:
+        return {"_error": "Id / TravellerProfileId is required"}
+    found = _demo_find_row(tid)
+    if not found:
+        return {"_ok": True, "_note": "already absent"}
+    cid, idx, _ = found
+    store = _ensure_demo_store()
+    with _demo_lock:
+        del store[cid][idx]
+    return {"_ok": True}
 
 
 def _base_url() -> str:
@@ -78,10 +225,16 @@ def fetch_byaccount_rows(
       (err, []) — request/HTTP/parse failure.
       (None, rows) — HTTP 200 (rows may be empty).
     """
+    if local_demo_enabled():
+        _ensure_demo_store()
+        with _demo_lock:
+            rows = copy.deepcopy(_demo_profiles.get(int(customer_id), []))
+        return None, rows
+
     base = _base_url()
     url = f"{base}/byaccount/{int(customer_id)}"
     try:
-        r = requests.get(url, timeout=12)
+        r = requests.get(url, timeout=(5, 12))
         if r.status_code != 200:
             snippet = (r.text or "")[:200].replace("\n", " ")
             return (
@@ -231,8 +384,8 @@ def validate_travellers_for_booking(
                 return (
                     [],
                     (
-                        f"Companion profile Id={tid} not found for customer {customer_id} "
-                        "(check OutSystems / byaccount list)"
+                        "We couldn’t find that saved traveller on this account. "
+                        "Open Travellers, tap Refresh list, and pick a profile from the list—or add a new one."
                     ),
                     True,
                     [],
@@ -242,7 +395,7 @@ def validate_travellers_for_booking(
         if acc is not None and int(customer_id) != int(acc):
             return (
                 [],
-                f"Traveller profile Id={tid} is not linked to the given customer ID",
+                "That saved traveller belongs to a different account. Sign in as the right member or choose another profile.",
                 True,
                 [],
             )

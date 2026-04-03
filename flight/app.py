@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -32,6 +32,44 @@ def _parse_iso_dt(raw):
         return None
 
 
+def _flight_departure_date(f: dict) -> date | None:
+    """Calendar date of departure (for matching hero / bundle date search)."""
+    raw = f.get("departureTime")
+    if raw is None:
+        return None
+    s = str(raw).strip().replace(" ", "T")
+    if len(s) >= 10:
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    dt = _parse_iso_dt(s)
+    return dt.date() if dt else None
+
+
+def _narrow_flights_by_depart_date(results: list[dict], depart_raw: str, win: int) -> list[dict]:
+    """Keep flights whose departure calendar day is within ±win days of depart_raw (YYYY-MM-DD)."""
+    if not results or not depart_raw or len(str(depart_raw).strip()) < 10:
+        return results
+    try:
+        target_d = datetime.strptime(str(depart_raw).strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return results
+    win = max(0, min(int(win), 14))
+    windows = [win]
+    if win < 5:
+        windows.extend([5, 10, 14])
+    for w in windows:
+        filtered: list[dict] = []
+        for f in results:
+            fd = _flight_departure_date(f)
+            if fd is not None and abs((fd - target_d).days) <= w:
+                filtered.append(f)
+        if filtered:
+            return filtered
+    return results
+
+
 def _purge_expired_holds():
     now = _utc_now()
     for bid, rec in list(FLIGHT_RESERVATIONS.items()):
@@ -61,8 +99,8 @@ FLIGHTS = {
         "departureTime": "2026-05-01T10:00",
         "arrivalTime": "2026-05-01T15:30",
         "durationMins": 390,
-        "economyPrice": 450.0,
-        "businessPrice": 1200.0,
+        "economyPrice": 668.0,
+        "businessPrice": 2180.0,
         "availableSeats": 42,
         "onlineSeatSelection": True,
         "seatNote": "Standard online seat map (demo).",
@@ -115,8 +153,8 @@ FLIGHTS = {
         "departureTime": "2026-08-01T10:00",
         "arrivalTime": "2026-08-01T15:00",
         "durationMins": 300,
-        "economyPrice": 450.0,
-        "businessPrice": 1200.0,
+        "economyPrice": 558.0,
+        "businessPrice": 1680.0,
         "availableSeats": 220,
         "onlineSeatSelection": False,
         "seatNote": "Partner / long-haul policy (demo): choose seats at check-in or with an agent.",
@@ -146,36 +184,36 @@ FLIGHTS = {
 # Add extra demo flights from `init_db.sql` (Hotel/Flight sample DB seed).
 # These use the same flightNum keys, so existing booking/calls keep working.
 _EXTRA_FLIGHTS = [
-    # SIN → NRT (Tokyo)
-    ("SQ634", "Singapore Airlines", "SIN", "NRT", "Singapore", "Tokyo", "2025-06-01T08:00:00", "2025-06-01T15:30:00", 390, 450.00, 1200.00, 120, 120),
-    ("SQ636", "Singapore Airlines", "SIN", "NRT", "Singapore", "Tokyo", "2025-06-01T22:00:00", "2025-06-02T05:30:00", 390, 420.00, 1100.00, 95, 95),
-    ("TR808", "Scoot", "SIN", "NRT", "Singapore", "Tokyo", "2025-06-01T06:00:00", "2025-06-01T14:00:00", 480, 280.00, None, 150, 150),
-    ("3K521", "Jetstar Asia", "SIN", "NRT", "Singapore", "Tokyo", "2025-06-01T09:30:00", "2025-06-01T17:45:00", 495, 260.00, None, 80, 80),
+    # SIN → NRT (Tokyo) — align outbound with default hero dates (May 2026)
+    ("SQ634", "Singapore Airlines", "SIN", "NRT", "Singapore", "Tokyo", "2026-05-01T08:00:00", "2026-05-01T15:30:00", 390, 688.00, 2180.00, 120, 120),
+    ("SQ636", "Singapore Airlines", "SIN", "NRT", "Singapore", "Tokyo", "2026-05-01T22:00:00", "2026-05-02T05:30:00", 390, 628.00, 1980.00, 95, 95),
+    ("TR808", "Scoot", "SIN", "NRT", "Singapore", "Tokyo", "2026-05-01T06:00:00", "2026-05-01T14:00:00", 480, 348.00, None, 150, 150),
+    ("3K521", "Jetstar Asia", "SIN", "NRT", "Singapore", "Tokyo", "2026-05-01T09:30:00", "2026-05-01T17:45:00", 495, 318.00, None, 80, 80),
 
     # SIN → BKK (Bangkok)
-    ("SQ706", "Singapore Airlines", "SIN", "BKK", "Singapore", "Bangkok", "2025-06-01T07:00:00", "2025-06-01T08:30:00", 90, 180.00, 520.00, 140, 140),
-    ("SQ708", "Singapore Airlines", "SIN", "BKK", "Singapore", "Bangkok", "2025-06-01T14:00:00", "2025-06-01T15:30:00", 90, 170.00, 500.00, 100, 100),
-    ("TR862", "Scoot", "SIN", "BKK", "Singapore", "Bangkok", "2025-06-01T10:00:00", "2025-06-01T11:40:00", 100, 99.00, None, 160, 160),
+    ("SQ706", "Singapore Airlines", "SIN", "BKK", "Singapore", "Bangkok", "2026-05-01T07:00:00", "2026-05-01T08:30:00", 90, 180.00, 520.00, 140, 140),
+    ("SQ708", "Singapore Airlines", "SIN", "BKK", "Singapore", "Bangkok", "2026-05-01T14:00:00", "2026-05-01T15:30:00", 90, 170.00, 500.00, 100, 100),
+    ("TR862", "Scoot", "SIN", "BKK", "Singapore", "Bangkok", "2026-05-01T10:00:00", "2026-05-01T11:40:00", 100, 99.00, None, 160, 160),
 
     # SIN → LHR (London)
-    ("SQ322", "Singapore Airlines", "SIN", "LHR", "Singapore", "London", "2025-06-01T23:55:00", "2025-06-02T06:00:00", 725, 980.00, 3200.00, 200, 200),
-    ("SQ306", "Singapore Airlines", "SIN", "LHR", "Singapore", "London", "2025-06-01T09:00:00", "2025-06-01T15:30:00", 750, 950.00, 3100.00, 180, 180),
+    ("SQ322", "Singapore Airlines", "SIN", "LHR", "Singapore", "London", "2026-05-01T23:55:00", "2026-05-02T06:00:00", 725, 980.00, 3200.00, 200, 200),
+    ("SQ306", "Singapore Airlines", "SIN", "LHR", "Singapore", "London", "2026-05-01T09:00:00", "2026-05-01T15:30:00", 750, 950.00, 3100.00, 180, 180),
 
     # SIN → SYD (Sydney)
-    ("SQ221", "Singapore Airlines", "SIN", "SYD", "Singapore", "Sydney", "2025-06-01T08:30:00", "2025-06-01T19:30:00", 480, 520.00, 1400.00, 170, 170),
-    ("TR8", "Scoot", "SIN", "SYD", "Singapore", "Sydney", "2025-06-01T07:00:00", "2025-06-01T17:45:00", 465, 320.00, None, 200, 200),
+    ("SQ221", "Singapore Airlines", "SIN", "SYD", "Singapore", "Sydney", "2026-05-01T08:30:00", "2026-05-01T19:30:00", 480, 520.00, 1400.00, 170, 170),
+    ("TR8", "Scoot", "SIN", "SYD", "Singapore", "Sydney", "2026-05-01T07:00:00", "2026-05-01T17:45:00", 465, 320.00, None, 200, 200),
 
     # SIN → DPS (Bali)
-    ("SQ944", "Singapore Airlines", "SIN", "DPS", "Singapore", "Bali", "2025-06-01T08:00:00", "2025-06-01T09:30:00", 90, 160.00, 480.00, 130, 130),
-    ("TR282", "Scoot", "SIN", "DPS", "Singapore", "Bali", "2025-06-01T06:30:00", "2025-06-01T08:10:00", 100, 89.00, None, 155, 155),
+    ("SQ944", "Singapore Airlines", "SIN", "DPS", "Singapore", "Bali", "2026-05-01T08:00:00", "2026-05-01T09:30:00", 90, 160.00, 480.00, 130, 130),
+    ("TR282", "Scoot", "SIN", "DPS", "Singapore", "Bali", "2026-05-01T06:30:00", "2026-05-01T08:10:00", 100, 89.00, None, 155, 155),
 
-    # Return flights: NRT → SIN
-    ("SQ635", "Singapore Airlines", "NRT", "SIN", "Tokyo", "Singapore", "2025-06-08T17:00:00", "2025-06-08T23:00:00", 360, 450.00, 1200.00, 110, 110),
-    ("TR809", "Scoot", "NRT", "SIN", "Tokyo", "Singapore", "2025-06-08T15:00:00", "2025-06-08T21:30:00", 390, 280.00, None, 140, 140),
+    # Return flights: NRT → SIN (default return matches hero 6 May 2026)
+    ("SQ635", "Singapore Airlines", "NRT", "SIN", "Tokyo", "Singapore", "2026-05-06T17:00:00", "2026-05-06T23:00:00", 360, 658.00, 2080.00, 110, 110),
+    ("TR809", "Scoot", "NRT", "SIN", "Tokyo", "Singapore", "2026-05-06T15:00:00", "2026-05-06T21:30:00", 390, 328.00, None, 140, 140),
 
     # Return flights: BKK → SIN
-    ("SQ707", "Singapore Airlines", "BKK", "SIN", "Bangkok", "Singapore", "2025-06-05T10:00:00", "2025-06-05T13:30:00", 90, 180.00, 520.00, 120, 120),
-    ("TR863", "Scoot", "BKK", "SIN", "Bangkok", "Singapore", "2025-06-05T14:00:00", "2025-06-05T15:40:00", 100, 99.00, None, 150, 150),
+    ("SQ707", "Singapore Airlines", "BKK", "SIN", "Bangkok", "Singapore", "2026-05-06T10:00:00", "2026-05-06T13:30:00", 90, 180.00, 520.00, 120, 120),
+    ("TR863", "Scoot", "BKK", "SIN", "Bangkok", "Singapore", "2026-05-06T14:00:00", "2026-05-06T15:40:00", 100, 99.00, None, 150, 150),
     # Worldwide demo routes (bundle gallery beyond Singapore departures)
     ("BA201", "British Airways", "LHR", "CDG", "London", "Paris", "2025-07-01T09:00:00", "2025-07-01T11:30:00", 150, 320.00, 900.00, 180, 100),
     ("BA102", "British Airways", "CDG", "LHR", "Paris", "London", "2025-07-05T18:00:00", "2025-07-05T18:55:00", 115, 185.00, 520.00, 180, 110),
@@ -248,14 +286,14 @@ def _next_flight_num(prefix: str) -> str:
 def _merge_programmatic_catalog() -> None:
     """Hundreds of demo flights for dropdowns and availability (in-memory)."""
     route_specs: list[tuple[str, str, str, str, int, float]] = [
-        ("Singapore", "Tokyo", "SIN", "NRT", 400, 520),
+        ("Singapore", "Tokyo", "SIN", "NRT", 400, 598),
         ("Singapore", "Bangkok", "SIN", "BKK", 100, 210),
         ("Singapore", "Bali", "SIN", "DPS", 170, 195),
         ("Singapore", "Sydney", "SIN", "SYD", 510, 560),
         ("Singapore", "London", "SIN", "LHR", 820, 990),
         ("Singapore", "Paris", "SIN", "CDG", 840, 1010),
         ("Singapore", "Kuala Lumpur", "SIN", "KUL", 70, 98),
-        ("Tokyo", "Singapore", "NRT", "SIN", 415, 530),
+        ("Tokyo", "Singapore", "NRT", "SIN", 415, 588),
         ("Tokyo", "Bangkok", "NRT", "BKK", 340, 420),
         ("Tokyo", "Sydney", "NRT", "SYD", 550, 890),
         ("London", "Paris", "LHR", "CDG", 85, 175),
@@ -310,7 +348,7 @@ def _merge_programmatic_catalog() -> None:
         ("Lufthansa", "LH"),
         ("KLM", "KL"),
     ]
-    base_day0 = datetime(2026, 6, 1, tzinfo=None)
+    base_day0 = datetime(2026, 5, 1, tzinfo=None)
 
     for rxi, (oc, dc, apio, apd, dur_mins, price_mid) in enumerate(route_specs):
         for si, hhmm in enumerate(dep_slots):
@@ -420,6 +458,15 @@ def search_flights():
             if not dc or dc != destination_country:
                 continue
         results.append(f)
+
+    # Optional: only flights whose departure date is near the traveller's chosen outbound day.
+    depart_raw = (request.args.get("departDate") or request.args.get("departureDate") or "").strip()
+    try:
+        win = int(request.args.get("dateWindowDays") or "2")
+    except (TypeError, ValueError):
+        win = 2
+    results = _narrow_flights_by_depart_date(results, depart_raw, win)
+
     return jsonify({"code": 200, "data": results}), 200
 
 
@@ -438,14 +485,25 @@ def availability():
     destination_city = (
         request.args.get("destinationCity") or request.args.get("destination") or ""
     ).strip().lower()
+    depart_raw = (request.args.get("departDate") or request.args.get("departureDate") or "").strip()
+    try:
+        win = int(request.args.get("dateWindowDays") or "2")
+    except (TypeError, ValueError):
+        win = 2
 
-    best = None
-    best_price = None
+    matches: list[dict] = []
     for _, f in FLIGHTS.items():
         if origin_city and str(f.get("originCity", "")).lower() != origin_city:
             continue
         if destination_city and str(f.get("destinationCity", "")).lower() != destination_city:
             continue
+        matches.append(f)
+
+    matches = _narrow_flights_by_depart_date(matches, depart_raw, win)
+
+    best = None
+    best_price = None
+    for f in matches:
         # Choose cheapest economy as "best".
         price = f.get("economyPrice")
         try:
@@ -497,13 +555,22 @@ def price():
         destination_city = (
             request.args.get("destinationCity") or request.args.get("destination") or ""
         ).strip().lower()
-        best = None
-        best_price = None
+        depart_raw = (request.args.get("departDate") or request.args.get("departureDate") or "").strip()
+        try:
+            win = int(request.args.get("dateWindowDays") or "2")
+        except (TypeError, ValueError):
+            win = 2
+        matches = []
         for _, f in FLIGHTS.items():
             if origin_city and str(f.get("originCity", "")).lower() != origin_city:
                 continue
             if destination_city and str(f.get("destinationCity", "")).lower() != destination_city:
                 continue
+            matches.append(f)
+        matches = _narrow_flights_by_depart_date(matches, depart_raw, win)
+        best = None
+        best_price = None
+        for f in matches:
             try:
                 price_f = float(f.get("economyPrice") or 0)
             except Exception:
