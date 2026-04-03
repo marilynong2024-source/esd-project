@@ -43,7 +43,7 @@ Your **slides, report, video (`video.txt`), and eLearn zip** are still your team
 | ≥3 atomic microservices, 3+ data entities | e.g. **booking** (+DB), **flight**, **hotel**, **loyalty**, **payment**, **discount**, **notification**, **account**, **bundle-pricing**, **graphql** — each with its own data/concerns. |
 | **OutSystems** | Traveller profiles integrated from booking service (see `TRAVELLER_PROFILE_*` env / OutSystems client). |
 | Service **reused** across scenarios | **Loyalty**, **payment**, **flight**, **hotel**, **notification** used in multiple flows. |
-| **External service** | **Twilio** (SMS) and/or **SMU notification** / simulated **payment** — use free tiers responsibly per course notes. |
+| **External service** | **Twilio** (SMS, UI + saved config) is the main live hook; **payment** is simulated in Docker. |
 | ≥2 scenarios with **orchestration/choreography** | Booking orchestrates many HTTP calls; **RabbitMQ** `notify.user` choreography to notification (+ optional Twilio). |
 | Exclusive **data store** per service where applicable | e.g. booking MySQL; in-memory stores in demo services — document in report appendix. |
 | ≥1 service with a **DB** | **booking** + `booking-db` (MySQL in Compose). |

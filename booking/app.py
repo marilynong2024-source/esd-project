@@ -575,8 +575,8 @@ def create_booking():
         return _bad_request(f"Missing required field: {e.args[0]!r}")
 
     try:
-        db.session.add(booking)
-        db.session.commit()
+    db.session.add(booking)
+    db.session.commit()
     except sa_exc.SQLAlchemyError as e:
         db.session.rollback()
         print(f"[booking] DB error on create: {e}")
@@ -1255,7 +1255,7 @@ def cancel_booking(booking_id: int):
     booking.cancellationPolicyID = policy_id
     booking.cancellationTimestamp = now.isoformat()
     try:
-        db.session.commit()
+    db.session.commit()
     except sa_exc.SQLAlchemyError as e:
         db.session.rollback()
         print(f"[booking] DB error after refund for booking {booking_id}: {e}")

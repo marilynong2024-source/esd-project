@@ -187,9 +187,10 @@ const BUNDLE_COUNTRY_LABEL = {
   france: "France",
 };
 
-function countriesUsedByPresets() {
+function countriesUsedByPresets(regionFilter = "all") {
   const slugs = new Set();
   for (const p of BUNDLE_PRESETS) {
+    if (regionFilter !== "all" && p.region !== regionFilter) continue;
     const a = CITY_COUNTRY_SLUG[p.origin];
     const b = CITY_COUNTRY_SLUG[p.destination];
     if (a) slugs.add(a);
@@ -287,12 +288,14 @@ function populateBundleFilterSelects() {
   }
   const countrySel = document.getElementById("bundleFilterCountry");
   if (countrySel) {
+    // When Region is specific (e.g. Europe & UK), only show countries from that region.
+    const currentRegion = regSel ? regSel.value || "all" : "all";
     countrySel.replaceChildren();
     const allC = document.createElement("option");
     allC.value = "all";
     allC.textContent = "Any country";
     countrySel.appendChild(allC);
-    for (const slug of countriesUsedByPresets()) {
+    for (const slug of countriesUsedByPresets(currentRegion)) {
       const o = document.createElement("option");
       o.value = slug;
       o.textContent = BUNDLE_COUNTRY_LABEL[slug] || slug;
@@ -396,6 +399,8 @@ function scheduleBundleCardPriceRefresh() {
 }
 
 function onBundleFiltersChanged() {
+  // If region changed, rebuild country options so lists stay consistent (e.g. Europe doesn't show Japan).
+  populateBundleFilterSelects();
   const visible = new Set(getFilteredPresets().map((p) => p.id));
   if (selectedBundlePresetId && !visible.has(selectedBundlePresetId)) {
     clearBundleSelectionState();
@@ -2244,7 +2249,7 @@ async function onCreateBookingSubmit(e) {
     if (Number.isFinite(Number(bTotal))) {
       // Diagram-aligned pricing: use composite bundle finalTotal.
       payload.totalPrice = Number(bTotal);
-      const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
+    const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
       const coinsRequestedCents = Math.max(
         0,
         Number(document.getElementById("coinsToSpendCents")?.value || 0)

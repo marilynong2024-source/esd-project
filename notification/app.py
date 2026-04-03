@@ -6,7 +6,6 @@ import time
 import pika
 import json
 
-from smu_integration import send_email_for_amqp_event
 from twilio_integration import (
     apply_twilio_config,
     get_twilio_public_config,
@@ -77,17 +76,6 @@ def start_amqp_consumer():
                     "payload": payload,
                 }
             )
-
-            # Optional: SMU Lab Utilities SendEmail (see smu_integration.py + env vars)
-            smu_out = send_email_for_amqp_event(rk, payload)
-            if smu_out and not smu_out.get("skipped"):
-                NOTIFICATIONS.append(
-                    {
-                        "source": "smu_sendemail",
-                        "routing_key": rk,
-                        "result": smu_out,
-                    }
-                )
 
             twilio_out = send_sms_for_amqp_event(rk, payload) or {}
             NOTIFICATIONS.append(

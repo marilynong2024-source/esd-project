@@ -25,7 +25,7 @@ TABLE OF CONTENTS
  14. Discount rules (current behaviour)
  15. Flight & hotel APIs (including diagram path aliases)
  16. Payment & loyalty & account
- 17. Notification: RabbitMQ, Twilio (UI config), SMU email
+  17. Notification: RabbitMQ, Twilio (UI config)
  18. GraphQL gateway (BTL)
  19. OutSystems traveller profiles
  20. MySQL (booking-db)
@@ -39,15 +39,19 @@ TABLE OF CONTENTS
  28. Team workflow (roles, PR discipline)
  29. FAQ
  30. Change log (team-maintained appendix)
+ PART II — Deep-dives: RabbitMQ, Kong, GraphQL, nginx, OutSystems, Dockerfiles
+ PART III — Course diagram ↔ code mapping (cancel, book package, bundle search)
 
 ================================================================================
  1. HOW TO USE THIS DOCUMENT
 ================================================================================
 
-  * New teammate: read sections 1–7, then 11–12, then your owned service.
-  * Demo day: sections 24, 23, 25.
-  * Report writing: sections 2, 3, 4, 5, 11–20, 22, 27.
-  * Instructor verification: sections 5, 9, 11–17 + API appendix in report.
+  * New teammate: read sections 1–7, then 11–12, then PART II for stack details,
+    then your owned service.
+  * Demo day: sections 24, 23, 25; PART II-A (RabbitMQ UI) / II-C (GraphQL) if asked.
+  * Report writing: sections 2, 3, 4, 5, 11–20, 22, 27 + PART II for accurate
+    “how we used X” paragraphs.
+  * Instructor verification: sections 5, 9, 11–17 + PART II + API appendix in report.
 
   README.md          → fastest path to a running UI.
   TEAM_GUIDE.txt     → deep reference (this file).
@@ -75,12 +79,12 @@ TABLE OF CONTENTS
       → e.g. loyalty, payment, flight, hotel, notification in book + cancel.
 
   [ ] At least one external service (your choice; not mandatory Stripe)
-      → Twilio SMS (optional, UI-configured on notification service) and/or
-        SMU SendEmail hooks; payment is SIMULATED in-repo (state that clearly).
+      → Twilio SMS (optional, UI-configured on notification service);
+        payment is SIMULATED in-repo (state clearly).
 
   [ ] >= 2 scenarios with orchestration or choreography
       → Booking orchestrates HTTP chain; RabbitMQ notify.user to notification
-        (choreography + Twilio/SMU side effects).
+        (choreography + Twilio SMS).
 
   [ ] Each service: exclusive data where applicable; >=1 real DB
       → Booking → MySQL; many others in-memory for demo (disclose in report).
@@ -131,7 +135,7 @@ TABLE OF CONTENTS
 
   notification service consumes AMQP from exchange travel_topic, queue bound to
   routing keys notify.user and booking.cancelled (bindings in code), appends
-  events to in-memory list, optional Twilio/SMU.
+  events to in-memory list; Twilio SMS if configured.
 
   graphql_gateway aggregates flight/hotel/loyalty for BTL-style queries.
 
@@ -173,7 +177,7 @@ TABLE OF CONTENTS
   payment/           Flask payment/process, refund-payment aliases
   loyalty/           Flask tier + coins
   notification/      Flask AMQP consumer, /notifications, /notify/manual,
-                     /twilio/config (GET/POST), smu_integration, twilio_integration
+                     /twilio/config (GET/POST), twilio_integration
   account/           Flask GET /account/{id}
   bundle_pricing/    Flask GET /bundle-price
   discount/          Flask GET /discount-rule and /discounts/bundle-rule
@@ -196,7 +200,7 @@ TABLE OF CONTENTS
 
   First time:
     1. Copy-Item .env.example .env   (PowerShell, project root)
-    2. Edit .env for OutSystems / SMU / FX if needed (see section 8)
+    2. Edit .env for OutSystems / FX if needed (see section 8)
     3. docker compose up --build
     4. Open http://localhost:8080
 
@@ -232,10 +236,6 @@ TABLE OF CONTENTS
     TRAVELLER_PROFILE_UPDATE_PATH / DELETE_PATH  OS action names
     SKIP_CATALOG_VALIDATION      skip flight/hotel existence checks if true
     FX_API_ENABLED / FX_API_URL  optional FX snippet on booking response
-
-  SMU email (notification service — add under notification.environment in
-  compose if you removed env_file; or use compose environment block):
-    SMU_NOTIFICATION_ENABLED, BASE_URL, SMU_NOTIFY_EMAIL_TO, AUTH header/value
 
   Twilio:
     Legacy TWILIO_* env vars are NOT required for notification: Twilio is
@@ -406,7 +406,7 @@ TABLE OF CONTENTS
     POST /account, PUT /account/{id}
 
 ================================================================================
-17. NOTIFICATION: RABBITMQ, TWILIO, SMU
+17. NOTIFICATION: RABBITMQ, TWILIO
 ================================================================================
 
   notification/app.py:
@@ -427,9 +427,6 @@ TABLE OF CONTENTS
     Persisted: Docker volume notification_twilio_data mounted at /app/data
     Code: notification/twilio_integration.py
     Phone: passengerPhone on AMQP payload; normalizes SG-style numbers.
-
-  SMU SendEmail:
-    smu_integration.py — env-driven; wire via compose if needed.
 
 ================================================================================
 18. GRAPHQL GATEWAY (BTL)
@@ -541,7 +538,7 @@ TABLE OF CONTENTS
 26. SECRETS, .GITIGNORE, WHAT NOT TO COMMIT
 ================================================================================
 
-  Never commit: .env with real tokens, Twilio auth, SMU keys, personal OutSystems
+  Never commit: .env with real tokens, Twilio auth, personal OutSystems
   secrets.
 
   .gitignore includes .env and notification/data/ (local Twilio JSON experiments).
@@ -584,8 +581,8 @@ TABLE OF CONTENTS
 ================================================================================
 
   Q: Do we need real Stripe?
-  A: No. Course wants an external service; Twilio (or SMU) suffices. Say payment
-     is simulated unless you integrate real Stripe test mode.
+  A: No. Course wants an external service; **Twilio SMS** suffices for most teams.
+     Say payment is simulated unless you integrate real Stripe test mode.
 
   Q: Is MySQL mandatory?
   A: Course wants ≥1 DB; not necessarily MySQL. This repo uses MySQL for
@@ -607,6 +604,475 @@ TABLE OF CONTENTS
   (Example)
   2026-04-02 | Team | Added TEAM_GUIDE.txt; removed duplicate TEAM_GUIDE.md
              |      | README now points to .txt | docs only
+
+================================================================================
+ PART II — HOW WE USE RABBITMQ, KONG, GRAPHQL, NGINX, OUTSYSTEMS & DOCKERFILES
+================================================================================
+
+This section explains each technology as implemented in THIS repo (not generic
+tutorials). Use it for report narrative, diagrams, and Q&A.
+
+--------------------------------------------------------------------------------
+II-A  RABBITMQ — WHAT IT DOES HERE
+--------------------------------------------------------------------------------
+
+  Role:
+    Asynchronous messaging between the booking composite and the notification
+    service. Booking does NOT call notification for the AMQP path; it only
+    PUBLISHES. Notification SUBSCRIBES — that is message-driven “choreography”.
+
+  Where it runs:
+    docker-compose service `rabbitmq` (image rabbitmq:3-management).
+    Host ports (to avoid clashing with other stacks):
+      AMQP:   5674 → container 5672
+      UI:     15673 → container 15672 (management plugin)
+    Default user/pass in compose: guest / guest
+
+  Topology (as code declares it):
+    Exchange:  travel_topic
+    Type:      topic
+    Durable:   yes (survives broker restart; messages still need persistence flag)
+
+    Producer (booking/app.py):
+      Uses library `pika`.
+      Connects using RABBIT_HOST / RABBIT_PORT from environment (in Docker:
+      rabbitmq and 5672).
+      Declares the same exchange name/type before publish.
+      Publishes JSON body with routing_key **notify.user** for BOTH:
+        - successful booking confirmation (after pay/confirm)
+        - cancellation (after refund/release)
+      Message properties: delivery_mode=2 (persistent) where implemented.
+
+    Consumer (notification/app.py):
+      Starts a **background daemon thread** when Flask starts (with a guard so
+      Flask debug reloader does not double-start the consumer).
+      Connects with pika.BlockingConnection.
+      Declares exchange `travel_topic` (topic, durable).
+      Declares queue name from env **QUEUE_NAME** (compose sets `notify.user`).
+      Binds queue to exchange for routing keys:
+        - notify.user
+        - booking.cancelled
+      (Booking currently publishes notify.user; extra bind keeps lab/diagram
+      compatibility if you add booking.cancelled publishes later.)
+
+    Per-message callback:
+      1. Parses JSON payload (or stores raw string on failure).
+      2. Appends an entry to in-memory NOTIFICATIONS list (source: "amqp").
+      3. Calls Twilio SMS helper (twilio_integration.py) using payload fields
+         like passengerPhone, bookingID, confirmedAt vs cancelledAt.
+      4. Acknowledges the message (basic_ack) so it is removed from the queue.
+
+  Why RabbitMQ for the course story:
+    - Satisfies “message-based communication between microservices”.
+    - Shows **decoupling**: booking can complete even if notification is slow;
+      messages queue until the consumer processes them.
+    - Demo tip: open RabbitMQ management UI during presentation to show the
+      broker, or show GET /api/notification/notifications after a booking.
+
+--------------------------------------------------------------------------------
+II-B  KONG — WHAT IT DOES HERE
+--------------------------------------------------------------------------------
+
+  Role:
+    API **gateway** in front of the same Flask microservices — an optional
+    **second entry point** for Beyond-The-Labs / SOA diagrams. The main web UI
+    does NOT go through Kong by default; the browser talks to **nginx** on
+    port 8080.
+
+  Where it runs:
+    docker-compose service `kong` (image kong:latest).
+    Declarative mode: **no separate Kong database** (KONG_DATABASE: off).
+    Config file mounted read-only: ./kong.yml → /kong/declarative/kong.yml
+
+  Host ports (from compose):
+    9000 → Kong proxy (HTTP)
+    9001 → Kong admin API
+    (Also 9443/9444 for TLS variants — see compose comments.)
+
+  How kong.yml is structured:
+    Each `service` has:
+      - `name` (logical name)
+      - `url`  (upstream base, e.g. http://booking:5101)
+      - `routes` with `paths` such as /account, /booking, /flight, /hotel,
+        /payment, /loyalty, /notification, /graphql, /bundle-pricing, /discount
+      - `strip_path: false` — the path the client sends is passed through to
+        the upstream as-is (important: Flask routes include prefixes like /booking).
+
+  Example client call:
+    POST http://localhost:9000/booking/booking
+    → Kong forwards to http://booking:5101/booking/booking
+
+  Relationship to nginx:
+    nginx adds a **single** browser origin (localhost:8080) and prefixes like
+    /api/booking/... then **rewrites** to strip the prefix before the upstream.
+    Kong exposes **service paths without** that /api/ prefix. Both patterns are
+    valid; document which one your demo uses.
+
+  Report angle:
+    “We use Kong as a dedicated API gateway layer for routing to microservices,
+    complementing nginx which acts as static file server + BFF-style proxy for
+    the web UI.”
+
+--------------------------------------------------------------------------------
+II-C  GRAPHQL — WHAT IT DOES HERE
+--------------------------------------------------------------------------------
+
+  Role:
+    **Beyond-the-labs** API style: one POST endpoint that can return **shaped**
+    data from **multiple** REST microservices in one round-trip. REST remains
+    the primary inter-service protocol; GraphQL is an **aggregation facade** for
+    the client (or for demos).
+
+  Service:
+    `graphql_gateway` — Flask app in graphql_gateway/app.py, port 5110.
+
+  Stack:
+    - `graphene` schema defines types: Hotel, Flight, Loyalty, PackagePreview.
+    - Resolvers use `requests.get` to call existing REST APIs on the Docker network:
+        FLIGHT_BASE  = http://flight:5102/flight
+        HOTEL_BASE   = http://hotel:5103/hotel
+        LOYALTY_BASE = http://loyalty:5105/loyalty
+
+  Exposed HTTP:
+    GET  /              health JSON pointing to /graphql
+    POST /graphql       body: { "query": "...", "variables": { ... } }
+
+  Implemented operations (schema):
+    - hotelSearch(country, city, name) → list of hotels with roomTypes, etc.
+      Resolver calls HOTEL_BASE/search with query params.
+    - packagePreview(customerID, flightID, hotelID, roomCode) → combines
+      GET flight/{flightNum}, GET hotel/{id}, GET loyalty/{id}/points and
+      computes a simple estimated total (flight economy + first/chosen room).
+
+  How the browser reaches it:
+    nginx location /api/graphql/ rewrites to the graphql container path.
+    UI typically POSTs to: /api/graphql/graphql
+    (rewrite strips /api/graphql prefix so upstream sees /graphql.)
+
+  Course justification (short):
+    “Reduces multiple REST calls for search/preview screens; lets the client
+    request only the fields it needs; demonstrates polyglot integration without
+    breaking microservice ownership (GraphQL service is stateless and calls
+    atomic REST services).”
+
+--------------------------------------------------------------------------------
+II-D  NGINX (ui SERVICE) — WHAT IT DOES HERE
+--------------------------------------------------------------------------------
+
+  Role:
+    1) Serve the static web app (index.html, app.js, styles.css) from /usr/share/nginx/html
+    2) Reverse-proxy **API** calls so the browser stays on **same origin**
+       http://localhost:8080 — avoids CORS pain and mixed ports in production-like demos.
+
+  Implementation:
+    docker-compose `ui` service uses **official image** `nginx:alpine` — there is
+    **no Dockerfile** in the repo for the UI; only a bind mount:
+      ./ui           → /usr/share/nginx/html (read-only)
+      ./nginx/ui.conf → /etc/nginx/conf.d/default.conf (read-only)
+
+  Resolver:
+    `resolver 127.0.0.11` — Docker’s embedded DNS so upstream hostnames like
+    `booking` resolve when nginx starts.
+
+  Location blocks (summary):
+    /api/booking/*      → http://booking:5101  with rewrite to drop /api/booking/
+    /api/loyalty/*      → loyalty:5105
+    /api/notification/* → notification:5106
+    /api/flight/*       → flight:5102
+    /api/hotel/*        → hotel:5103
+    /api/graphql/*      → graphql:5110
+    /api/discount/*     → discount:5112
+    /api/bundle-price   → bundle-pricing:5111  (special rewrite to /bundle-price)
+    /                   → try_files for SPA-style static hosting
+
+  Headers:
+    proxy_set_header Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Proto as needed.
+
+  Why this matters:
+    The UI JavaScript uses relative paths like `/api/booking/...` — no hard-coded
+    :5101 ports in the browser.
+
+--------------------------------------------------------------------------------
+II-E  OUTSYSTEMS — WHAT IT DOES HERE
+--------------------------------------------------------------------------------
+
+  Role:
+    Satisfies the course requirement: **at least one atomic service built/exposed
+    on OutSystems**. In this project, the **Traveller Profile** domain is owned
+    by OutSystems (REST API). The **booking** microservice (Python) is the
+    **client** that calls OutSystems over HTTPS.
+
+  Code locations:
+    - travellerprofile/outsystems_client.py — HTTP wrapper (Create, byaccount,
+      Update, Delete) with env-configurable base URL and path names.
+    - booking/traveller_os.py — validation and orchestration helpers used from
+      booking/app.py when creating bookings and managing traveller CRUD routes.
+    - booking/Dockerfile copies outsystems_client.py into the image as
+      traveller_outsystems_client.py for import stability inside the container.
+
+  Configuration (.env / compose env on booking):
+    TRAVELLER_PROFILE_BASE_URL   — OutSystems REST base URL (no trailing slash)
+    TRAVELLER_PROFILE_REQUIRED   — if true and URL set, invalid/missing profiles
+                                   can fail booking creation
+    TRAVELLER_PROFILE_UPDATE_PATH / TRAVELLER_PROFILE_DELETE_PATH — REST action
+                                   segment names if your OS module differs
+
+  Typical REST shapes:
+    POST .../CreateTravellerProfile with JSON body (CustomerID, FullName,
+      PassportNumber, etc.)
+    GET  .../byaccount/{customerID} for listing profiles for a member
+
+  Operational notes:
+    - OutSystems runs **outside** Docker Compose; booking container must reach
+      the internet or a tunnel to hit the OS cloud URL.
+    - If URL is empty/unset, behaviour falls back according to booking code paths
+      (demo-friendly degradation — confirm in traveller_os.py for exact rules).
+
+  Report / demo:
+    Show one create + list + use profile on booking; include OS module screen
+    shot or link in appendix if allowed.
+
+--------------------------------------------------------------------------------
+II-F  EVERY DOCKERFILE IN THIS REPO (LINE-BY-LINE PURPOSE)
+--------------------------------------------------------------------------------
+
+  Common pattern:
+    All **Python** services use `FROM python:3.11-slim`, `WORKDIR /app`,
+    copy only needed sources, `pip install` minimal deps, `EXPOSE` port,
+    `CMD ["python", "app.py"]`. This keeps images small and build fast.
+
+  booking/Dockerfile
+    - FROM python:3.11-slim
+    - WORKDIR /app
+    - COPY booking/*.py (app, traveller_os, fx_quote, catalog_validate)
+    - COPY travellerprofile/outsystems_client.py → traveller_outsystems_client.py
+    - pip: flask, flask-cors, requests, flask_sqlalchemy, pymysql, pika
+      (pika = RabbitMQ publisher; pymysql = MySQL driver)
+    - EXPOSE 5101
+    - CMD python app.py
+    Build context: **project root** (see compose `context: .` dockerfile: booking/Dockerfile)
+
+  flight/Dockerfile
+    - Single app.py, flask + flask-cors only
+    - EXPOSE 5102
+
+  hotel/Dockerfile
+    - Same pattern as flight
+    - EXPOSE 5103
+
+  payment/Dockerfile
+    - Same minimal Flask pattern
+    - EXPOSE 5104
+
+  loyalty/Dockerfile
+    - Same minimal Flask pattern
+    - EXPOSE 5105
+
+  account/Dockerfile
+    - Same minimal Flask pattern
+    - EXPOSE 5100
+
+  notification/Dockerfile
+    - COPY app.py, smu_integration.py, twilio_integration.py
+    - RUN mkdir -p /app/data  (writable dir for Twilio JSON when volume mounted)
+    - pip: flask, flask-cors, pika, requests, twilio
+    - EXPOSE 5106
+
+  graphql_gateway/Dockerfile
+    - COPY app.py only
+    - pip: flask, flask-cors, requests, graphene
+    - EXPOSE 5110
+
+  bundle_pricing/Dockerfile
+    - COPY app.py; pip: flask, flask-cors, requests
+    - EXPOSE 5111
+
+  discount/Dockerfile
+    - COPY app.py; pip: flask, flask-cors, requests
+    - EXPOSE 5112
+
+  What does **NOT** have a Dockerfile in-repo:
+    - **ui** — uses `image: nginx:alpine` + volume mounts (see II-D).
+    - **rabbitmq** — uses official `rabbitmq:3-management` image.
+    - **booking-db** — uses official `mysql:8.0` image.
+    - **kong** — uses official `kong:latest` image.
+
+  docker-compose.yml ties images together:
+    - build: ./service for custom Dockerfiles
+    - image: for third-party images
+    - depends_on: startup order (not full health on all services — booking waits
+      on booking-db healthy)
+    - volumes: e.g. notification_twilio_data for Twilio config persistence
+    - env_file / environment: inject .env and literals
+
+--------------------------------------------------------------------------------
+II-G  QUICK COMPARISON TABLE (WHO TALKS TO WHOM)
+--------------------------------------------------------------------------------
+
+  Browser        → nginx:8080        static + /api/* reverse proxy
+  nginx          → booking, flight, hotel, loyalty, notification, graphql,
+                   discount, bundle-pricing (by path)
+  Browser/dev    → Kong:9000       optional direct gateway to same Flask apps
+  booking        → account, flight, hotel, payment, loyalty, notification HTTP,
+                   OutSystems HTTPS (if configured), RabbitMQ AMQP publish
+  notification   → RabbitMQ subscribe; Twilio API
+  graphql        → flight, hotel, loyalty HTTP only (aggregator)
+  bundle-pricing → flight, hotel, loyalty, discount HTTP
+
+================================================================================
+ PART III — COURSE DIAGRAM ↔ THIS CODEBASE (SEARCH, BOOK, CANCEL)
+================================================================================
+
+Use this when writing the report or defending your architecture against the
+lecture/diagram “Book Package”, “Bundle Pricing search”, and “Cancellation”
+figures. The logical flow matches; some **endpoint names** or **loyalty verbs**
+differ on purpose — call that out so instructors see you understand both.
+
+Optional: keep copies of your diagram PNGs under `docs/course-diagrams/` in the
+repo zip so the appendix matches your slides.
+
+--------------------------------------------------------------------------------
+III-A  SEARCH & PRICE BUNDLE (Bundle Pricing composite diagram)
+--------------------------------------------------------------------------------
+
+  Diagram intent:
+    UI → GET bundle price {origin, destination, departDate, returnDate,
+         numberOfTravellers, customerId} → composite calls Flight, Hotel,
+         Discount → returns {flightPrice, hotelPrice, discount, loyaltyUsed,
+         finalTotal}.
+
+  Our implementation:
+    - UI / scripts: GET /api/bundle-price?...  (nginx → bundle-pricing:5111)
+    - bundle_pricing/app.py orchestrates:
+        1) GET http://flight:5102/availability  (cheapest matching flight)
+        2) GET http://flight:5102/flights/price   (alias of /price by flightNum)
+        3) GET http://hotel:5103/availability     (city, room type, dates)
+        4) GET http://hotel:5103/hotels/price     (alias of /price)
+        5) GET http://discount:5112/discounts/bundle-rule  (alias of /discount-rule)
+        6) GET http://loyalty:5105/loyalty/{cid}/points  (for loyaltyUsed / coins)
+
+  Diagram vs demo DBs:
+    The figure shows separate FlightDB, HotelDB, DiscountDB tables. In the repo,
+    flight/hotel/discount use **in-memory** Python structures for the demo; only
+    **booking** uses MySQL for PackageBookings-equivalent persistence. State this
+    simplification in the report.
+
+  loyaltyUsed on the diagram:
+    We populate **loyaltyUsed** from the customer’s coin balance and the request’s
+    optional `loyaltyCoinsToUseCents` — the diagram does not draw a separate
+    Loyalty box for search; our composite still includes that field in the JSON.
+
+--------------------------------------------------------------------------------
+III-B  BOOK PACKAGE (Composite diagram — happy path)
+--------------------------------------------------------------------------------
+
+  Diagram steps (typical numbering) → our code (booking/app.py create_booking):
+
+  1) UI POST {userID, flightID, hotelID, travellerDetails, …}
+     → POST /api/booking/booking  (same handler as POST /book-package on booking)
+
+  2) Customer account check
+     → GET http://account:5100/account/{customerID}
+     → Strict: 404 / inactive account fails or blocks per current code paths.
+
+  3) Traveller profile
+     → OutSystems REST via traveller_os + outsystems_client (not a separate
+     Docker service). Maps to “TravellerDB” in the diagram.
+
+  4) Reserve seat
+     → POST http://flight:5102/reserve-seat  (JSON bookingID, flightNum, seatNo, …)
+
+  5) Hold room
+     → POST http://hotel:5103/hold-room
+
+  6) Loyalty points + redeem before payment
+     → GET …/loyalty/{id}/points
+     → POST …/loyalty/{id}/redeem  (coins for discount)
+
+  7) Payment external API
+     → POST http://payment:5104/payment/process
+     → **Simulated** in-repo (not live Stripe). Say “Stripe-shaped external PSP
+     microservice” in the report if you align wording with the diagram.
+
+  8–11) After successful payment
+     → PUT flight confirm-seat, PUT hotel confirm-room
+     → PUT …/availability/{seat}/CONFIRMED and PUT …/availability/{hotelID}/CONFIRMED
+       (inventory adjustment on in-memory catalog — diagram “update availability”)
+
+  12) Notification
+     → POST http://notification:5106/notify/manual  (sync confirmation payload)
+     → AMQP publish routing_key **notify.user** with email, phone, bookingID, etc.
+
+  13) Loyalty earn
+     → POST …/loyalty/{id}/earn  (post-payment rewards / tier)
+
+  14–15) Response to UI
+     → JSON { code, data: booking.to_dict(), … }  (booking id = confirmation ref)
+
+  Saga / rollback (not on diagram):
+     If payment fails, booking calls release-seat and release-room. Mention in
+     report as compensating actions.
+
+--------------------------------------------------------------------------------
+III-C  CANCELLATION & REFUND (Cancellation diagram)
+--------------------------------------------------------------------------------
+
+  1) UI cancel {bookingID, userID}
+     → POST /api/booking/booking/cancel/{id}  or  POST /api/booking/cancel-booking
+
+  2–3) Refund payment
+     → POST …/refund-payment  (or /payment/refund-payment) with bookingID and
+     refundAmount. **paymentRef** is not required by our simulated payment service
+     but can be added in a future iteration — note if instructors ask.
+
+  4–5) Release seat
+     → Diagram: PUT /release-seat {flightRef}
+     → We call PUT …/flight/inventory/{seatNo}/release with bookingID + flightNum,
+       and flight **release-seat** also accepts **flightRef** in JSON for parity.
+
+  6–7) Release room
+     → Diagram: PUT /release-room/{id} {hotelRef}
+     → We call PUT …/hotel/inventory/{roomId}/release (composite room id).
+
+  8–9) Loyalty reversal (IMPORTANT — wording differs from diagram)
+     → Diagram often shows POST /loyalty/{customerID}/redeem for cancellation.
+     → Our implementation uses POST /loyalty/{customerID}/ **refund** with a JSON
+       body that reverses earned points and restores spent coins — **clearer
+       semantics** than overloading “redeem”. In the report: *“We implement the
+       diagram’s loyalty reversal using a dedicated /refund endpoint.”*
+
+  10) AMQP cancellation event
+     → Publish **notify.user** with cancelledAt, refundAmount, email, phone, …
+
+  11) Sync cancellation notice
+     → POST /notify/manual  (fallback / parallel path in our code)
+
+  12) UI result {status, refundAmt}
+     → HTTP 200 JSON with data.status CANCELLED and refund fields.
+
+  Extra step in code:
+     → PUT /availability/.../RELEASED on flight and hotel to restore **seat/room
+     counts** in the demo catalog after cancel.
+
+--------------------------------------------------------------------------------
+III-D  WHAT TO SAY IN THE REPORT (ONE PARAGRAPH EACH)
+--------------------------------------------------------------------------------
+
+  Search diagram:
+    “Bundle Pricing is a dedicated composite microservice that orchestrates HTTP
+    calls to Flight, Hotel, and Discount (and Loyalty for coin preview), exposed
+    to the browser via nginx at /api/bundle-price.”
+
+  Book diagram:
+    “Book Package logic is implemented in the booking service: synchronous HTTP
+    orchestration to Account, OutSystems-backed Traveller Profile, Flight, Hotel,
+    Loyalty, and Payment, followed by inventory confirmation, synchronous
+    notification, AMQP to the notification consumer, and loyalty earn.”
+
+  Cancel diagram:
+    “Cancellation follows refund-then-release-then-loyalty-reversal-then-notify;
+    we use loyalty /refund instead of /redeem for semantic clarity, and we add
+    explicit inventory RESTORE via availability PUTs for demo catalog consistency.”
 
 ================================================================================
 APPENDIX A — SAMPLE API PAYLOADS (FOR REPORT / TESTING)

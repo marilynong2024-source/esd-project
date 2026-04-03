@@ -75,7 +75,7 @@ Use this when writing the report appendix or rehearsing Q&A.
 | 3+ atomic microservices | `booking`, `flight`, `hotel`, `loyalty`, `payment`, `notification`, `discount`, `bundle-pricing`, `account`, `graphql_gateway`, etc. |
 | **OutSystems** | Traveller profile CRUD from booking (`traveller_os`, OutSystems client, `TRAVELLER_PROFILE_BASE_URL`). |
 | Reuse across scenarios | **Loyalty** + **payment** + **notification** in book and cancel; **flight**/**hotel** in search and book. |
-| External service | **Twilio** (UI-configured), optional **SMU** email; payment is **simulated** (Stripe-shaped demo — state that in report). |
+| External service | **Twilio** (UI-configured). Payment is **simulated** — state that in report. |
 | Orchestration / choreography (×2) | **Booking** orchestrates HTTP chain; **RabbitMQ** `notify.user` for async notification/Twilio. |
 | Own data store per service | Booking DB vs in-memory flight/hotel/loyalty/payment stores — state assumptions in report. |
 | ≥1 DB | `booking-db` MySQL + SQLAlchemy models. |
