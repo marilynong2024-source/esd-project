@@ -509,6 +509,7 @@ def create_booking():
 
     try:
         coins_to_spend_cents = int(max(0, int(data.get("coinsToSpendCents", 0) or 0)))
+        hold_token = str(data.get("seatHoldToken") or "").strip()
         seat_numbers = _parse_seat_numbers_payload(data)
         seat_number = seat_numbers[0] if seat_numbers else None
 
@@ -645,8 +646,8 @@ def create_booking():
         return _bad_request(f"Missing required field: {e.args[0]!r}")
 
     try:
-        db.session.add(booking)
-        db.session.commit()
+    db.session.add(booking)
+    db.session.commit()
     except sa_exc.SQLAlchemyError as e:
         db.session.rollback()
         print(f"[booking] DB error on create: {e}")
@@ -739,6 +740,7 @@ def create_booking():
             "flightNum": booking.flightID,
             "seatNo": seat_no,
             "seatNos": seat_numbers_for_hold,
+            "holdToken": hold_token,
             "travellers": traveller_docs,
             "adultCount": int(booking.adultCount or 0),
             "childCount": int(booking.childCount or 0),
@@ -752,12 +754,32 @@ def create_booking():
             timeout=5,
         )
         if not reserve_resp.ok:
+            upstream_msg = ""
+            try:
+                upstream_msg = str((reserve_resp.json() or {}).get("message") or "")
+            except Exception:
+                upstream_msg = ""
             _release_all()
             booking.status = "CANCELLED"
             db.session.commit()
+            if reserve_resp.status_code == 409:
+                return (
+                    jsonify(
+                        {
+                            "code": 409,
+                            "message": upstream_msg or "Seat unavailable, please choose again",
+                            "upstream": reserve_resp.status_code,
+                        }
+                    ),
+                    409,
+                )
             return (
                 jsonify(
-                    {"code": 502, "message": "Flight reserve-seat failed", "upstream": reserve_resp.status_code}
+                    {
+                        "code": 502,
+                        "message": upstream_msg or "Flight reserve-seat failed",
+                        "upstream": reserve_resp.status_code,
+                    }
                 ),
                 502,
             )
@@ -1454,7 +1476,7 @@ def cancel_booking(booking_id: int):
     booking.cancellationPolicyID = policy_id
     booking.cancellationTimestamp = now.isoformat()
     try:
-        db.session.commit()
+    db.session.commit()
     except sa_exc.SQLAlchemyError as e:
         db.session.rollback()
         print(f"[booking] DB error after refund for booking {booking_id}: {e}")

@@ -1,11 +1,57 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
+import json
+import os
+from pathlib import Path
 
 app = Flask(__name__)
 CORS(app)
 
+# Optional JSON file (e.g. /app/data/accounts.json + Docker volume) so signups survive container restarts.
+ACCOUNT_STORE_PATH = os.environ.get("ACCOUNT_STORE_PATH", "").strip() or None
+
+
+def _load_accounts_from_disk() -> None:
+    global ACCOUNTS, NEXT_ID
+    if not ACCOUNT_STORE_PATH:
+        return
+    path = Path(ACCOUNT_STORE_PATH)
+    if not path.is_file():
+        return
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        loaded = raw.get("accounts") or {}
+        if not isinstance(loaded, dict):
+            return
+        ACCOUNTS.clear()
+        for k, v in loaded.items():
+            if isinstance(v, dict):
+                ACCOUNTS[int(k)] = v
+        if ACCOUNTS:
+            ni = raw.get("next_id")
+            NEXT_ID = int(ni) if ni is not None else max(ACCOUNTS.keys()) + 1
+    except Exception as e:
+        print(f"[account] Could not load {ACCOUNT_STORE_PATH}: {e}")
+
+
+def _save_accounts_to_disk() -> None:
+    if not ACCOUNT_STORE_PATH:
+        return
+    path = Path(ACCOUNT_STORE_PATH)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "accounts": {str(k): v for k, v in ACCOUNTS.items()},
+            "next_id": NEXT_ID,
+        }
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[account] Could not save {ACCOUNT_STORE_PATH}: {e}")
+
+
 # In-memory store for demo purposes (seed aligns with `database/customer_db.sql` / `init_db.sql`).
+# Overwritten on startup if ACCOUNT_STORE_PATH file exists.
 ACCOUNTS = {
     1: {
         "email": "ava.chen@example.com",
@@ -69,6 +115,8 @@ ACCOUNTS = {
     },
 }
 NEXT_ID = 7
+
+_load_accounts_from_disk()
 
 
 def to_dict(record_id: int, record: dict) -> dict:
@@ -158,6 +206,7 @@ def signup():
         "createdAt": datetime.utcnow().isoformat(),
     }
     ACCOUNTS[record_id] = record
+    _save_accounts_to_disk()
 
     out = to_dict(record_id, record)
     out["displayName"] = f"{record.get('firstName') or ''} {record.get('lastName') or ''}".strip() or out["email"]
@@ -197,6 +246,7 @@ def create_account():
         "createdAt": datetime.utcnow().isoformat(),
     }
     ACCOUNTS[record_id] = record
+    _save_accounts_to_disk()
 
     return jsonify({"code": 201, "data": to_dict(record_id, record)}), 201
 
@@ -217,6 +267,7 @@ def update_account(customer_id: int):
             record[field] = data[field]
 
     ACCOUNTS[customer_id] = record
+    _save_accounts_to_disk()
     return jsonify({"code": 200, "data": to_dict(customer_id, record)}), 200
 
 

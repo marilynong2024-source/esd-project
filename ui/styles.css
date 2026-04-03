@@ -327,31 +327,23 @@ body {
 }
 
 .package-search__pax-grid {
-  /* Keep pax pickers compact + side-by-side (Skyscanner-style). */
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 10px;
+  /* Own full-width row so we are not bottom-aligned with the tall search button (avoids huge gap under summary). */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 8px 12px;
   align-items: end;
-  flex: 1 1 360px;
-  justify-content: flex-start;
+  flex: 0 0 100%;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .package-search__pax label {
-  /* 6 fields exist in this bar; we try to keep them horizontal by using
-     a smaller basis so more controls fit per row. */
-  flex: 1 1 175px;
-  min-width: 0;
-}
-
-@media (max-width: 640px) {
-  .package-search__pax label {
-    flex: 1 1 160px;
-  }
-}
-
-.package-search__pax label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   font-size: 0.8125rem;
   font-weight: 600;
+  min-width: 0;
 }
 
 .package-search__checkbox {
@@ -361,6 +353,8 @@ body {
   font-size: 0.8125rem;
   color: var(--muted);
   cursor: pointer;
+  flex: 1 1 220px;
+  align-self: center;
 }
 
 .package-search__checkbox input {
@@ -374,9 +368,10 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 12px 16px;
-  padding-top: 4px;
+  padding-top: 0;
   flex: 0 0 auto;
   margin-left: auto;
+  align-self: center;
 }
 
 @media (max-width: 900px) {
@@ -387,11 +382,19 @@ body {
     align-items: end;
   }
   .package-search__route,
-  .package-search__dates,
-  .package-search__pax-grid,
-  .package-search__actions {
+  .package-search__dates {
     flex: 1 1 210px;
     margin-left: 0;
+  }
+  .package-search__pax-grid {
+    flex: 0 0 100%;
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .package-search__actions {
+    flex: 1 1 200px;
+    margin-left: 0;
+    justify-content: flex-start;
   }
   .package-search__meta {
     flex: 0 0 100%;
@@ -548,6 +551,13 @@ body {
   padding: 0 16px 12px;
 }
 
+/* Inside main grid: no extra horizontal inset / margin (main already pads); tight row under progress */
+.booking-flow--in-main {
+  max-width: none;
+  margin: 0;
+  padding: 0 0 6px;
+}
+
 .booking-flow__list {
   list-style: none;
   margin: 0;
@@ -670,9 +680,39 @@ body {
   align-items: start;
 }
 
+/* Progress bar spans full width; trip + summary sit below with a small row gap (avoids a tall empty band). */
+.site-main.site-main--booking {
+  grid-template-columns: 1.55fr 0.95fr;
+  grid-template-areas:
+    "flow flow"
+    "booking sidebar";
+  row-gap: 10px;
+  column-gap: 24px;
+}
+
+.site-main.site-main--booking .col--booking {
+  grid-area: booking;
+}
+
+.site-main.site-main--booking .col--sidebar {
+  grid-area: sidebar;
+}
+
+.site-main.site-main--booking .booking-flow--in-main {
+  grid-area: flow;
+}
+
 @media (max-width: 900px) {
   .site-main {
     grid-template-columns: 1fr;
+  }
+
+  .site-main.site-main--booking {
+    grid-template-areas:
+      "flow"
+      "booking"
+      "sidebar";
+    row-gap: 8px;
   }
 }
 
@@ -753,11 +793,11 @@ h2 {
 }
 
 .card-sub {
-  margin: 6px 0 0;
-  font-size: 0.8125rem;
+  margin: 4px 0 0;
+  font-size: 0.78rem;
   color: var(--muted);
   font-weight: 400;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 .card-sub code {
@@ -1026,10 +1066,10 @@ button {
 
 .field-hint {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   font-weight: 400;
-  font-size: 0.78rem;
-  line-height: 1.5;
+  font-size: 0.72rem;
+  line-height: 1.3;
   color: var(--muted);
 }
 
@@ -1120,7 +1160,7 @@ button {
 
 /* ——— Bundle gallery (step 1) ——— */
 .bundle-gallery__hint {
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .bundle-filters {
@@ -1173,7 +1213,7 @@ button {
   display: flex;
   align-items: stretch;
   gap: 6px;
-  margin: 4px 0 12px;
+  margin: 0 0 10px;
 }
 
 .bundle-gallery {
@@ -1642,8 +1682,10 @@ button.seat--zone-exit_row.seat--window {
 }
 
 .segment-tab--locked {
-  opacity: 0.45;
-  cursor: default;
+  opacity: 0.52;
+  cursor: not-allowed;
+  background: #f5f5f4;
+  border-style: dashed;
 }
 
 .segment-panel[hidden] {
@@ -1840,6 +1882,16 @@ button.seat--zone-exit_row.seat--window {
 
 #companionTravellerSelect {
   min-height: 110px;
+}
+
+.seat-hold-timer {
+  margin: 8px 0 0;
+  font-weight: 600;
+  color: #9a3412;
+}
+
+.payment-card-grid {
+  margin-top: 8px;
 }
 
 /* ——— Login gate (loyalty vs guest) ——— */

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -15,6 +16,30 @@ CORS(app)
 #
 # Supports multi-seat reservations by storing `seatNos` (list) under the same bookingID.
 FLIGHT_RESERVATIONS: dict[int, dict] = {}
+HOLD_MINUTES = int(os.environ.get("SEAT_HOLD_MINUTES", "15") or "15")
+
+
+def _utc_now() -> datetime:
+    return datetime.utcnow()
+
+
+def _parse_iso_dt(raw):
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw))
+    except Exception:
+        return None
+
+
+def _purge_expired_holds():
+    now = _utc_now()
+    for bid, rec in list(FLIGHT_RESERVATIONS.items()):
+        if str(rec.get("status", "")).upper() != "HELD":
+            continue
+        expires_at = _parse_iso_dt(rec.get("holdExpiresAt"))
+        if expires_at and expires_at <= now:
+            FLIGHT_RESERVATIONS.pop(bid, None)
 
 
 def _online_seat_selection(flight_num: str) -> bool:
@@ -510,6 +535,7 @@ def reserve_seat():
       - seatNo (string) OR seatNos (array of strings) (use "AUTO" if not modeled)
       - travellers (optional array with passportNumber / mealPreference)
     """
+    _purge_expired_holds()
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
@@ -519,6 +545,7 @@ def reserve_seat():
     seat_nos_raw = data.get("seatNos") or data.get("seatNumbers")
     flight_num = (data.get("flightNum") or data.get("flightID") or "").strip().upper()
     travellers = data.get("travellers") if isinstance(data.get("travellers"), list) else []
+    hold_token = str(data.get("holdToken") or "").strip()
     passport_number = data.get("passportNumber")
     meal_preference = data.get("mealPreference")
 
@@ -545,9 +572,21 @@ def reserve_seat():
     # Backward compatible single-seat key (first seat).
     seat_no = seat_nos[0]
 
-    # Conflict: if another pending booking holds the same seat, reject.
+    requested = {s for s in seat_nos if s and s != "AUTO"}
+
+    # If client is upgrading an existing temporary hold into a booking-bound hold,
+    # remove that hold first so it does not conflict with itself.
+    if hold_token:
+        hold_key = f"HOLD:{hold_token}"
+        hold_rec = FLIGHT_RESERVATIONS.get(hold_key)
+        if hold_rec:
+            FLIGHT_RESERVATIONS.pop(hold_key, None)
+
+    # Conflict: if another pending booking/hold has the same seat, reject.
     for bid, rec in FLIGHT_RESERVATIONS.items():
         if bid == booking_id:
+            continue
+        if hold_token and str(rec.get("holdToken") or "").strip() == hold_token:
             continue
         rec_status = str(rec.get("status", "")).upper()
         if rec_status not in ("HELD", "CONFIRMED"):
@@ -560,7 +599,6 @@ def reserve_seat():
             other_set = {str(rec.get("seatNo", "")).strip().upper()} if rec.get("seatNo") else set()
 
         # "AUTO" means "not modelled" in this demo, so it doesn't participate in seat conflicts.
-        requested = {s for s in seat_nos if s and s != "AUTO"}
         if requested and (other_set & requested):
             first_conflict = sorted(list(other_set & requested))[0]
             return (
@@ -568,6 +606,8 @@ def reserve_seat():
                 409,
             )
 
+    now = _utc_now()
+    expires = now + timedelta(minutes=HOLD_MINUTES)
     FLIGHT_RESERVATIONS[booking_id] = {
         "bookingID": booking_id,
         "flightNum": flight_num,
@@ -576,6 +616,9 @@ def reserve_seat():
         "travellers": travellers,
         "passportNumber": passport_number,
         "mealPreference": meal_preference,
+        "holdToken": hold_token or None,
+        "holdStartedAt": now.isoformat(),
+        "holdExpiresAt": expires.isoformat(),
         "status": "HELD",
     }
     return jsonify({"code": 200, "data": FLIGHT_RESERVATIONS[booking_id]}), 200
@@ -629,6 +672,7 @@ def confirm_seat():
     Confirm a previously reserved seat after payment.
     Body: { bookingID }
     """
+    _purge_expired_holds()
     data = request.get_json(silent=True) or {}
     booking_id = data.get("bookingID") if isinstance(data, dict) else None
     try:
@@ -650,9 +694,16 @@ def release_seat():
     Release a held seat (rollback) on payment failure.
     Body: { bookingID } or { flightRef } (flightRef = flightNum string for diagram parity).
     """
+    _purge_expired_holds()
     data = request.get_json(silent=True) or {}
     booking_id = data.get("bookingID") if isinstance(data, dict) else None
     flight_ref = (data.get("flightRef") or data.get("flightNum") or "").strip().upper()
+    hold_token = str(data.get("holdToken") or "").strip()
+    if hold_token:
+        hold_key = f"HOLD:{hold_token}"
+        if hold_key in FLIGHT_RESERVATIONS:
+            FLIGHT_RESERVATIONS.pop(hold_key, None)
+            return jsonify({"code": 200, "data": {"holdToken": hold_token}}), 200
     if booking_id is None and flight_ref:
         for bid, rec in FLIGHT_RESERVATIONS.items():
             if str(rec.get("flightNum", "")).strip().upper() == flight_ref and rec.get(
@@ -737,6 +788,92 @@ def release_inventory_seat(seat_no: str):
             FLIGHT_RESERVATIONS.pop(target_bid, None)
 
     return jsonify({"code": 200, "data": {"seatNo": seat, "status": "AVAILABLE"}}), 200
+
+
+@app.route("/seat-holds", methods=["POST"])
+def create_seat_hold():
+    """
+    Create/update a temporary seat hold (15-min default).
+    Body: { holdToken, flightNum, seatNos[] }
+    """
+    _purge_expired_holds()
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+
+    hold_token = str(data.get("holdToken") or "").strip()
+    flight_num = str(data.get("flightNum") or data.get("flightID") or "").strip().upper()
+    seat_nos_raw = data.get("seatNos") or data.get("seatNumbers") or []
+    if not hold_token:
+        return jsonify({"code": 400, "message": "holdToken is required"}), 400
+    if not flight_num:
+        return jsonify({"code": 400, "message": "flightNum is required"}), 400
+    if not isinstance(seat_nos_raw, list) or not seat_nos_raw:
+        return jsonify({"code": 400, "message": "seatNos[] is required"}), 400
+
+    seat_nos = []
+    for x in seat_nos_raw:
+        s = str(x or "").strip().upper()
+        if s:
+            seat_nos.append(s)
+    requested = {s for s in seat_nos if s != "AUTO"}
+    if not requested:
+        return jsonify({"code": 400, "message": "seatNos[] must include real seat codes"}), 400
+
+    # Remove previous hold owned by this token before checking conflicts.
+    FLIGHT_RESERVATIONS.pop(f"HOLD:{hold_token}", None)
+
+    for _, rec in FLIGHT_RESERVATIONS.items():
+        rec_status = str(rec.get("status", "")).upper()
+        if rec_status not in ("HELD", "CONFIRMED"):
+            continue
+        if str(rec.get("flightNum") or "").strip().upper() != flight_num:
+            continue
+        if str(rec.get("holdToken") or "").strip() == hold_token:
+            continue
+        other = rec.get("seatNos") if isinstance(rec.get("seatNos"), list) else [rec.get("seatNo")]
+        other_set = {str(s or "").strip().upper() for s in other if s}
+        conflict = requested & other_set
+        if conflict:
+            seat = sorted(list(conflict))[0]
+            return jsonify({"code": 409, "message": f"Seat {seat} unavailable", "seatNo": seat}), 409
+
+    now = _utc_now()
+    expires = now + timedelta(minutes=HOLD_MINUTES)
+    rec = {
+        "bookingID": None,
+        "holdToken": hold_token,
+        "flightNum": flight_num,
+        "seatNo": seat_nos[0],
+        "seatNos": seat_nos,
+        "holdStartedAt": now.isoformat(),
+        "holdExpiresAt": expires.isoformat(),
+        "status": "HELD",
+    }
+    FLIGHT_RESERVATIONS[f"HOLD:{hold_token}"] = rec
+    return jsonify({"code": 200, "data": rec}), 200
+
+
+@app.route("/seat-holds/<flight_num>", methods=["GET"])
+def list_active_holds(flight_num: str):
+    """List currently-held seats for a flight (excluding optional token owner)."""
+    _purge_expired_holds()
+    fnum = str(flight_num or "").strip().upper()
+    exclude_token = str(request.args.get("excludeToken") or "").strip()
+    seats = set()
+    for _, rec in FLIGHT_RESERVATIONS.items():
+        if str(rec.get("status", "")).upper() != "HELD":
+            continue
+        if str(rec.get("flightNum") or "").strip().upper() != fnum:
+            continue
+        if exclude_token and str(rec.get("holdToken") or "").strip() == exclude_token:
+            continue
+        others = rec.get("seatNos") if isinstance(rec.get("seatNos"), list) else [rec.get("seatNo")]
+        for s in others:
+            up = str(s or "").strip().upper()
+            if up and up != "AUTO":
+                seats.add(up)
+    return jsonify({"code": 200, "data": {"flightNum": fnum, "seats": sorted(list(seats))}}), 200
 
 
 if __name__ == "__main__":

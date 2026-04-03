@@ -63,7 +63,8 @@ const BUNDLE_PRESETS = [
     region: "asia",
     depart: "2026-05-01T10:00",
     ret: "2026-05-06T11:00",
-    blurb: "5 nights · culture & dining",
+    blurb:
+      "5 nights · Shibuya skyline, Tsukiji-style eats, day trip to Kamakura — curated for first-timers & repeat visitors.",
     image: "https://picsum.photos/seed/pkg-tokyo/520/300",
   },
   {
@@ -75,7 +76,8 @@ const BUNDLE_PRESETS = [
     region: "asia",
     depart: "2026-06-10T08:00",
     ret: "2026-06-14T18:00",
-    blurb: "4 nights · temples & street food",
+    blurb:
+      "4 nights · Riverside temples, Chatuchak market crawl, rooftop bars & Michelin street stalls in one long weekend.",
     image: "https://picsum.photos/seed/pkg-bangkok/520/300",
   },
   {
@@ -87,7 +89,8 @@ const BUNDLE_PRESETS = [
     region: "asia",
     depart: "2026-07-05T09:00",
     ret: "2026-07-12T10:00",
-    blurb: "7 nights · beaches & spas",
+    blurb:
+      "7 nights · Ubud rice terraces & spas, Seminyak dining, optional snorkel day — slow travel with pool time.",
     image: "https://picsum.photos/seed/pkg-bali/520/300",
   },
   {
@@ -99,7 +102,8 @@ const BUNDLE_PRESETS = [
     region: "asia",
     depart: "2026-08-02T09:30",
     ret: "2026-08-09T16:00",
-    blurb: "7 nights · Opera House & coast",
+    blurb:
+      "7 nights · Harbour Bridge walk, Bondi to Coogee coastal path, Blue Mountains day — classic Australia intro.",
     image: "https://picsum.photos/seed/pkg-sydney/520/300",
   },
   {
@@ -111,7 +115,8 @@ const BUNDLE_PRESETS = [
     region: "intercontinental",
     depart: "2026-05-20T23:55",
     ret: "2026-05-28T11:00",
-    blurb: "8 nights · museums & theatre",
+    blurb:
+      "8 nights · West End shows, British Museum deep dive, day trips to Windsor or Cambridge — full city immersion.",
     image: "https://picsum.photos/seed/pkg-london/520/300",
   },
   {
@@ -123,7 +128,8 @@ const BUNDLE_PRESETS = [
     region: "europe",
     depart: "2026-06-02T09:00",
     ret: "2026-06-07T17:00",
-    blurb: "5 nights · Louvre & cafés",
+    blurb:
+      "5 nights · Eurostar-ready, Montmartre sunsets, pastry crawl in Le Marais — short Euro hop from London.",
     image: "https://picsum.photos/seed/pkg-paris/520/300",
   },
   {
@@ -135,7 +141,8 @@ const BUNDLE_PRESETS = [
     region: "europe",
     depart: "2026-06-10T10:00",
     ret: "2026-06-16T20:00",
-    blurb: "6 nights · West End & markets",
+    blurb:
+      "6 nights · Thames walks, Borough Market, West End shows — reverse hop with full English fuel.",
     image: "https://picsum.photos/seed/pkg-london-par/520/300",
   },
   {
@@ -147,7 +154,8 @@ const BUNDLE_PRESETS = [
     region: "intercontinental",
     depart: "2026-06-18T11:00",
     ret: "2026-06-26T16:00",
-    blurb: "8 nights · Shinjuku & day trips",
+    blurb:
+      "8 nights · Jet-lag friendly pacing, Shibuya & Asakusa mix, day trip to Nikkō or Hakone.",
     image: "https://picsum.photos/seed/pkg-lon-tok/520/300",
   },
   {
@@ -159,7 +167,8 @@ const BUNDLE_PRESETS = [
     region: "asia",
     depart: "2026-07-01T08:00",
     ret: "2026-07-08T10:00",
-    blurb: "7 nights · hawkers & Marina Bay",
+    blurb:
+      "7 nights · Hawker centres, Gardens by the Bay, Sentosa option — swap harbour cities in one week.",
     image: "https://picsum.photos/seed/pkg-syd-sin/520/300",
   },
   {
@@ -171,7 +180,8 @@ const BUNDLE_PRESETS = [
     region: "asia",
     depart: "2026-08-01T11:00",
     ret: "2026-08-07T09:00",
-    blurb: "6 nights · two-city foodie hop",
+    blurb:
+      "6 nights · Konbini mornings to night markets — two capitals, one appetite, maximum contrast.",
     image: "https://picsum.photos/seed/pkg-tyo-bkk/520/300",
   },
   {
@@ -185,6 +195,84 @@ const BUNDLE_PRESETS = [
     ret: "2026-09-10T14:00",
     blurb: "7 nights · temples to surf",
     image: "https://picsum.photos/seed/pkg-bkk-dps/520/300",
+  },
+  {
+    id: "paris-romance",
+    title: "Paris art & café week",
+    route: "Singapore → Paris",
+    origin: "Singapore",
+    destination: "Paris",
+    region: "intercontinental",
+    depart: "2026-04-22T09:30",
+    ret: "2026-04-29T18:00",
+    blurb:
+      "7 nights · Louvre & Orsay by day, Marais boutiques, Seine sunset walks — long-haul classic with pastry stops.",
+    image: "https://picsum.photos/seed/pkg-par-sin/520/300",
+  },
+  {
+    id: "bali-wellness",
+    title: "Bali slow wellness",
+    route: "Singapore → Bali",
+    origin: "Singapore",
+    destination: "Bali",
+    region: "asia",
+    depart: "2026-09-10T10:00",
+    ret: "2026-09-17T12:00",
+    blurb:
+      "7 nights · Morning yoga, spa afternoons, Jimbaran seafood sunset — same island, quieter rhythm than the surf pack.",
+    image: "https://picsum.photos/seed/pkg-bali-well/520/300",
+  },
+  {
+    id: "bkk-weekend",
+    title: "Bangkok long weekend",
+    route: "Singapore → Bangkok",
+    origin: "Singapore",
+    destination: "Bangkok",
+    region: "asia",
+    depart: "2026-12-04T07:00",
+    ret: "2026-12-08T20:00",
+    blurb:
+      "4 nights · Chao Phraya dinner cruise, Chatuchak Saturday, Thonglor café hopping — short break, maximum bites.",
+    image: "https://picsum.photos/seed/pkg-bkk-wknd/520/300",
+  },
+  {
+    id: "syd-spring",
+    title: "Sydney spring coastal",
+    route: "Singapore → Sydney",
+    origin: "Singapore",
+    destination: "Sydney",
+    region: "asia",
+    depart: "2026-10-22T08:30",
+    ret: "2026-10-29T17:00",
+    blurb:
+      "7 nights · Coastal walks, Barangaroo dining, optional Hunter Valley — spring light & longer daylight hours.",
+    image: "https://picsum.photos/seed/pkg-syd-spr/520/300",
+  },
+  {
+    id: "lon-festive",
+    title: "London winter lights",
+    route: "Singapore → London",
+    origin: "Singapore",
+    destination: "London",
+    region: "intercontinental",
+    depart: "2026-12-10T23:45",
+    ret: "2026-12-20T12:00",
+    blurb:
+      "10 nights · West End, South Bank markets, museum days — festive city glow with cosy pub stops.",
+    image: "https://picsum.photos/seed/pkg-lon-win/520/300",
+  },
+  {
+    id: "tyo-sakura",
+    title: "Tokyo spring dates",
+    route: "Singapore → Tokyo",
+    origin: "Singapore",
+    destination: "Tokyo",
+    region: "asia",
+    depart: "2026-03-28T09:00",
+    ret: "2026-04-02T16:00",
+    blurb:
+      "5 nights · Early sakura window, Ueno park picnics, day trip to Kawaguchiko — alternate Tokyo window vs city break.",
+    image: "https://picsum.photos/seed/pkg-tyo-sak/520/300",
   },
 ];
 
@@ -253,10 +341,17 @@ const TRIP_WINDOW_OPTIONS = [
   { value: "2026-11-10T10:00|||2026-11-17T12:00", label: "10 Nov – 17 Nov 2026 · 7 nights" },
 ];
 
+function getPackageDropdownSelectionId() {
+  const sel = document.getElementById("bundlePackageSelect");
+  if (!sel || sel.tagName !== "SELECT") return "";
+  return String(sel.value || "").trim();
+}
+
 function getFilteredPresets() {
-  // Bundle presets are no longer filtered by extra dropdowns in the UI.
-  // We still keep this helper so existing callers work unchanged.
-  return BUNDLE_PRESETS;
+  const only = getPackageDropdownSelectionId();
+  if (!only) return BUNDLE_PRESETS;
+  const hit = BUNDLE_PRESETS.find((x) => x.id === only);
+  return hit ? [hit] : BUNDLE_PRESETS;
 }
 
 /**
@@ -322,7 +417,7 @@ function bundleCardPriceLabel(presetId) {
   return {
     html: `
       <span class="bundle-price__was">Was SGD ${list}</span>
-      <span class="bundle-price__now">Now SGD ${final}</span>
+      <span class="bundle-price__now bundle-price__now--deal">Now SGD ${final}</span>
       <span class="bundle-price__save">Save SGD ${savings}</span>
     `,
   };
@@ -344,13 +439,14 @@ async function refreshBundleCardPrices() {
   const coinsInput = document.getElementById("coinsToSpendCents");
   const coins = Math.max(0, Number(coinsInput?.value || 0));
 
-  for (const p of BUNDLE_PRESETS) {
+  const presetsForPricing = getFilteredPresets();
+  for (const p of presetsForPricing) {
     bundleCardPriceCache.set(p.id, { loading: true });
   }
   updateBundleCardPriceLabels();
 
   await Promise.all(
-    BUNDLE_PRESETS.map(async (p) => {
+    presetsForPricing.map(async (p) => {
       const qs = new URLSearchParams();
       qs.set("origin", p.origin);
       qs.set("destination", p.destination);
@@ -378,7 +474,9 @@ async function refreshBundleCardPrices() {
         return;
       }
       bundleCardPriceCache.set(p.id, {
-        listTotal: Number(data.listPriceTotal ?? data.finalTotal),
+        listTotal: Number(
+          data.listPriceTotal != null ? data.listPriceTotal : data.finalTotal
+        ),
         finalTotal: Number(data.finalTotal),
         err: null,
       });
@@ -554,7 +652,7 @@ function populateBundlePackageSelect() {
   ph.value = "";
   ph.textContent = "— Select a package —";
   sel.appendChild(ph);
-  for (const p of getFilteredPresets()) {
+  for (const p of BUNDLE_PRESETS) {
     const o = document.createElement("option");
     o.value = p.id;
     o.textContent = `${p.title} (${p.route})`;
@@ -593,6 +691,8 @@ function setupBundleFineTuneListeners() {
     const v = e.target.value;
     if (!v) {
       clearBundleSelectionState();
+      renderBundleGallery();
+      scheduleBundleCardPriceRefresh();
       return;
     }
     selectBundlePreset(v);
@@ -737,6 +837,9 @@ let seatRefreshToken = 0;
 // - codes[0] is the lead traveller seat
 // - the rest are companion seats (auto-assigned in this demo)
 let selectedSeatCodes = [];
+const SEAT_HOLD_TOKEN_KEY = "horizonSeatHoldToken";
+let seatHoldExpiresAtIso = "";
+let seatHoldTimerId = null;
 
 /**
  * Typical narrow-body 3–3 layout: A/F window, C/D aisle, B/E middle.
@@ -977,6 +1080,74 @@ function refreshPricePreview() {
 
   const { finalPaid } = computeFinalPriceBreakdown();
   el.textContent = Number.isFinite(finalPaid) ? finalPaid.toFixed(2) : "-";
+  const splitHint = document.getElementById("paymentSplitHint");
+  if (splitHint) {
+    if (Number(finalPaid) <= 0) {
+      splitHint.textContent =
+        "Your coins fully cover this booking. Card details are optional for this payment.";
+    } else {
+      splitHint.textContent = `Remaining cash to pay by card: SGD ${Number(finalPaid).toFixed(2)}.`;
+    }
+  }
+}
+
+function isCardDetailsValidForAmount(amountToPay) {
+  if (Number(amountToPay || 0) <= 0) return { ok: true };
+  const name = String(document.getElementById("paymentCardName")?.value || "").trim();
+  const numRaw = String(document.getElementById("paymentCardNumber")?.value || "").replace(/\s+/g, "");
+  const exp = String(document.getElementById("paymentCardExpiry")?.value || "").trim();
+  const cvc = String(document.getElementById("paymentCardCvc")?.value || "").trim();
+  if (!name) return { ok: false, message: "Enter cardholder name." };
+  if (!/^\d{13,19}$/.test(numRaw)) return { ok: false, message: "Enter a valid card number (13-19 digits)." };
+  if (!/^\d{2}\/\d{2}$/.test(exp)) return { ok: false, message: "Enter expiry as MM/YY." };
+  if (!/^\d{3,4}$/.test(cvc)) return { ok: false, message: "Enter a valid CVC." };
+  return { ok: true };
+}
+
+function validateBookingStepBeforeNext(stepIndex) {
+  if (stepIndex === 0) {
+    const cid = Number(document.getElementById("customerID")?.value || 0);
+    const pkg = String(document.getElementById("bundlePackageSelect")?.value || "").trim();
+    if (cid < 1) return "Please sign in and select who this booking is for.";
+    if (!pkg) return "Choose a bundle package before continuing.";
+    return "";
+  }
+  if (stepIndex === 1) {
+    const lead = Number(document.getElementById("leadTravellerSelect")?.value || 0);
+    if (lead < 1) return "Choose a lead traveller profile before continuing.";
+    return "";
+  }
+  if (stepIndex === 2) {
+    const hid = Number(document.getElementById("hotelID")?.value || 0);
+    const room = String(document.getElementById("hotelRoomType")?.value || "").trim();
+    if (hid < 1 || !room) return "Pick a hotel and room type before continuing.";
+    return "";
+  }
+  if (stepIndex === 3) {
+    const flightId = String(document.getElementById("flightID")?.value || "").trim();
+    if (!flightId) return "Choose a flight option before continuing.";
+    const seatPol = getSeatPolicy(flightId);
+    if (seatPol.onlineSeatSelection) {
+      const required = getSeatRequiredCount();
+      if (required < 1) return "Pick your lead traveller before selecting seats.";
+      if (!Array.isArray(selectedSeatCodes) || selectedSeatCodes.length !== required) {
+        return `Select seats for ${required} travellers before continuing.`;
+      }
+    }
+    return "";
+  }
+  return "";
+}
+
+function formatCardNumberInput(raw) {
+  const digits = String(raw || "").replace(/\D+/g, "").slice(0, 19);
+  return digits.replace(/(.{4})/g, "$1 ").trim();
+}
+
+function formatCardExpiryInput(raw) {
+  const digits = String(raw || "").replace(/\D+/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}/${digits.slice(2)}`;
 }
 
 function setBundleResultVisible(_isVisible) {
@@ -1011,7 +1182,13 @@ async function applyBundlePricingResult(bundle, inputsForThisCall) {
     if (![...flightIdEl.options].some((o) => o.value === fn)) {
       const opt = document.createElement("option");
       opt.value = fn;
-      opt.textContent = `${fn} · from bundle quote`;
+      const depText = String(inputsForThisCall?.departDate || "").replace("T", " ").slice(0, 16);
+      const priceText = Number.isFinite(Number(bundle?.flightPrice))
+        ? `S$${Number(bundle.flightPrice).toFixed(0)}`
+        : Number.isFinite(Number(bundle?.finalTotal))
+          ? `S$${Number(bundle.finalTotal).toFixed(0)}`
+          : "price from quote";
+      opt.textContent = `${fn} · ${depText || "bundle timing"} · ${priceText}`;
       flightIdEl.appendChild(opt);
     }
     flightIdEl.value = fn;
@@ -1182,10 +1359,10 @@ function renderBundleGallery() {
     btn.dataset.presetId = p.id;
     btn.setAttribute("role", "listitem");
     btn.setAttribute("aria-pressed", "false");
-    const priceText = bundleCardPriceLabel(p.id);
+    const priceBlock = bundleCardPriceLabel(p.id);
     btn.innerHTML = `
       <span class="bundle-card__media" style="background-image:url('${escapeHtml(p.image)}')"></span>
-      <span class="bundle-card__price" data-preset-id="${escapeHtml(p.id)}">${escapeHtml(priceText)}</span>
+      <span class="bundle-card__price" data-preset-id="${escapeHtml(p.id)}">${priceBlock.html}</span>
       <span class="bundle-card__body">
         <span class="bundle-card__route">${escapeHtml(p.route)}</span>
         <span class="bundle-card__title">${escapeHtml(p.title)}</span>
@@ -1223,6 +1400,7 @@ function selectBundlePreset(presetId) {
   ensureTripWindowOption(preset.depart, preset.ret);
   applyTripWindowFromSelect();
 
+  renderBundleGallery();
   document.querySelectorAll(".bundle-card").forEach((el) => {
     const on = el.dataset.presetId === presetId;
     el.classList.toggle("bundle-card--selected", on);
@@ -1230,6 +1408,7 @@ function selectBundlePreset(presetId) {
   });
 
   void searchBundlePricing();
+  scheduleBundleCardPriceRefresh();
 }
 
 function extractAirlineCode(flightId) {
@@ -1314,6 +1493,7 @@ function getSeatPolicy(flightId) {
 
 function clearSeatSelection() {
   selectedSeatCodes = [];
+  startSeatHoldTimer("");
   document.getElementById("seatNumber").value = "";
   document.getElementById("seatSelectedDisplay").textContent = "—";
   const detail = document.getElementById("seatSelectedDetail");
@@ -1393,6 +1573,89 @@ function selectSeatByCode(code) {
   const btn = document.querySelector(`#seatMap button.seat[data-seat="${up}"]`);
   if (!btn || btn.disabled) return;
   selectSeat(up);
+}
+
+function getSeatHoldToken() {
+  let t = "";
+  try {
+    t = sessionStorage.getItem(SEAT_HOLD_TOKEN_KEY) || "";
+  } catch {
+    t = "";
+  }
+  if (!t) {
+    t = `hold_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      sessionStorage.setItem(SEAT_HOLD_TOKEN_KEY, t);
+    } catch {
+      // ignore
+    }
+  }
+  return t;
+}
+
+function renderSeatHoldTimer() {
+  const el = document.getElementById("seatHoldTimer");
+  if (!el) return;
+  if (!seatHoldExpiresAtIso) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const exp = new Date(seatHoldExpiresAtIso).getTime();
+  const now = Date.now();
+  const remainMs = Math.max(0, exp - now);
+  const mins = Math.floor(remainMs / 60000);
+  const secs = Math.floor((remainMs % 60000) / 1000);
+  el.hidden = false;
+  el.textContent = `Seat hold timer: ${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")} remaining`;
+  if (remainMs <= 0) {
+    seatHoldExpiresAtIso = "";
+    if (seatHoldTimerId) {
+      clearInterval(seatHoldTimerId);
+      seatHoldTimerId = null;
+    }
+    void refreshTakenSeatsForFlight(document.getElementById("flightID")?.value || "");
+  }
+}
+
+function startSeatHoldTimer(expiresAtIso) {
+  seatHoldExpiresAtIso = String(expiresAtIso || "").trim();
+  if (seatHoldTimerId) {
+    clearInterval(seatHoldTimerId);
+    seatHoldTimerId = null;
+  }
+  renderSeatHoldTimer();
+  if (seatHoldExpiresAtIso) {
+    seatHoldTimerId = setInterval(renderSeatHoldTimer, 1000);
+  }
+}
+
+async function tryHoldCurrentSeats() {
+  const flightId = String(document.getElementById("flightID")?.value || "").trim().toUpperCase();
+  const required = getSeatRequiredCount();
+  if (!flightId || required < 1) {
+    return { ok: false, message: "Choose a flight and lead traveller first." };
+  }
+  if (!Array.isArray(selectedSeatCodes) || selectedSeatCodes.length !== required) {
+    return { ok: false, message: `Select seats for ${required} travellers first.` };
+  }
+  const holdToken = getSeatHoldToken();
+  const out = await fetchJson(`${FLIGHT_BASE}/seat-holds`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      holdToken,
+      flightNum: flightId,
+      seatNos: selectedSeatCodes.map((s) => String(s).trim().toUpperCase()),
+    }),
+  });
+  if (out.networkError) return { ok: false, message: out.errorMessage || "Network error while holding seats." };
+  if (!out.ok || out.body?.code !== 200) {
+    return { ok: false, message: out.body?.message || `Could not hold seats (HTTP ${out.status}).` };
+  }
+  const expiresAt = out.body?.data?.holdExpiresAt || "";
+  if (expiresAt) startSeatHoldTimer(expiresAt);
+  return { ok: true };
 }
 
 function getSeatRequiredCount() {
@@ -1680,19 +1943,30 @@ async function refreshTakenSeatsForFlight(flightId) {
   if (!fid) return;
 
   const token = ++seatRefreshToken;
-  const out = await fetchJson(`${API_BASE}/booking/seats/${encodeURIComponent(fid)}`);
+  const outBooked = await fetchJson(`${API_BASE}/booking/seats/${encodeURIComponent(fid)}`);
   if (token !== seatRefreshToken) return;
-
-  if (out.networkError || !out.ok) {
+  if (outBooked.networkError || !outBooked.ok) {
     currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
     resetSeatMap();
     return;
   }
 
-  const seats = out.body?.data?.seats;
+  const holdToken = getSeatHoldToken();
+  const outHeld = await fetchJson(
+    `${FLIGHT_BASE}/seat-holds/${encodeURIComponent(fid)}?excludeToken=${encodeURIComponent(holdToken)}`
+  );
+
+  const seats = outBooked.body?.data?.seats;
+  const heldSeats = outHeld.ok ? outHeld.body?.data?.seats : [];
   const merged = new Set(DEFAULT_TAKEN_SEATS);
   if (Array.isArray(seats)) {
     seats.forEach((s) => {
+      const up = String(s || "").trim().toUpperCase();
+      if (up) merged.add(up);
+    });
+  }
+  if (Array.isArray(heldSeats)) {
+    heldSeats.forEach((s) => {
       const up = String(s || "").trim().toUpperCase();
       if (up) merged.add(up);
     });
@@ -2258,6 +2532,15 @@ async function applyDemoProfile() {
     syncPackageSearchFromBundleFields();
     updatePackageTripSummary();
   }
+
+  const routePreset = BUNDLE_PRESETS.find(
+    (x) => x.origin === p.bundleOrigin && x.destination === p.bundleDestination
+  );
+  if (routePreset) selectBundlePreset(routePreset.id);
+  else {
+    renderBundleGallery();
+    scheduleBundleCardPriceRefresh();
+  }
 }
 
 async function setManualDefaults() {
@@ -2574,6 +2857,7 @@ async function onCreateBookingSubmit(e) {
         ? selectedSeatCodes.map((s) => String(s).trim().toUpperCase())
         : []
       : undefined,
+    seatHoldToken: seatPol.onlineSeatSelection ? getSeatHoldToken() : undefined,
   };
   if (passengerEmailRaw) payload.passengerEmail = passengerEmailRaw;
   if (passengerPhoneRaw) payload.passengerPhone = passengerPhoneRaw;
@@ -2599,6 +2883,12 @@ async function onCreateBookingSubmit(e) {
       refreshPricePreview();
       payload.totalPrice = breakdown.finalPaid;
       payload.coinsToSpendCents = breakdown.coinsToSpendCents;
+      const cardCheck = isCardDetailsValidForAmount(breakdown.finalPaid);
+      if (!cardCheck.ok) {
+        setError(createError, cardCheck.message || "Enter card details to continue payment.");
+        createBtn.disabled = false;
+        return;
+      }
     }
 
     const out = await fetchJson(`${API_BASE}/booking`, {
@@ -2658,6 +2948,7 @@ async function onCreateBookingSubmit(e) {
 
     showResult(data, "Trip confirmed");
     document.getElementById("cancelBookingID").value = String(data.data.id);
+    startSeatHoldTimer("");
 
     updateSeatSelectionUI();
     await updateLoyaltySummary(payload.customerID);
@@ -2907,6 +3198,10 @@ function setupBookingFlowTabs() {
         const isLocked = i > activeBookingStepIndex;
         tab.classList.toggle("segment-tab--active", isActive);
         tab.classList.toggle("segment-tab--locked", isLocked);
+        tab.setAttribute(
+          "title",
+          isLocked ? "Complete current step before opening this step." : ""
+        );
         tab.setAttribute("aria-selected", isActive ? "true" : "false");
         tab.tabIndex = isActive ? 0 : -1;
       }
@@ -2939,12 +3234,30 @@ function setupBookingFlowTabs() {
   };
 
   backBtn?.addEventListener("click", () => setActiveStep(activeBookingStepIndex - 1));
-  nextBtn?.addEventListener("click", () => {
+  nextBtn?.addEventListener("click", async () => {
     const steps = BOOKING_FLOW_STEPS;
     const last = steps.length - 1;
     if (activeBookingStepIndex >= last) {
       document.getElementById("createBtn")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
+    }
+    const stepValidationError = validateBookingStepBeforeNext(activeBookingStepIndex);
+    if (stepValidationError) {
+      setError(document.getElementById("createError"), stepValidationError);
+      return;
+    }
+    const currentPanel = steps[activeBookingStepIndex]?.panelId;
+    if (currentPanel === "bookingStep3Panel") {
+      const seatPol = getSeatPolicy(document.getElementById("flightID")?.value || "");
+      if (seatPol.onlineSeatSelection) {
+        const hold = await tryHoldCurrentSeats();
+        if (!hold.ok) {
+          setError(document.getElementById("createError"), hold.message || "Seat unavailable, please choose again.");
+          await refreshTakenSeatsForFlight(document.getElementById("flightID")?.value || "");
+          return;
+        }
+        clearError(document.getElementById("createError"));
+      }
     }
     setActiveStep(activeBookingStepIndex + 1);
   });
@@ -2955,6 +3268,12 @@ function setupBookingFlowTabs() {
       const idx = steps.findIndex((s) => s.tabId === id);
       // Don't allow jumping ahead of the current step; only current/past.
       if (idx >= 0 && idx <= activeBookingStepIndex) setActiveStep(idx);
+      else if (idx > activeBookingStepIndex) {
+        setError(
+          document.getElementById("createError"),
+          "Complete the current step first, then click Next."
+        );
+      }
     });
   }
 
@@ -3651,6 +3970,28 @@ async function onTravellerSave() {
     : `${isCreate ? "Create" : "Update"} response: ${JSON.stringify(out.body?.data ?? out.body ?? {}, null, 0)}`;
 
   await loadTravellerProfiles();
+  if (isCreate && !out.networkError && out.ok) {
+    // Auto-pick the newly created traveller as lead when possible.
+    const match = latestTravellerRows.find((r) => {
+      const name = getOsField(r, ["FullName", "Name", "TravellerName"]).trim().toLowerCase();
+      const pass = getOsField(r, ["PassportNumber", "PassportNo"]).trim().toUpperCase();
+      return (
+        name === required.fullName.trim().toLowerCase() &&
+        pass === required.passportNumber.trim().toUpperCase()
+      );
+    });
+    const newId = Number(
+      out.body?.data?.TravellerProfileId ??
+      out.body?.data?.Id ??
+      match?.Id ??
+      match?.id ??
+      0
+    );
+    if (newId > 0) {
+      applyTravellerSelectionFromIds([newId]);
+      updateSeatGroupSummary();
+    }
+  }
 }
 
 async function onTravellerDelete() {
@@ -4156,6 +4497,16 @@ function initAppShell() {
     const nameEl = document.getElementById("passengerName");
     if (nameEl && custom) nameEl.value = custom;
     refreshTripContactSummary();
+  });
+
+  document.getElementById("paymentCardNumber")?.addEventListener("input", (e) => {
+    e.target.value = formatCardNumberInput(e.target.value);
+  });
+  document.getElementById("paymentCardExpiry")?.addEventListener("input", (e) => {
+    e.target.value = formatCardExpiryInput(e.target.value);
+  });
+  document.getElementById("paymentCardCvc")?.addEventListener("input", (e) => {
+    e.target.value = String(e.target.value || "").replace(/\D+/g, "").slice(0, 4);
   });
 
   ["totalPrice", "discountCode"].forEach((id) => {

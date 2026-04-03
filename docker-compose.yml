@@ -49,6 +49,10 @@ services:
     build: ./account
     # ports:
     #   - "5100:5100"
+    environment:
+      ACCOUNT_STORE_PATH: /app/data/accounts.json
+    volumes:
+      - account_data:/app/data
 
   flight:
     build: ./flight
@@ -197,3 +201,5 @@ services:
 
 volumes:
   notification_twilio_data:
+  account_data:
+  booking_mysql_data:

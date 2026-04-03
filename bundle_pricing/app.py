@@ -206,7 +206,8 @@ def bundle_price():
         coins_spent = min(coins_available_cents, loyalty_coins_to_spend_cents)
         loyalty_used_dollars = round(coins_spent / 100.0, 2)
 
-    final_total = round(max(0.0, (flight_total + hotel_total) - discount_amount - loyalty_used_dollars), 2)
+    list_price_total = round(flight_total + hotel_total, 2)
+    final_total = round(max(0.0, list_price_total - discount_amount - loyalty_used_dollars), 2)
 
     return jsonify(
         {
@@ -214,6 +215,7 @@ def bundle_price():
             "data": {
                 "flightPrice": flight_total,
                 "hotelPrice": hotel_total,
+                "listPriceTotal": list_price_total,
                 "discount": discount_amount,
                 "loyaltyUsed": loyalty_used_dollars,
                 "finalTotal": final_total,

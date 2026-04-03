@@ -291,19 +291,19 @@
     </ul>
   </section>
 
-  <nav class="booking-flow" aria-label="How booking works">
-    <ol class="booking-flow__list">
-      <li class="booking-flow__item">
-        <a class="booking-flow__link" href="#step-book"><span class="booking-flow__num" aria-hidden="true">1</span> Plan &amp; pay</a>
-      </li>
-      <li class="booking-flow__item booking-flow__item--line" aria-hidden="true"></li>
-      <li class="booking-flow__item">
-        <a class="booking-flow__link" href="#step-receipt"><span class="booking-flow__num" aria-hidden="true">3</span> Your summary</a>
-      </li>
-    </ol>
-  </nav>
+  <main class="site-main site-main--booking">
+    <nav class="booking-flow booking-flow--in-main" aria-label="How booking works">
+      <ol class="booking-flow__list">
+        <li class="booking-flow__item">
+          <a class="booking-flow__link" href="#step-book"><span class="booking-flow__num" aria-hidden="true">1</span> Plan &amp; pay</a>
+        </li>
+        <li class="booking-flow__item booking-flow__item--line" aria-hidden="true"></li>
+        <li class="booking-flow__item">
+          <a class="booking-flow__link" href="#step-receipt"><span class="booking-flow__num" aria-hidden="true">2</span> Your summary</a>
+        </li>
+      </ol>
+    </nav>
 
-  <main class="site-main">
     <div class="col col--booking">
       <nav class="segment-tabs" aria-label="Booking sections">
         <button
@@ -439,7 +439,7 @@
             </select>
           </label>
           <p class="muted bundle-gallery__hint">
-            Prices on cards update for who's booking and your group size (SGD). Scroll the carousel to browse routes worldwide.
+            Pick a package below to <strong>filter the carousel to that route only</strong>, or leave &ldquo;Select a package&rdquo; to browse every deal. Card prices show <strong>Was</strong> (strikethrough) vs <strong>Now</strong> when the bundle discount applies (SGD).
           </p>
           <div class="bundle-gallery-wrap">
             <button
@@ -670,11 +670,7 @@
               <span class="muted">Tip: pick the lead traveller for this booking.</span>
             </label>
 
-            <label class="form-grid-1col" hidden>
-              Companions (optional)
-              <select id="companionTravellerSelect" multiple size="5"></select>
-              <span class="muted">We’ll attach the selected companions to your booking.</span>
-            </label>
+            <select id="companionTravellerSelect" multiple size="5" hidden></select>
           </div>
 
           <div id="bookingStep3Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep4Tab" hidden>
@@ -724,6 +720,7 @@
                 <p class="muted">Selected seat: <strong id="seatSelectedDisplay">—</strong></p>
                 <p class="muted seat-selected-detail" id="seatSelectedDetail"></p>
               </div>
+              <p class="muted seat-hold-timer" id="seatHoldTimer" hidden></p>
               <div id="seatBlockedNote" class="seat-blocked-note" hidden></div>
               <input type="hidden" id="seatNumber" value="" />
             </div>
@@ -897,6 +894,28 @@
         <option value="Flexi" selected>Flexi</option>
       </select>
     </label>
+
+            <div class="form-grid payment-card-grid">
+              <label>
+                Cardholder name
+                <input type="text" id="paymentCardName" placeholder="e.g. Ava Chen" autocomplete="cc-name" />
+              </label>
+              <label>
+                Card number
+                <input type="text" id="paymentCardNumber" placeholder="4242 4242 4242 4242" inputmode="numeric" autocomplete="cc-number" />
+              </label>
+              <label>
+                Expiry (MM/YY)
+                <input type="text" id="paymentCardExpiry" placeholder="12/30" inputmode="numeric" autocomplete="cc-exp" />
+              </label>
+              <label>
+                CVC
+                <input type="text" id="paymentCardCvc" placeholder="123" inputmode="numeric" autocomplete="cc-csc" />
+              </label>
+            </div>
+            <p class="muted field-hint" id="paymentSplitHint">
+              If coins do not fully cover the total, the remaining amount is charged to card.
+            </p>
 
             <label class="form-grid-1col" id="breakfastAddonWrap">
               Hotel extras
