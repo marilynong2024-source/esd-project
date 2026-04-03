@@ -806,6 +806,10 @@ const DEMO_PROFILES = [
 const DEFAULT_TAKEN_SEATS = new Set(["8A", "8B", "9D", "10F", "12C"]);
 let currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
 let seatRefreshToken = 0;
+// Seat selection state for the current booking:
+// - codes[0] is the lead traveller seat
+// - the rest are companion seats (auto-assigned in this demo)
+let selectedSeatCodes = [];
 
 /**
  * Typical narrow-body 3–3 layout: A/F window, C/D aisle, B/E middle.
@@ -1382,10 +1386,16 @@ function getSeatPolicy(flightId) {
 }
 
 function clearSeatSelection() {
+  selectedSeatCodes = [];
   document.getElementById("seatNumber").value = "";
   document.getElementById("seatSelectedDisplay").textContent = "—";
   const detail = document.getElementById("seatSelectedDetail");
   if (detail) detail.textContent = "";
+  const blocked = document.getElementById("seatBlockedNote");
+  if (blocked) {
+    blocked.hidden = true;
+    blocked.textContent = "";
+  }
   document.querySelectorAll("#seatMap button.seat").forEach((b) => {
     b.classList.remove("picked");
   });
@@ -1396,20 +1406,59 @@ function resetSeatMap() {
   if (!map) return;
   map.innerHTML = "";
   buildSeatMapOnce();
+  syncPickedSeatsUI();
 }
 
 function selectSeat(seatCode) {
-  const code = String(seatCode).toUpperCase();
-  document.getElementById("seatNumber").value = code;
-  document.getElementById("seatSelectedDisplay").textContent = code;
-  const btn = document.querySelector(`#seatMap button.seat[data-seat="${code}"]`);
-  const detail = document.getElementById("seatSelectedDetail");
-  if (detail) {
-    detail.textContent = btn?.dataset?.seatLabel ? `(${btn.dataset.seatLabel})` : "";
+  const leadCode = String(seatCode).toUpperCase();
+  const required = getSeatRequiredCount();
+
+  // When traveller profiles aren't picked yet, don't block the user.
+  if (required <= 0) {
+    return;
   }
-  document.querySelectorAll("#seatMap button.seat").forEach((b) => {
-    b.classList.toggle("picked", b.dataset.seat === code);
-  });
+
+  if (!currentTakenSeats) currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
+  if (currentTakenSeats.has(leadCode)) {
+    clearSeatSelection();
+    return;
+  }
+
+  const proposed = computeSeatCodesForGroup(leadCode, required);
+  const blocked = document.getElementById("seatBlockedNote");
+  if (!proposed || proposed.length !== required) {
+    clearSeatSelection();
+    if (blocked) {
+      blocked.hidden = false;
+      blocked.textContent = `Not enough free seats available for ${required} travellers near ${leadCode}. Please pick another seat.`;
+    }
+    updateSeatGroupSummary();
+    return;
+  }
+
+  selectedSeatCodes = proposed;
+  document.getElementById("seatNumber").value = String(selectedSeatCodes[0]).toUpperCase();
+
+  // Render selection summary.
+  const display = document.getElementById("seatSelectedDisplay");
+  if (display) display.textContent = selectedSeatCodes.join(", ");
+  const detail = document.getElementById("seatSelectedDetail");
+  const leadBtn = document.querySelector(`#seatMap button.seat[data-seat="${selectedSeatCodes[0]}"]`);
+  if (detail) {
+    const leadLabel = leadBtn?.dataset?.seatLabel ? `(${leadBtn.dataset.seatLabel})` : "";
+    detail.textContent =
+      selectedSeatCodes.length === 1
+        ? leadLabel
+        : `${leadLabel}${leadLabel ? " " : ""}(+${selectedSeatCodes.length - 1} companion seat(s))`;
+  }
+
+  if (blocked) {
+    blocked.hidden = true;
+    blocked.textContent = "";
+  }
+
+  syncPickedSeatsUI();
+  updateSeatGroupSummary();
 }
 
 function selectSeatByCode(code) {
@@ -1417,6 +1466,74 @@ function selectSeatByCode(code) {
   const btn = document.querySelector(`#seatMap button.seat[data-seat="${up}"]`);
   if (!btn || btn.disabled) return;
   selectSeat(up);
+}
+
+function getSeatRequiredCount() {
+  const leadEl = document.getElementById("leadTravellerSelect");
+  const leadId = Number(leadEl?.value || 0);
+  if (leadId < 1) return 0;
+
+  const compSel = document.getElementById("companionTravellerSelect");
+  const companions = compSel ? Array.from(compSel.selectedOptions || []).length : 0;
+  return 1 + companions;
+}
+
+function computeSeatCodesForGroup(leadCode, requiredCount) {
+  const code = String(leadCode || "").toUpperCase();
+  const m = code.match(/^(\d+)([A-F])$/);
+  if (!m) return [];
+
+  const row = Number(m[1]);
+  const leadLetter = m[2];
+
+  const taken = currentTakenSeats || new Set(DEFAULT_TAKEN_SEATS);
+  const selected = [code];
+
+  const sideLetters = ["A", "B", "C"].includes(leadLetter)
+    ? ["A", "B", "C"]
+    : ["D", "E", "F"];
+  const allLetters = ["A", "B", "C", "D", "E", "F"];
+
+  // First try same-side neighbours (same row).
+  const primaryCandidates = sideLetters
+    .filter((l) => l !== leadLetter)
+    .map((l) => `${row}${l}`);
+  // Then fill from both sides in seat-map order.
+  const secondaryCandidates = allLetters
+    .filter((l) => l !== leadLetter)
+    .map((l) => `${row}${l}`);
+
+  const candidates = [...primaryCandidates, ...secondaryCandidates];
+  for (const c of candidates) {
+    if (selected.length >= requiredCount) break;
+    if (taken.has(c)) continue;
+    selected.push(c);
+  }
+
+  // If still not enough, scan remaining rows in seat map.
+  if (selected.length < requiredCount) {
+    const rowsToScan = [6, 7, 8, 9, 10, 11, 12];
+    for (const r of rowsToScan) {
+      if (selected.length >= requiredCount) break;
+      if (r === row) continue;
+      for (const l of allLetters) {
+        if (selected.length >= requiredCount) break;
+        const c = `${r}${l}`;
+        if (taken.has(c)) continue;
+        selected.push(c);
+      }
+    }
+  }
+
+  return selected.length === requiredCount ? selected : [];
+}
+
+function syncPickedSeatsUI() {
+  const picked = new Set((selectedSeatCodes || []).map((s) => String(s).toUpperCase()));
+  document.querySelectorAll("#seatMap button.seat").forEach((b) => {
+    const code = String(b.dataset.seat || "").toUpperCase();
+    b.classList.toggle("picked", picked.has(code));
+  });
 }
 
 function addSeatButton(container, row, letter) {
@@ -1652,28 +1769,39 @@ async function refreshTakenSeatsForFlight(flightId) {
   }
   currentTakenSeats = merged;
 
-  const currentSeat = document.getElementById("seatNumber")?.value?.trim()?.toUpperCase() || "";
-  if (currentSeat && currentTakenSeats.has(currentSeat)) {
+  if (
+    Array.isArray(selectedSeatCodes) &&
+    selectedSeatCodes.some((s) => currentTakenSeats.has(String(s).trim().toUpperCase()))
+  ) {
     clearSeatSelection();
   }
   resetSeatMap();
 }
 
 function updateSeatGroupSummary() {
-  const seat = document.getElementById("seatNumber")?.value?.trim() || "—";
+  const seatCodes = Array.isArray(selectedSeatCodes) ? selectedSeatCodes : [];
+  const seat = seatCodes[0] ? String(seatCodes[0]).trim().toUpperCase() : "—";
   const leadPill = document.getElementById("seatLeadPill");
   const compPill = document.getElementById("seatCompanionPill");
   const hintPill = document.getElementById("seatGroupHint");
   const compSel = document.getElementById("companionTravellerSelect");
   const companions = Array.from(compSel?.selectedOptions || []).length;
+  const required = getSeatRequiredCount();
+  const selectedCount = seatCodes.length;
 
   if (leadPill) leadPill.textContent = `Lead traveller seat: ${seat === "—" ? "not selected" : seat}`;
-  if (compPill) compPill.textContent = `Companions: ${companions}`;
+  if (compPill)
+    compPill.textContent = `Companion seats: ${Math.max(0, selectedCount - 1)}/${companions}`;
 
   if (hintPill) {
-    hintPill.textContent = companions > 0
-      ? "Companions will be auto-assigned nearby in this demo."
-      : "No companions selected.";
+    if (!required) {
+      hintPill.textContent = "Pick your lead traveller to enable seat selection.";
+    } else if (selectedCount === required) {
+      hintPill.textContent = "All seats for your group are selected.";
+    } else {
+      hintPill.textContent =
+        "Pick the lead traveller seat on the map — companions will be auto-assigned nearby in this demo.";
+    }
   }
 }
 
@@ -2327,6 +2455,10 @@ async function updateLoyaltySummary(customerID) {
     latestLoyalty = null;
     document.getElementById("loyaltyCoins").textContent = "-";
     document.getElementById("loyaltyTier").textContent = "-";
+    const myCoins = document.getElementById("myAccountCoins");
+    const myTier = document.getElementById("myAccountTier");
+    if (myCoins) myCoins.textContent = "-";
+    if (myTier) myTier.textContent = "-";
     refreshPricePreview();
     updateCoinsOffsetUI();
     return;
@@ -2336,6 +2468,12 @@ async function updateLoyaltySummary(customerID) {
   document.getElementById("loyaltyCoins").textContent =
     data.data.coins ?? data.data.points ?? "-";
   document.getElementById("loyaltyTier").textContent = data.data.tier;
+
+  const myCoins = document.getElementById("myAccountCoins");
+  const myTier = document.getElementById("myAccountTier");
+  if (myCoins) myCoins.textContent = data.data.coins ?? data.data.points ?? "-";
+  if (myTier) myTier.textContent = data.data.tier ?? "-";
+
   refreshPricePreview();
   updateCoinsOffsetUI();
 }
@@ -2443,11 +2581,20 @@ async function onCreateBookingSubmit(e) {
   const flightId = document.getElementById("flightID").value.trim();
   const seatPol = getSeatPolicy(flightId);
   if (seatPol.onlineSeatSelection) {
-    const sn = document.getElementById("seatNumber").value.trim();
-    if (!sn) {
+    const required = getSeatRequiredCount();
+    if (required < 1) {
       setError(
         createError,
-        "Select a seat on the map (required for Singapore Airlines flights in this demo)."
+        "Pick your lead traveller (and companions) before selecting seats."
+      );
+      createBtn.disabled = false;
+      return;
+    }
+
+    if (!Array.isArray(selectedSeatCodes) || selectedSeatCodes.length !== required) {
+      setError(
+        createError,
+        `Select seats for ${required} travellers on the map (lead seat drives auto-assignment for companions).`
       );
       createBtn.disabled = false;
       return;
@@ -2490,8 +2637,15 @@ async function onCreateBookingSubmit(e) {
     currency: "SGD",
     fareType: document.getElementById("fareType").value,
     seatNumber: seatPol.onlineSeatSelection
-      ? document.getElementById("seatNumber").value.trim().toUpperCase()
+      ? selectedSeatCodes[0]
+        ? String(selectedSeatCodes[0]).trim().toUpperCase()
+        : null
       : null,
+    seatNumbers: seatPol.onlineSeatSelection
+      ? Array.isArray(selectedSeatCodes) && selectedSeatCodes.length
+        ? selectedSeatCodes.map((s) => String(s).trim().toUpperCase())
+        : []
+      : undefined,
   };
   if (passengerEmailRaw) payload.passengerEmail = passengerEmailRaw;
   if (passengerPhoneRaw) payload.passengerPhone = passengerPhoneRaw;
@@ -2944,13 +3098,59 @@ function updatePackageNightsHint() {
 
 function updatePackageTripSummary() {
   const rooms = document.getElementById("packageRooms")?.value || "1";
-  const adults = document.getElementById("packageAdults")?.value || "2";
+  const adults = Number(document.getElementById("packageAdults")?.value ?? 0);
+  const children = Number(document.getElementById("packageChildren")?.value ?? 0);
+  const infants = Number(document.getElementById("packageInfants")?.value ?? 0);
   const cabin = document.getElementById("packageCabin");
   const cabinLabel = cabin?.selectedOptions?.[0]?.textContent || "Economy";
   const t = document.getElementById("packageTripSummaryText");
   if (t) {
-    t.textContent = `${rooms} room${rooms === "1" ? "" : "s"} · ${adults} adult${adults === "1" ? "" : "s"} · ${cabinLabel}`;
+    t.textContent = `${rooms} room${rooms === "1" ? "" : "s"} · ${adults} adult${adults === 1 ? "" : "s"} · ${children} child${children === 1 ? "" : "ren"} · ${infants} infant${infants === 1 ? "" : "s"} · ${cabinLabel}`;
   }
+
+  updatePackageTotalTravellers(adults, children, infants);
+}
+
+function updatePackageTotalTravellers(adults = null, children = null, infants = null) {
+  const a =
+    adults !== null ? Number(adults) : Number(document.getElementById("packageAdults")?.value ?? 0);
+  const c =
+    children !== null ? Number(children) : Number(document.getElementById("packageChildren")?.value ?? 0);
+  const i =
+    infants !== null ? Number(infants) : Number(document.getElementById("packageInfants")?.value ?? 0);
+
+  const total = Math.max(1, (Number(a) || 0) + (Number(c) || 0) + (Number(i) || 0));
+  const el = document.getElementById("packageTotalTravellers");
+  if (el) el.value = String(total);
+  return total;
+}
+
+function populatePackageTravellerCountSelect() {
+  const adultsSel = document.getElementById("packageAdults");
+  const childrenSel = document.getElementById("packageChildren");
+  const infantsSel = document.getElementById("packageInfants");
+  if (!adultsSel || adultsSel.tagName !== "SELECT") return;
+
+  const fill = (sel, max, noun) => {
+    if (!sel || sel.tagName !== "SELECT") return;
+    sel.replaceChildren();
+    for (let n = 0; n <= max; n++) {
+      const o = document.createElement("option");
+      o.value = String(n);
+      o.textContent = `${n} ${noun}${n === 1 ? "" : "s"}`;
+      sel.appendChild(o);
+    }
+  };
+
+  fill(adultsSel, 12, "adult");
+  fill(childrenSel, 8, "child");
+  fill(infantsSel, 4, "infant");
+
+  adultsSel.value = "2";
+  if (childrenSel) childrenSel.value = "0";
+  if (infantsSel) infantsSel.value = "0";
+
+  updatePackageTotalTravellers(2, 0, 0);
 }
 
 function applyPackageSearchToBundle() {
@@ -2978,9 +3178,15 @@ function applyPackageSearchToBundle() {
     retEl.value = d.toISOString().slice(0, 16);
   }
 
-  const adults = Math.max(1, Number(document.getElementById("packageAdults")?.value || 2));
+  const adults = Math.max(0, Number(document.getElementById("packageAdults")?.value ?? 0));
+  const children = Math.max(0, Number(document.getElementById("packageChildren")?.value ?? 0));
+  const infants = Math.max(0, Number(document.getElementById("packageInfants")?.value ?? 0));
   const adultsSel = document.getElementById("bundleAdults");
+  const childrenSel = document.getElementById("bundleChildren");
+  const infantsSel = document.getElementById("bundleInfants");
   if (adultsSel) adultsSel.value = String(adults);
+  if (childrenSel) childrenSel.value = String(children);
+  if (infantsSel) infantsSel.value = String(infants);
   syncBundleTravellerTotals();
 }
 
@@ -3032,9 +3238,22 @@ function syncPackageSearchFromBundleFields() {
   if (pd && depEl?.value) pd.value = sliceDateFromLocal(depEl.value);
   if (pr && retEl?.value) pr.value = sliceDateFromLocal(retEl.value);
   updatePackageNightsHint();
+
+  // Keep top package search pax counts in sync with the (hidden) bundle step controls.
+  const pAdults = document.getElementById("packageAdults");
+  const pChildren = document.getElementById("packageChildren");
+  const pInfants = document.getElementById("packageInfants");
+  const bAdults = document.getElementById("bundleAdults");
+  const bChildren = document.getElementById("bundleChildren");
+  const bInfants = document.getElementById("bundleInfants");
+  if (pAdults && bAdults) pAdults.value = String(bAdults.value || "0");
+  if (pChildren && bChildren) pChildren.value = String(bChildren.value || "0");
+  if (pInfants && bInfants) pInfants.value = String(bInfants.value || "0");
+  if (pAdults || pChildren || pInfants) updatePackageTotalTravellers();
 }
 
 function setupPackageSearchUI() {
+  populatePackageTravellerCountSelect();
   populatePackageSearchSelects();
   syncPackageSearchFromBundleFields();
   updatePackageNightsHint();
@@ -3053,7 +3272,7 @@ function setupPackageSearchUI() {
   ["packageDepartDate", "packageReturnDate"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", updatePackageNightsHint);
   });
-  ["packageRooms", "packageAdults", "packageCabin"].forEach((id) => {
+  ["packageRooms", "packageAdults", "packageChildren", "packageInfants", "packageCabin"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", updatePackageTripSummary);
   });
 
@@ -3462,7 +3681,8 @@ function onTravellerCreateNew() {
 
   const delBtn = document.getElementById("travellerDeleteBtn");
   if (delBtn) delBtn.disabled = true;
-  void loadTravellerProfiles();
+  // Don't auto-refresh the list here: when the remote service is slow/unavailable,
+  // `loadTravellerProfiles()` can reset/hide the editor, preventing the user from creating.
 }
 
 async function onTravellerSave() {
@@ -3607,7 +3827,12 @@ function setupTravellerProfilesUI() {
   const compSel = document.getElementById("companionTravellerSelect");
   if (compSel) {
     compSel.addEventListener("change", () => {
-      updateSeatGroupSummary();
+      if (Array.isArray(selectedSeatCodes) && selectedSeatCodes[0]) {
+        // Companion count changed => required seat count changed.
+        selectSeat(selectedSeatCodes[0]);
+      } else {
+        updateSeatGroupSummary();
+      }
     });
   }
 
@@ -3743,6 +3968,7 @@ async function onSignupSubmit(e) {
   e.preventDefault();
   const errEl = document.getElementById("signupError");
   const email = document.getElementById("signupEmail")?.value?.trim() || "";
+  const password = document.getElementById("signupPassword")?.value ?? "";
   const firstName = document.getElementById("signupFirstName")?.value?.trim() || "";
   const lastName = document.getElementById("signupLastName")?.value?.trim() || "";
   const phoneNumber = document.getElementById("signupPhone")?.value?.trim() || "";
@@ -3762,7 +3988,8 @@ async function onSignupSubmit(e) {
   const out = await fetchJson(`${ACCOUNT_BASE}/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, firstName, lastName, phoneNumber, nationality, dateOfBirth }),
+    // Password is sent for completeness but the demo backend does not enforce it.
+    body: JSON.stringify({ email, password, firstName, lastName, phoneNumber, nationality, dateOfBirth }),
   });
   if (out.networkError) {
     if (errEl) {
@@ -3818,6 +4045,19 @@ function onLogout() {
 }
 
 function applySessionToBookingUI() {
+  const member = isMemberSession();
+  const accountBtn = document.getElementById("myAccountNavBtn");
+  const bookingsBtn = document.getElementById("myBookingsNavBtn");
+  const panelAccount = document.getElementById("panelMyAccount");
+  const panelBookings = document.getElementById("panelMyBookings");
+
+  if (accountBtn) accountBtn.hidden = !member;
+  if (bookingsBtn) bookingsBtn.hidden = !member;
+  if (panelAccount && panelBookings) {
+    panelAccount.hidden = !member;
+    panelBookings.hidden = true;
+  }
+
   const badge = document.getElementById("sessionBadge");
   if (badge) {
     badge.hidden = false;
@@ -3835,7 +4075,10 @@ function applySessionToBookingUI() {
   }
   updateCoinsOffsetUI();
   const cid = Number(document.getElementById("customerID")?.value || 0);
-  if (cid) void updateLoyaltySummary(cid);
+  if (cid) {
+    void updateLoyaltySummary(cid);
+    void loadMyAccount(cid);
+  }
   else {
     latestLoyalty = null;
     const lc = document.getElementById("loyaltyCoins");
@@ -3871,6 +4114,7 @@ function initAppShell() {
   setupLoyaltyPaymentTabs();
   setupBookingFlowTabs();
   setupTravellerProfilesUI();
+  setupMyAccountBookingsUI();
   refreshTripContactSummary();
   updateSeatGroupSummary();
   void refreshFlightDropdownFromRoute();
@@ -4041,6 +4285,139 @@ function initAppShell() {
 
   document.getElementById("createForm").addEventListener("submit", onCreateBookingSubmit);
   document.getElementById("cancelForm").addEventListener("submit", onCancelBookingSubmit);
+}
+
+function setupMyAccountBookingsUI() {
+  const accountBtn = document.getElementById("myAccountNavBtn");
+  const bookingsBtn = document.getElementById("myBookingsNavBtn");
+  const panelAccount = document.getElementById("panelMyAccount");
+  const panelBookings = document.getElementById("panelMyBookings");
+  const refreshBtn = document.getElementById("myBookingsRefreshBtn");
+  const bookingsList = document.getElementById("myBookingsList");
+
+  if (!accountBtn || !bookingsBtn || !panelAccount || !panelBookings || !bookingsList) return;
+
+  const show = (which) => {
+    const showAccount = which === "account";
+    panelAccount.hidden = !showAccount;
+    panelBookings.hidden = showAccount;
+
+    accountBtn.classList.toggle("btn-primary", showAccount);
+    accountBtn.classList.toggle("btn-secondary", !showAccount);
+    bookingsBtn.classList.toggle("btn-primary", !showAccount);
+    bookingsBtn.classList.toggle("btn-secondary", showAccount);
+
+    accountBtn.setAttribute("aria-selected", showAccount ? "true" : "false");
+    bookingsBtn.setAttribute("aria-selected", showAccount ? "false" : "true");
+  };
+
+  accountBtn.addEventListener("click", () => {
+    show("account");
+  });
+
+  bookingsBtn.addEventListener("click", () => {
+    show("bookings");
+    const cid = Number(document.getElementById("customerID")?.value || 0);
+    if (cid) void loadMyBookings(cid);
+  });
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => {
+      const cid = Number(document.getElementById("customerID")?.value || 0);
+      if (cid) void loadMyBookings(cid);
+    });
+  }
+
+  // Default view when member panels are shown.
+  if (isMemberSession()) show("account");
+
+  // Allow "change/cancel" to jump to the existing cancel form.
+  bookingsList.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action='cancelFromMyBookings']");
+    if (!btn) return;
+    const bid = Number(btn.getAttribute("data-booking-id") || 0);
+    if (!bid) return;
+
+    const cancelInput = document.getElementById("cancelBookingID");
+    if (cancelInput) cancelInput.value = String(bid);
+    const cancelSourceSel = document.getElementById("cancelSource");
+    if (cancelSourceSel) cancelSourceSel.value = "customer";
+
+    if (typeof setActiveSegment === "function") setActiveSegment("manage");
+    document.getElementById("step-manage")?.scrollIntoView({ behavior: "smooth" });
+  });
+}
+
+async function loadMyAccount(customerID) {
+  const panel = document.getElementById("panelMyAccount");
+  if (!panel) return;
+
+  const out = await fetchJson(`${ACCOUNT_BASE}/${customerID}`);
+  if (out.networkError || !out.ok || !out.body?.data) return;
+
+  const d = out.body.data;
+  const nameEl = document.getElementById("myAccountName");
+  const emailEl = document.getElementById("myAccountEmail");
+  const coinsEl = document.getElementById("myAccountCoins");
+  const tierEl = document.getElementById("myAccountTier");
+
+  if (nameEl) nameEl.textContent = d.displayName || `${d.firstName || ""} ${d.lastName || ""}`.trim() || "-";
+  if (emailEl) emailEl.textContent = d.email || "-";
+  // Coins + tier are loaded via updateLoyaltySummary(); keep fallback so UI doesn't look empty.
+  if (coinsEl && (!coinsEl.textContent || coinsEl.textContent === "-")) {
+    coinsEl.textContent = latestLoyalty?.coins ?? latestLoyalty?.points ?? "-";
+  }
+  if (tierEl && (!tierEl.textContent || tierEl.textContent === "-")) {
+    tierEl.textContent = latestLoyalty?.tier ?? "-";
+  }
+}
+
+async function loadMyBookings(customerID) {
+  const listEl = document.getElementById("myBookingsList");
+  if (!listEl) return;
+
+  listEl.innerHTML = "Loading bookings...";
+
+  const out = await fetchJson(`${API_BASE}/booking/bycustomer/${customerID}`);
+  if (out.networkError || !out.ok || !out.body?.data) {
+    listEl.innerHTML = "Could not load bookings.";
+    return;
+  }
+
+  const bookings = out.body.data.bookings || [];
+  listEl.innerHTML = "";
+
+  if (!bookings.length) {
+    listEl.innerHTML = `<div class="muted">No bookings yet.</div>`;
+    return;
+  }
+
+  bookings.forEach((b) => {
+    const id = b.id;
+    const flight = b.flightID || "";
+    const hotel = b.hotelID || "";
+    const dep = b.departureTime || "";
+    const status = b.status || "";
+    const total = b.totalPrice ?? "";
+    const seats = Array.isArray(b.seatNumbers) ? b.seatNumbers.join(", ") : b.seatNumber || "";
+
+    const item = document.createElement("div");
+    item.className = "traveller-item";
+    item.innerHTML = `
+      <div class="traveller-item__meta">
+        <div class="traveller-item__title">Booking #${id}</div>
+        <div class="traveller-item__sub">
+          ${flight ? `Flight ${flight}` : "Flight"} • ${dep ? String(dep).replace("T", " ") : ""}<br/>
+          Hotel ${hotel} • Status ${status}<br/>
+          Seats: ${seats || "—"} • Total S$${Number(total || 0).toFixed(2)}
+        </div>
+      </div>
+      <button type="button" class="btn-secondary" data-action="cancelFromMyBookings" data-booking-id="${id}">
+        Change / cancel
+      </button>
+    `;
+    listEl.appendChild(item);
+  });
 }
 
 function initUI() {

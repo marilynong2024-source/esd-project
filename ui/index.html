@@ -84,6 +84,17 @@
                 required
               />
             </label>
+            <label class="login-gate__field">
+              <span>Password</span>
+              <input
+                type="password"
+                id="signupPassword"
+                name="password"
+                autocomplete="new-password"
+                placeholder="Any non-empty value in this demo"
+                required
+              />
+            </label>
             <label class="login-gate__field login-gate__field--inline">
               <span>First name</span>
               <input type="text" id="signupFirstName" name="firstName" autocomplete="given-name" />
@@ -131,6 +142,24 @@
       </a>
       <nav class="site-nav" aria-label="Primary">
         <span id="sessionBadge" class="session-badge" aria-live="polite"></span>
+        <button
+          type="button"
+          class="btn-secondary btn--nav"
+          id="myAccountNavBtn"
+          hidden
+          aria-controls="panelMyAccount"
+        >
+          My Account
+        </button>
+        <button
+          type="button"
+          class="btn-secondary btn--nav"
+          id="myBookingsNavBtn"
+          hidden
+          aria-controls="panelMyBookings"
+        >
+          My Bookings
+        </button>
         <button type="button" class="btn-secondary btn--nav" id="logoutBtn" aria-label="Log out">
           Log out
         </button>
@@ -202,15 +231,27 @@
             </select>
           </label>
           <label>
-            Adults
-            <select id="packageAdults" class="package-search__control" aria-label="Adults">
-              <option value="1">1 adult</option>
-              <option value="2" selected>2 adults</option>
-              <option value="3">3 adults</option>
-              <option value="4">4 adults</option>
-              <option value="5">5 adults</option>
-              <option value="6">6 adults</option>
-            </select>
+            Adults (12+)
+            <select id="packageAdults" class="package-search__control" aria-label="Adults (12+)"></select>
+          </label>
+          <label>
+            Children (2-11)
+            <select id="packageChildren" class="package-search__control" aria-label="Children (2-11)"></select>
+          </label>
+          <label>
+            Infants (&lt;2)
+            <select id="packageInfants" class="package-search__control" aria-label="Infants (&lt;2)"></select>
+          </label>
+          <label>
+            Total travellers
+            <input
+              type="number"
+              id="packageTotalTravellers"
+              class="package-search__control"
+              value="2"
+              readonly
+              aria-label="Total travellers"
+            />
           </label>
           <label>
             Cabin
@@ -445,7 +486,7 @@
             </button>
           </div>
 
-          <div class="form-grid">
+          <div class="form-grid" id="bundleTravellerCountsRow">
             <label>
               Adults (12+)
               <select id="bundleAdults" aria-label="Number of adults"></select>
@@ -649,7 +690,7 @@
               <select id="leadTravellerSelect">
                 <option value="">— Pick from saved profiles —</option>
               </select>
-              <span class="muted">Tip: the seat map (if available) uses the lead traveller in this demo.</span>
+              <span class="muted">Tip: for online seat maps, the lead traveller seat drives auto-assignment for companions.</span>
             </label>
 
             <label class="form-grid-1col">
@@ -988,6 +1029,44 @@
         </div>
         </div>
 
+        <div id="memberPanels">
+          <div id="panelMyAccount" class="segment-panel" hidden>
+            <div class="section-title section-title--spaced">My account</div>
+            <div class="summary-row">
+              <span class="label">Name</span>
+              <span class="value" id="myAccountName">-</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">Email</span>
+              <span class="value" id="myAccountEmail">-</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">Coins</span>
+              <span class="value" id="myAccountCoins">-</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">Tier</span>
+              <span class="value" id="myAccountTier">-</span>
+            </div>
+            <p class="muted section-hint section-hint--flush">
+              Member status and loyalty points are loaded from the account + loyalty services.
+            </p>
+          </div>
+
+          <div id="panelMyBookings" class="segment-panel" hidden>
+            <div class="section-title section-title--spaced">My bookings</div>
+            <p class="muted section-hint section-hint--flush">
+              Shows your most recent bookings. Use “Change / cancel” to manage them.
+            </p>
+            <div class="actions-row" style="margin-top: 6px;">
+              <button type="button" class="btn-secondary" id="myBookingsRefreshBtn">
+                Refresh
+              </button>
+            </div>
+            <div id="myBookingsList" class="traveller-list" aria-label="My bookings list"></div>
+          </div>
+        </div>
+
         <div class="section-title section-title--spaced">Confirmation details</div>
         <div class="result-header">
           <span class="result-header__label">Status</span>
@@ -1001,51 +1080,55 @@
 
         <pre id="result" class="code-block" aria-label="Latest confirmation response">{ }</pre>
 
-        <div class="section-title section-title--spaced">Text message alerts</div>
+        <div class="section-title section-title--spaced">Text message alerts (optional)</div>
         <p class="muted section-hint">
-          Optional: turn on real SMS to the mobile you enter for the lead traveller. Settings are saved with your demo
-          stack (instructors: see README / checklist for where credentials persist). Twilio trial accounts must use a
-          verified phone number.
+          Get an SMS when your booking is confirmed or cancelled. You can ignore this if you don't need texts.
         </p>
-        <div class="form-grid form-grid--twilio" role="group" aria-label="SMS provider settings">
-          <label class="twilio-enable-row">
-            <input type="checkbox" id="twilioEnabled" />
-            <span>Send me SMS when my booking is confirmed or cancelled</span>
-          </label>
-          <p class="muted section-hint" id="twilioSidHint"></p>
-          <label>
-            Twilio account ID
-            <input
-              type="text"
-              id="twilioAccountSid"
-              name="twilioAccountSid"
-              autocomplete="off"
-              placeholder="From your Twilio console (leave blank to keep saved)"
-            />
-          </label>
-          <label>
-            Twilio auth token
-            <input
-              type="password"
-              id="twilioAuthToken"
-              name="twilioAuthToken"
-              autocomplete="off"
-              placeholder="Leave blank to keep current token"
-            />
-          </label>
-          <label>
-            Sender phone number
-            <input
-              type="tel"
-              id="twilioFromNumber"
-              name="twilioFromNumber"
-              autocomplete="off"
-              placeholder="+65 or +1 … (your Twilio SMS number)"
-            />
-          </label>
-          <button type="button" id="twilioSaveBtn" class="btn-secondary">Save text alert settings</button>
-          <p class="muted section-hint" id="twilioSaveStatus" hidden></p>
-        </div>
+        <label class="twilio-enable-row">
+          <input type="checkbox" id="twilioEnabled" />
+          <span>Send me SMS updates for this booking</span>
+        </label>
+        <details class="advanced-details" style="margin-top: 6px;">
+          <summary>SMS provider setup (for instructors)</summary>
+          <p class="muted section-hint">
+            Only needed if you're wiring this demo to a real Twilio account.
+          </p>
+          <div class="form-grid form-grid--twilio" role="group" aria-label="SMS provider settings">
+            <p class="muted section-hint" id="twilioSidHint"></p>
+            <label>
+              Twilio account ID
+              <input
+                type="text"
+                id="twilioAccountSid"
+                name="twilioAccountSid"
+                autocomplete="off"
+                placeholder="Copy from your Twilio console"
+              />
+            </label>
+            <label>
+              Twilio auth token
+              <input
+                type="password"
+                id="twilioAuthToken"
+                name="twilioAuthToken"
+                autocomplete="off"
+                placeholder="Paste once, leave blank next time"
+              />
+            </label>
+            <label>
+              Sender phone number
+              <input
+                type="tel"
+                id="twilioFromNumber"
+                name="twilioFromNumber"
+                autocomplete="off"
+                placeholder="+65 or +1 … (your Twilio SMS number)"
+              />
+            </label>
+            <button type="button" id="twilioSaveBtn" class="btn-secondary">Save SMS settings</button>
+            <p class="muted section-hint" id="twilioSaveStatus" hidden></p>
+          </div>
+        </details>
 
         <div class="section-title section-title--spaced">Trip updates</div>
         <p class="muted section-hint">Technical log of confirmations and events — useful for class demos and debugging.</p>

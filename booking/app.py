@@ -246,6 +246,8 @@ class Booking(db.Model):
     cancellationTimestamp = db.Column(db.String(40), nullable=True)
     # Flight seat (demo): only meaningful when airline allows online seat selection (e.g. SQ).
     seatNumber = db.Column(db.String(8), nullable=True)
+    # Multi-seat list (JSON array of seat codes) for bookings with more than 1 traveller.
+    seatNumbersJson = db.Column(db.Text, nullable=True)
     # OutSystems Traveller Profile: companion/co-traveller records (not the customer account row).
     travellerProfileId = db.Column(db.Integer, nullable=True)  # first Id (legacy / convenience)
     travellerDisplayName = db.Column(db.String(128), nullable=True)  # summary; truncated
@@ -268,6 +270,21 @@ class Booking(db.Model):
                 t_ids = []
         if not t_ids and self.travellerProfileId is not None:
             t_ids = [int(self.travellerProfileId)]
+        seat_nums: list[str] = []
+        if self.seatNumbersJson:
+            try:
+                raw_seats = json.loads(self.seatNumbersJson)
+                if isinstance(raw_seats, list):
+                    seat_nums = [
+                        str(x).strip().upper()
+                        for x in raw_seats
+                        if x is not None and str(x).strip()
+                    ]
+            except (ValueError, TypeError, json.JSONDecodeError):
+                seat_nums = []
+        if not seat_nums and self.seatNumber:
+            seat_nums = [str(self.seatNumber).strip().upper()]
+
         return {
             "id": self.id,
             "customerID": self.customerID,
@@ -293,6 +310,7 @@ class Booking(db.Model):
             "cancellationPolicyID": self.cancellationPolicyID,
             "cancellationTimestamp": self.cancellationTimestamp,
             "seatNumber": self.seatNumber,
+            "seatNumbers": seat_nums,
             "passengerName": self.passengerName,
             "passengerEmail": self.passengerEmail,
             "passengerPhone": self.passengerPhone,
@@ -435,6 +453,49 @@ def _parse_traveller_profile_ids(data: dict) -> tuple[list[int], str | None]:
     return unique, None
 
 
+def _parse_seat_numbers_payload(data: dict) -> list[str]:
+    """
+    Accept seatNumber (single) and/or seatNumbers (array) from the UI.
+
+    Returns a normalized list of seat codes (uppercase).
+    If neither is provided, returns [].
+    """
+    out: list[str] = []
+
+    raw_multi = data.get("seatNumbers")
+    if isinstance(raw_multi, list):
+        for x in raw_multi:
+            if x is None:
+                continue
+            s = str(x).strip().upper()
+            if s:
+                out.append(s)
+    elif isinstance(raw_multi, str):
+        # Allow comma-separated strings as a fallback.
+        parts = raw_multi.split(",")
+        for p in parts:
+            s = str(p).strip().upper()
+            if s:
+                out.append(s)
+
+    # Backward compatible single seat
+    if not out:
+        seat_raw = data.get("seatNumber")
+        if seat_raw:
+            s = str(seat_raw).strip().upper()
+            if s:
+                out.append(s)
+
+    # Dedup while preserving order.
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for s in out:
+        if s not in seen:
+            seen.add(s)
+            uniq.append(s)
+    return uniq
+
+
 @app.route("/book-package", methods=["POST"])
 @app.route("/booking", methods=["POST"])
 def create_booking():
@@ -448,8 +509,8 @@ def create_booking():
 
     try:
         coins_to_spend_cents = int(max(0, int(data.get("coinsToSpendCents", 0) or 0)))
-        seat_raw = data.get("seatNumber")
-        seat_number = (str(seat_raw).strip().upper() if seat_raw else None) or None
+        seat_numbers = _parse_seat_numbers_payload(data)
+        seat_number = seat_numbers[0] if seat_numbers else None
 
         customer_id = int(data["customerID"])
         if customer_id < 0:
@@ -567,6 +628,7 @@ def create_booking():
             fareType=fare_type,
             loyaltyTier=data.get("loyaltyTier"),
             seatNumber=seat_number,
+            seatNumbersJson=(json.dumps(seat_numbers) if seat_numbers else None),
             status="PENDING",
             noOfRooms=1,
             travellerProfileId=traveller_profile_id,
@@ -583,8 +645,8 @@ def create_booking():
         return _bad_request(f"Missing required field: {e.args[0]!r}")
 
     try:
-    db.session.add(booking)
-    db.session.commit()
+        db.session.add(booking)
+        db.session.commit()
     except sa_exc.SQLAlchemyError as e:
         db.session.rollback()
         print(f"[booking] DB error on create: {e}")
@@ -651,12 +713,32 @@ def create_booking():
     primary_doc = traveller_docs[0] if traveller_docs else {}
 
     # 1) Flight Reservation
-    seat_no = booking.seatNumber or "AUTO"
+    seat_numbers_for_hold: list[str] = []
+    if booking.seatNumbersJson:
+        try:
+            raw_seats = json.loads(booking.seatNumbersJson)
+            if isinstance(raw_seats, list):
+                seat_numbers_for_hold = [
+                    str(x).strip().upper()
+                    for x in raw_seats
+                    if x is not None and str(x).strip()
+                ]
+        except (ValueError, TypeError, json.JSONDecodeError):
+            seat_numbers_for_hold = []
+
+    if not seat_numbers_for_hold and booking.seatNumber:
+        seat_numbers_for_hold = [str(booking.seatNumber).strip().upper()]
+
+    if not seat_numbers_for_hold:
+        seat_numbers_for_hold = ["AUTO"]
+
+    seat_no = seat_numbers_for_hold[0]
     try:
         reserve_payload = {
             "bookingID": booking.id,
             "flightNum": booking.flightID,
             "seatNo": seat_no,
+            "seatNos": seat_numbers_for_hold,
             "travellers": traveller_docs,
             "adultCount": int(booking.adultCount or 0),
             "childCount": int(booking.childCount or 0),
@@ -822,16 +904,36 @@ def create_booking():
         requests.put(
             f"{hotel_base}/confirm-room", json=confirm_payload, timeout=5
         )
-        seat_for_avail = (booking.seatNumber or "AUTO").strip().upper()
+        seat_numbers_for_avail: list[str] = []
+        if booking.seatNumbersJson:
+            try:
+                raw_seats = json.loads(booking.seatNumbersJson)
+                if isinstance(raw_seats, list):
+                    seat_numbers_for_avail = [
+                        str(x).strip().upper()
+                        for x in raw_seats
+                        if x is not None and str(x).strip()
+                    ]
+            except (ValueError, TypeError, json.JSONDecodeError):
+                seat_numbers_for_avail = []
+        if not seat_numbers_for_avail and booking.seatNumber:
+            seat_numbers_for_avail = [
+                str(booking.seatNumber).strip().upper()
+            ]
+        if not seat_numbers_for_avail:
+            seat_numbers_for_avail = ["AUTO"]
         try:
-            requests.put(
-                f"{flight_base}/availability/{seat_for_avail}/CONFIRMED",
-                json={
-                    "flightNum": booking.flightID,
-                    "bookingID": booking.id,
-                },
-                timeout=5,
-            )
+            for seat_for_avail in seat_numbers_for_avail:
+                if not seat_for_avail:
+                    continue
+                requests.put(
+                    f"{flight_base}/availability/{seat_for_avail}/CONFIRMED",
+                    json={
+                        "flightNum": booking.flightID,
+                        "bookingID": booking.id,
+                    },
+                    timeout=5,
+                )
             requests.put(
                 f"{hotel_base}/availability/{int(booking.hotelID)}/CONFIRMED",
                 json={
@@ -923,6 +1025,7 @@ def create_booking():
             "fareType": booking.fareType,
             "loyaltyTier": booking.loyaltyTier,
             "seatNumber": booking.seatNumber,
+            "seatNumbers": booking.to_dict().get("seatNumbers", []),
             "status": booking.status,
             "confirmedAt": datetime.utcnow().isoformat(),
         },
@@ -948,6 +1051,47 @@ def get_booking(booking_id: int):
     if not booking:
         return jsonify({"code": 404, "message": "Booking not found"}), 404
     return jsonify({"code": 200, "data": booking.to_dict()}), 200
+
+
+@app.route("/booking/bycustomer/<int:customer_id>", methods=["GET"])
+def get_bookings_by_customer(customer_id: int):
+    """
+    UI support for "My Bookings" panel.
+    Returns the most recent confirmed + pending bookings for this member.
+    """
+    if customer_id < 1:
+        return jsonify({"code": 400, "message": "customer_id must be >= 1"}), 400
+
+    try:
+        rows = (
+            Booking.query.filter(Booking.customerID == customer_id)
+            .order_by(Booking.id.desc())
+            .limit(10)
+            .all()
+        )
+    except sa_exc.SQLAlchemyError as e:
+        app.logger.exception("get_bookings_by_customer DB query failed")
+        return jsonify({"code": 503, "message": "Booking database temporarily unavailable"}), 503
+
+    bookings = []
+    for b in rows:
+        d = b.to_dict()
+        bookings.append(
+            {
+                "id": d.get("id"),
+                "flightID": d.get("flightID"),
+                "hotelID": d.get("hotelID"),
+                "departureTime": d.get("departureTime"),
+                "status": d.get("status"),
+                "totalPrice": d.get("totalPrice"),
+                "currency": d.get("currency"),
+                "travellerDisplayName": d.get("travellerDisplayName"),
+                "seatNumber": d.get("seatNumber"),
+                "seatNumbers": d.get("seatNumbers") or [],
+            }
+        )
+
+    return jsonify({"code": 200, "data": {"customerID": customer_id, "bookings": bookings}}), 200
 
 
 @app.route("/booking/policies", methods=["GET"])
@@ -1011,7 +1155,10 @@ def get_reserved_seats_for_flight(flight_id: str):
     try:
         rows = (
             Booking.query.filter(func.upper(Booking.flightID) == fid)
-            .filter(Booking.seatNumber.isnot(None))
+            .filter(
+                (Booking.seatNumbersJson.isnot(None))
+                | (Booking.seatNumber.isnot(None))
+            )
             .filter(func.upper(func.coalesce(Booking.status, "")) == "CONFIRMED")
             .all()
         )
@@ -1027,14 +1174,29 @@ def get_reserved_seats_for_flight(flight_id: str):
             503,
         )
 
-    seats = []
-    seen = set()
+    seats: list[str] = []
+    seen: set[str] = set()
     for b in rows:
-        s = str(b.seatNumber or "").strip().upper()
-        if not s or s in seen:
-            continue
-        seen.add(s)
-        seats.append(s)
+        # Prefer the full seat list for multi-traveller bookings.
+        added_any = False
+        if b.seatNumbersJson:
+            try:
+                raw = json.loads(b.seatNumbersJson)
+                if isinstance(raw, list):
+                    for x in raw:
+                        s = str(x or "").strip().upper()
+                        if s and s not in seen:
+                            seen.add(s)
+                            seats.append(s)
+                            added_any = True
+            except (ValueError, TypeError, json.JSONDecodeError):
+                pass
+
+        if not added_any and b.seatNumber:
+            s = str(b.seatNumber or "").strip().upper()
+            if s and s not in seen:
+                seen.add(s)
+                seats.append(s)
 
     return jsonify({"code": 200, "data": {"flightID": fid, "seats": seats}}), 200
 
@@ -1231,26 +1393,42 @@ def cancel_booking(booking_id: int):
     if hotel_base.endswith("/hotel"):
         hotel_base = hotel_base[: -len("/hotel")]
 
-    seat_no = (booking.seatNumber or "AUTO").strip().upper()
+    seat_numbers_for_release: list[str] = []
+    if booking.seatNumbersJson:
+        try:
+            raw_seats = json.loads(booking.seatNumbersJson)
+            if isinstance(raw_seats, list):
+                seat_numbers_for_release = [
+                    str(x).strip().upper()
+                    for x in raw_seats
+                    if x is not None and str(x).strip()
+                ]
+        except (ValueError, TypeError, json.JSONDecodeError):
+            seat_numbers_for_release = []
+    if not seat_numbers_for_release and booking.seatNumber:
+        seat_numbers_for_release = [str(booking.seatNumber).strip().upper()]
+    if not seat_numbers_for_release:
+        seat_numbers_for_release = ["AUTO"]
     room_id = f"{int(booking.hotelID)}:{(booking.hotelRoomType or 'STD').strip().upper()}"
 
     try:
-        flight_release_resp = requests.put(
-            f"{flight_base}/flight/inventory/{seat_no}/release",
-            json={"bookingID": booking_id, "flightNum": booking.flightID},
-            timeout=8,
-        )
+        for seat_no in seat_numbers_for_release:
+            flight_release_resp = requests.put(
+                f"{flight_base}/flight/inventory/{seat_no}/release",
+                json={"bookingID": booking_id, "flightNum": booking.flightID},
+                timeout=8,
+            )
+            if not flight_release_resp.ok:
+                return jsonify(
+                    {
+                        "code": 502,
+                        "message": "Flight inventory release failed",
+                        "upstreamStatus": flight_release_resp.status_code,
+                        "upstreamBody": (flight_release_resp.text or "")[:500],
+                    }
+                ), 502
     except requests.RequestException as e:
         return jsonify({"code": 503, "message": f"Flight release unreachable: {e}"}), 503
-    if not flight_release_resp.ok:
-        return jsonify(
-            {
-                "code": 502,
-                "message": "Flight inventory release failed",
-                "upstreamStatus": flight_release_resp.status_code,
-                "upstreamBody": (flight_release_resp.text or "")[:500],
-            }
-        ), 502
 
     try:
         hotel_release_resp = requests.put(
@@ -1276,7 +1454,7 @@ def cancel_booking(booking_id: int):
     booking.cancellationPolicyID = policy_id
     booking.cancellationTimestamp = now.isoformat()
     try:
-    db.session.commit()
+        db.session.commit()
     except sa_exc.SQLAlchemyError as e:
         db.session.rollback()
         print(f"[booking] DB error after refund for booking {booking_id}: {e}")
@@ -1290,11 +1468,14 @@ def cancel_booking(booking_id: int):
 
     cancel_warnings: list[str] = []
     try:
-        requests.put(
-            f"{flight_base}/availability/{seat_no}/RELEASED",
-            json={"flightNum": booking.flightID, "bookingID": booking_id},
-            timeout=5,
-        )
+        for seat_no in seat_numbers_for_release:
+            if not seat_no:
+                continue
+            requests.put(
+                f"{flight_base}/availability/{seat_no}/RELEASED",
+                json={"flightNum": booking.flightID, "bookingID": booking_id},
+                timeout=5,
+            )
         requests.put(
             f"{hotel_base}/availability/{int(booking.hotelID)}/RELEASED",
             json={
@@ -1361,6 +1542,7 @@ def cancel_booking(booking_id: int):
             "fareType": booking.fareType,
             "loyaltyTier": booking.loyaltyTier,
             "seatNumber": booking.seatNumber,
+            "seatNumbers": booking.to_dict().get("seatNumbers", []),
             "cancelledAt": now.isoformat(),
             "cancellationPolicyID": policy_id,
         },
@@ -1446,6 +1628,12 @@ def ensure_booking_columns():
                 "ALTER TABLE bookings ADD COLUMN seatNumber VARCHAR(8) NULL"
                 if db.engine.dialect.name != "sqlite"
                 else "ALTER TABLE bookings ADD COLUMN seatNumber VARCHAR(8)"
+            )
+        if "seatNumbersJson" not in cols:
+            alters.append(
+                "ALTER TABLE bookings ADD COLUMN seatNumbersJson TEXT NULL"
+                if db.engine.dialect.name != "sqlite"
+                else "ALTER TABLE bookings ADD COLUMN seatNumbersJson TEXT"
             )
         if "travellerProfileId" not in cols:
             alters.append(

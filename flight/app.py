@@ -12,6 +12,8 @@ CORS(app)
 # - POST /reserve-seat
 # - PUT /confirm-seat
 # - PUT /release-seat
+#
+# Supports multi-seat reservations by storing `seatNos` (list) under the same bookingID.
 FLIGHT_RESERVATIONS: dict[int, dict] = {}
 
 
@@ -505,7 +507,7 @@ def reserve_seat():
     Body:
       - bookingID (int)
       - flightNum or flightID (string)
-      - seatNo (string)  (use "AUTO" if not modeled)
+      - seatNo (string) OR seatNos (array of strings) (use "AUTO" if not modeled)
       - travellers (optional array with passportNumber / mealPreference)
     """
     data = request.get_json(silent=True) or {}
@@ -514,6 +516,7 @@ def reserve_seat():
 
     booking_id = data.get("bookingID")
     seat_no = data.get("seatNo") or data.get("seatNumber")
+    seat_nos_raw = data.get("seatNos") or data.get("seatNumbers")
     flight_num = (data.get("flightNum") or data.get("flightID") or "").strip().upper()
     travellers = data.get("travellers") if isinstance(data.get("travellers"), list) else []
     passport_number = data.get("passportNumber")
@@ -525,24 +528,51 @@ def reserve_seat():
         return jsonify({"code": 400, "message": "bookingID is required (int)"}), 400
     if not flight_num:
         return jsonify({"code": 400, "message": "flightNum is required"}), 400
-    if not seat_no:
-        seat_no = "AUTO"
-    seat_no = str(seat_no).strip().upper()
+    seat_nos: list[str] = []
+    if isinstance(seat_nos_raw, list):
+        for x in seat_nos_raw:
+            if x is None:
+                continue
+            s = str(x).strip().upper()
+            if s:
+                seat_nos.append(s)
+    elif seat_no:
+        seat_nos.append(str(seat_no).strip().upper())
+
+    if not seat_nos:
+        seat_nos = ["AUTO"]
+
+    # Backward compatible single-seat key (first seat).
+    seat_no = seat_nos[0]
 
     # Conflict: if another pending booking holds the same seat, reject.
     for bid, rec in FLIGHT_RESERVATIONS.items():
         if bid == booking_id:
             continue
-        if str(rec.get("seatNo", "")).upper() == seat_no and rec.get("status") in (
-            "HELD",
-            "CONFIRMED",
-        ):
-            return jsonify({"code": 409, "message": f"Seat {seat_no} already reserved"}), 409
+        rec_status = str(rec.get("status", "")).upper()
+        if rec_status not in ("HELD", "CONFIRMED"):
+            continue
+
+        other_seats = rec.get("seatNos")
+        if isinstance(other_seats, list):
+            other_set = {str(s).strip().upper() for s in other_seats if s is not None}
+        else:
+            other_set = {str(rec.get("seatNo", "")).strip().upper()} if rec.get("seatNo") else set()
+
+        # "AUTO" means "not modelled" in this demo, so it doesn't participate in seat conflicts.
+        requested = {s for s in seat_nos if s and s != "AUTO"}
+        if requested and (other_set & requested):
+            first_conflict = sorted(list(other_set & requested))[0]
+            return (
+                jsonify({"code": 409, "message": f"Seat {first_conflict} already reserved"}),
+                409,
+            )
 
     FLIGHT_RESERVATIONS[booking_id] = {
         "bookingID": booking_id,
         "flightNum": flight_num,
         "seatNo": seat_no,
+        "seatNos": seat_nos,
         "travellers": travellers,
         "passportNumber": passport_number,
         "mealPreference": meal_preference,
@@ -662,21 +692,50 @@ def release_inventory_seat(seat_no: str):
         try:
             bid = int(booking_id)
             rec = FLIGHT_RESERVATIONS.get(bid)
-            if rec and str(rec.get("seatNo", "")).strip().upper() == seat:
+            other_seats = rec.get("seatNos") if rec else None
+            if rec and isinstance(other_seats, list):
+                if {str(s).strip().upper() for s in other_seats if s is not None} & {seat}:
+                    target_bid = bid
+            elif rec and str(rec.get("seatNo", "")).strip().upper() == seat:
                 target_bid = bid
         except Exception:
             pass
 
     if target_bid is None:
         for bid, rec in FLIGHT_RESERVATIONS.items():
-            if str(rec.get("seatNo", "")).strip().upper() == seat and rec.get("status") in ("HELD", "CONFIRMED"):
+            rec_status = rec.get("status")
+            if rec_status not in ("HELD", "CONFIRMED"):
+                continue
+            other_seats = rec.get("seatNos")
+            if isinstance(other_seats, list):
+                if {str(s).strip().upper() for s in other_seats if s is not None} & {seat}:
+                    target_bid = bid
+                    break
+            elif str(rec.get("seatNo", "")).strip().upper() == seat:
                 target_bid = bid
                 break
 
     if target_bid is None:
         return jsonify({"code": 404, "message": f"Seat {seat} is not reserved"}), 404
 
-    FLIGHT_RESERVATIONS.pop(target_bid, None)
+    rec = FLIGHT_RESERVATIONS.get(target_bid)
+    if not rec:
+        return jsonify({"code": 404, "message": f"Seat {seat} is not reserved"}), 404
+
+    other_seats = rec.get("seatNos")
+    if isinstance(other_seats, list):
+        remaining = [s for s in other_seats if str(s).strip().upper() != seat]
+        # Keep record if other seats still reserved for this booking.
+        if remaining:
+            rec["seatNos"] = [str(x).strip().upper() for x in remaining if x is not None]
+            rec["seatNo"] = rec["seatNos"][0]
+        else:
+            FLIGHT_RESERVATIONS.pop(target_bid, None)
+    else:
+        # Backward compatible: single-seat reservation
+        if str(rec.get("seatNo", "")).strip().upper() == seat:
+            FLIGHT_RESERVATIONS.pop(target_bid, None)
+
     return jsonify({"code": 200, "data": {"seatNo": seat, "status": "AVAILABLE"}}), 200
 
 

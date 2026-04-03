@@ -365,15 +365,20 @@ body {
 
 @media (max-width: 900px) {
   .package-search__body {
-    flex-direction: column;
-    align-items: stretch;
+    /* Keep the Expedia-style layout horizontal on mobile too;
+       allow wrapping instead of stacking the whole bar vertically. */
+    flex-direction: row;
+    align-items: end;
   }
   .package-search__route,
   .package-search__dates,
   .package-search__pax-grid,
   .package-search__actions {
-    flex: 0 0 auto;
+    flex: 1 1 210px;
     margin-left: 0;
+  }
+  .package-search__meta {
+    flex: 0 0 100%;
   }
 }
 
@@ -859,6 +864,7 @@ select:not([multiple]) {
   border-radius: 8px;
   background-color: #fff;
   border-color: #dadce0;
+  width: 100%;
 }
 
 .package-search__control:focus {
@@ -1941,4 +1947,10 @@ button.seat--zone-exit_row.seat--window {
   padding: 6px 12px;
   font-size: 0.75rem;
   border-radius: 999px;
+}
+
+/* Traveller count controls are now in the top package search bar.
+   Hide the duplicate group-size picker in the bundle step to avoid repetition. */
+#bundleTravellerCountsRow {
+  display: none;
 }
