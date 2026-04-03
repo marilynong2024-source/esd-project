@@ -32,11 +32,6 @@ function clearSession() {
   sessionStorage.removeItem(SESSION_STORAGE_KEY);
 }
 
-function isGuestSession() {
-  const s = getSession();
-  return !s || s.mode === "guest";
-}
-
 function isMemberSession() {
   const s = getSession();
   return !!(s && s.mode === "member" && Number(s.customerID) > 0);
@@ -527,18 +522,13 @@ function populateCustomerSelects() {
 function updateCustomerFieldHint() {
   const hint = document.getElementById("customerIDHint");
   if (!hint) return;
-  if (isGuestSession()) {
-    hint.innerHTML =
-      "You're booking as a <strong>guest</strong>. Enter the lead traveller's name and contact on this step — saved passport profiles are only for signed-in members.";
-  } else {
-    hint.innerHTML =
-      "You're signed in as a <strong>loyalty member</strong>. Use coins in the last step; manage saved traveller profiles in step 2.";
-  }
+  hint.innerHTML =
+    "You're signed in as a <strong>loyalty member</strong>. Use coins in the last step; manage saved traveller profiles in step 2.";
 }
 
 function updateDemoToolsForAuth() {
   const wrap = document.getElementById("demoQuickExampleWrap");
-  if (wrap) wrap.hidden = isGuestSession();
+  if (wrap) wrap.hidden = !isMemberSession();
 }
 
 function syncBundleTravellerTotals() {
@@ -1250,7 +1240,7 @@ function renderBundleGallery() {
     const empty = document.createElement("p");
     empty.className = "muted bundle-gallery__empty";
     empty.textContent =
-      "No packages match these filters — set Region / From / To to “Any” to see all trips.";
+      "No packages available for those filters. Try widening Region, From, or To to “Any”.";
     track.appendChild(empty);
     return;
   }
@@ -1688,7 +1678,6 @@ function updateSeatGroupSummary() {
 }
 
 function readTravellerProfileIdsFromInput() {
-  if (isGuestSession()) return [];
   // UI: use names/selectors, but backend still needs numeric IDs.
   const leadEl = document.getElementById("leadTravellerSelect");
   const compEl = document.getElementById("companionTravellerSelect");
@@ -2098,15 +2087,6 @@ function populateDemoProfileOptions() {
 async function applyDemoProfile() {
   const sel = document.getElementById("demoProfile");
   if (!sel || !sel.value) return;
-  if (isGuestSession()) {
-    showResult(
-      {
-        info: "Quick examples use loyalty wallets and saved traveller profiles. Sign in as a member, or build your trip manually as a guest.",
-      },
-      "Sign in for examples"
-    );
-    return;
-  }
   const p = DEMO_PROFILES.find((x) => x.id === sel.value);
   if (!p) return;
 
@@ -2784,24 +2764,13 @@ function setupLoyaltyPaymentTabs() {
   tabPayment.addEventListener("click", () => setActive("payment"));
 }
 
-const BOOKING_FLOW_MEMBER_STEPS = [
+const BOOKING_FLOW_STEPS = [
   { tabId: "bookingStep1Tab", panelId: "bookingStep1Panel", label: "Choose bundle" },
   { tabId: "bookingStep2Tab", panelId: "bookingStep4Panel", label: "Traveller profiles" },
   { tabId: "bookingStep3Tab", panelId: "bookingStep2Panel", label: "Hotel" },
   { tabId: "bookingStep4Tab", panelId: "bookingStep3Panel", label: "Flights" },
   { tabId: "bookingStep5Tab", panelId: "bookingStep5Panel", label: "Loyalty & payment" },
 ];
-
-const BOOKING_FLOW_GUEST_STEPS = [
-  { tabId: "bookingStep1Tab", panelId: "bookingStep1Panel", label: "Choose bundle" },
-  { tabId: "bookingStep3Tab", panelId: "bookingStep2Panel", label: "Hotel" },
-  { tabId: "bookingStep4Tab", panelId: "bookingStep3Panel", label: "Flights" },
-  { tabId: "bookingStep5Tab", panelId: "bookingStep5Panel", label: "Loyalty & payment" },
-];
-
-function getBookingFlowSteps() {
-  return isGuestSession() ? BOOKING_FLOW_GUEST_STEPS : BOOKING_FLOW_MEMBER_STEPS;
-}
 
 const BOOKING_FLOW_ALL_TAB_IDS = [
   "bookingStep1Tab",
@@ -2827,16 +2796,15 @@ function setupBookingFlowTabs() {
   const progressEl = document.getElementById("bookingStepProgress");
 
   const syncTabVisibility = () => {
-    const steps = getBookingFlowSteps();
-    const allowed = new Set(steps.map((s) => s.tabId));
+    // All steps are always visible when signed-in loyalty is required.
     for (const id of BOOKING_FLOW_ALL_TAB_IDS) {
       const el = document.getElementById(id);
-      if (el) el.hidden = !allowed.has(id);
+      if (el) el.hidden = false;
     }
   };
 
   const updateStepNav = () => {
-    const steps = getBookingFlowSteps();
+    const steps = BOOKING_FLOW_STEPS;
     const idx = activeBookingStepIndex;
     const last = steps.length - 1;
     if (backBtn) backBtn.disabled = idx <= 0;
@@ -2851,7 +2819,7 @@ function setupBookingFlowTabs() {
   };
 
   const setActiveStep = (stepIndex) => {
-    const steps = getBookingFlowSteps();
+    const steps = BOOKING_FLOW_STEPS;
     activeBookingStepIndex = Math.max(0, Math.min(steps.length - 1, stepIndex));
     const idx = activeBookingStepIndex;
 
@@ -2868,7 +2836,7 @@ function setupBookingFlowTabs() {
       }
     }
 
-    const inFlowPanels = new Set(steps.map((s) => s.panelId));
+    const inFlowPanels = new Set(BOOKING_FLOW_STEPS.map((s) => s.panelId));
     for (const pid of BOOKING_FLOW_ALL_PANEL_IDS) {
       if (!inFlowPanels.has(pid)) {
         const p = document.getElementById(pid);
@@ -2907,7 +2875,7 @@ function setupBookingFlowTabs() {
 
   for (const id of BOOKING_FLOW_ALL_TAB_IDS) {
     document.getElementById(id)?.addEventListener("click", () => {
-      const steps = getBookingFlowSteps();
+      const steps = BOOKING_FLOW_STEPS;
       const idx = steps.findIndex((s) => s.tabId === id);
       if (idx >= 0) setActiveStep(idx);
     });
@@ -3517,14 +3485,6 @@ async function onTravellerSave() {
   const statusEl = document.getElementById("travellerEditStatus");
   if (statusEl) statusEl.textContent = "";
 
-  if (isGuestSession()) {
-    if (statusEl) {
-      statusEl.textContent =
-        "Saved traveller profiles are available after you sign in as a loyalty member.";
-    }
-    return;
-  }
-
   const { customerID, traveller_profile_id, required, payload } = getTravellerEditPayload();
   if (!customerID || customerID < 1) {
     if (statusEl) statusEl.textContent = "Customer number is required.";
@@ -3569,14 +3529,6 @@ async function onTravellerSave() {
 async function onTravellerDelete() {
   const statusEl = document.getElementById("travellerEditStatus");
   if (statusEl) statusEl.textContent = "";
-
-  if (isGuestSession()) {
-    if (statusEl) {
-      statusEl.textContent =
-        "Saved traveller profiles are available after you sign in as a loyalty member.";
-    }
-    return;
-  }
 
   const traveller_profile_id = Number(document.getElementById("travellerEditId")?.value ?? 0);
   const customerID = Number(document.getElementById("travellerCustomerID")?.value ?? 0);
@@ -3701,7 +3653,6 @@ let appShellInitialized = false;
 
 function initLoginAndSessionUI() {
   document.getElementById("loginForm")?.addEventListener("submit", onLoginSubmit);
-  document.getElementById("continueGuestBtn")?.addEventListener("click", onContinueGuest);
   document.getElementById("logoutBtn")?.addEventListener("click", onLogout);
 }
 
@@ -3748,11 +3699,6 @@ async function onLoginSubmit(e) {
   enterAppAfterAuth();
 }
 
-function onContinueGuest() {
-  setSession({ mode: "guest" });
-  enterAppAfterAuth();
-}
-
 function enterAppAfterAuth() {
   const gate = document.getElementById("loginGate");
   const shell = document.getElementById("appShell");
@@ -3771,15 +3717,11 @@ function applySessionToBookingUI() {
   const badge = document.getElementById("sessionBadge");
   if (badge) {
     badge.hidden = false;
-    badge.textContent = isGuestSession()
-      ? "Guest"
-      : getSession()?.displayName || "Member";
+    badge.textContent = getSession()?.displayName || "Member";
   }
   const step5Tab = document.getElementById("bookingStep5Tab");
   if (step5Tab) {
-    step5Tab.textContent = isGuestSession()
-      ? "4. Payment"
-      : "5. Loyalty & payment";
+    step5Tab.textContent = "5. Loyalty & payment";
   }
   populateCustomerSelects();
   updateCustomerFieldHint();
