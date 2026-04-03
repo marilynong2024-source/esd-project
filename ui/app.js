@@ -254,120 +254,18 @@ const TRIP_WINDOW_OPTIONS = [
 ];
 
 function getFilteredPresets() {
-  const reg = document.getElementById("bundleFilterRegion")?.value || "all";
-  const country = document.getElementById("bundleFilterCountry")?.value || "all";
-  const from = document.getElementById("bundleFilterFrom")?.value || "all";
-  const to = document.getElementById("bundleFilterTo")?.value || "all";
-  return BUNDLE_PRESETS.filter((p) => {
-    if (reg !== "all" && p.region !== reg) return false;
-    if (country !== "all") {
-      const o = CITY_COUNTRY_SLUG[p.origin];
-      const d = CITY_COUNTRY_SLUG[p.destination];
-      if (o !== country && d !== country) return false;
-    }
-    if (from !== "all" && p.origin !== from) return false;
-    if (to !== "all" && p.destination !== to) return false;
-    return true;
-  });
+  // Bundle presets are no longer filtered by extra dropdowns in the UI.
+  // We still keep this helper so existing callers work unchanged.
+  return BUNDLE_PRESETS;
 }
 
 /**
- * @param {boolean} preserve If true, keep region/country/from/to when options still valid (fixes country not tracking region).
+ * Legacy helper for bundle filters. The dedicated Region/Country/From/To
+ * dropdowns have been removed from the UI to avoid repetition with the
+ * main search bar, so this function is now a no-op kept for safety.
  */
-function populateBundleFilterSelects(preserve = true) {
-  const regEl = document.getElementById("bundleFilterRegion");
-  const prevReg = preserve && regEl ? regEl.value : "all";
-  const countryEl = document.getElementById("bundleFilterCountry");
-  const prevCountry = preserve && countryEl ? countryEl.value : "all";
-  const fromEl = document.getElementById("bundleFilterFrom");
-  const prevFrom = preserve && fromEl ? fromEl.value : "all";
-  const toEl = document.getElementById("bundleFilterTo");
-  const prevTo = preserve && toEl ? toEl.value : "all";
-
-  if (regEl) {
-    regEl.replaceChildren();
-    for (const r of BUNDLE_REGION_OPTIONS) {
-      const o = document.createElement("option");
-      o.value = r.value;
-      o.textContent = r.label;
-      regEl.appendChild(o);
-    }
-    const regOk = [...regEl.options].some((o) => o.value === prevReg);
-    regEl.value = regOk ? prevReg : "all";
-  }
-
-  const effectiveReg = regEl?.value || "all";
-
-  if (countryEl) {
-    countryEl.replaceChildren();
-    const allC = document.createElement("option");
-    allC.value = "all";
-    allC.textContent = "Any country";
-    countryEl.appendChild(allC);
-    const countrySlugs = countriesUsedByPresets(effectiveReg);
-    for (const slug of countrySlugs) {
-      const o = document.createElement("option");
-      o.value = slug;
-      o.textContent = BUNDLE_COUNTRY_LABEL[slug] || slug;
-      countryEl.appendChild(o);
-    }
-    const countryOk =
-      prevCountry === "all" || countrySlugs.includes(prevCountry);
-    countryEl.value = countryOk ? prevCountry : "all";
-  }
-
-  const effectiveCountry = countryEl?.value || "all";
-
-  const presetsForCities = BUNDLE_PRESETS.filter((p) => {
-    if (effectiveReg !== "all" && p.region !== effectiveReg) return false;
-    if (effectiveCountry !== "all") {
-      const o = CITY_COUNTRY_SLUG[p.origin];
-      const d = CITY_COUNTRY_SLUG[p.destination];
-      if (o !== effectiveCountry && d !== effectiveCountry) return false;
-    }
-    return true;
-  });
-
-  const origins = [...new Set(presetsForCities.map((p) => p.origin))].sort();
-  const dests = [...new Set(presetsForCities.map((p) => p.destination))].sort();
-
-  if (fromEl) {
-    fromEl.replaceChildren();
-    const allO = document.createElement("option");
-    allO.value = "all";
-    allO.textContent = "Any city";
-    fromEl.appendChild(allO);
-    for (const city of origins) {
-      const o = document.createElement("option");
-      o.value = city;
-      o.textContent = city;
-      fromEl.appendChild(o);
-    }
-    const fromOk = prevFrom === "all" || origins.includes(prevFrom);
-    fromEl.value = fromOk ? prevFrom : "all";
-  }
-
-  if (toEl) {
-    let destCandidates = presetsForCities;
-    const fromVal = fromEl?.value || "all";
-    if (fromVal !== "all") {
-      destCandidates = destCandidates.filter((p) => p.origin === fromVal);
-    }
-    const destsFiltered = [...new Set(destCandidates.map((p) => p.destination))].sort();
-    toEl.replaceChildren();
-    const allT = document.createElement("option");
-    allT.value = "all";
-    allT.textContent = "Any city";
-    toEl.appendChild(allT);
-    for (const city of destsFiltered.length ? destsFiltered : dests) {
-      const o = document.createElement("option");
-      o.value = city;
-      o.textContent = city;
-      toEl.appendChild(o);
-    }
-    const toOk = prevTo === "all" || [...toEl.options].some((o) => o.value === prevTo);
-    toEl.value = toOk ? prevTo : "all";
-  }
+function populateBundleFilterSelects() {
+  // Intentionally empty.
 }
 
 function populateBundleRouteSelectsFromPresets() {
@@ -401,16 +299,41 @@ function populateBundleRouteSelectsFromPresets() {
 
 function bundleCardPriceLabel(presetId) {
   const c = bundleCardPriceCache.get(presetId);
-  if (!c || c.loading) return "Pricing…";
-  if (c.err) return "—";
-  if (Number.isFinite(c.total)) return `From SGD ${Math.round(Number(c.total))}`;
-  return "—";
+  if (!c || c.loading) {
+    return {
+      html: `<span class="bundle-price__loading">Pricing…</span>`,
+    };
+  }
+  if (c.err) {
+    return { html: `<span class="bundle-price__unavailable">—</span>` };
+  }
+  const list = Number.isFinite(c.listTotal) ? Math.round(Number(c.listTotal)) : null;
+  const final = Number.isFinite(c.finalTotal) ? Math.round(Number(c.finalTotal)) : null;
+  if (!final) {
+    return { html: `<span class="bundle-price__unavailable">—</span>` };
+  }
+  if (!list || list <= final) {
+    // No discount vs list price – keep the simple label.
+    return {
+      html: `<span class="bundle-price__now">From SGD ${final}</span>`,
+    };
+  }
+  const savings = Math.max(0, list - final);
+  return {
+    html: `
+      <span class="bundle-price__was">Was SGD ${list}</span>
+      <span class="bundle-price__now">Now SGD ${final}</span>
+      <span class="bundle-price__save">Save SGD ${savings}</span>
+    `,
+  };
 }
 
 function updateBundleCardPriceLabels() {
   document.querySelectorAll(".bundle-card__price").forEach((el) => {
     const id = el.getAttribute("data-preset-id");
-    if (id) el.textContent = bundleCardPriceLabel(id);
+    if (!id) return;
+    const label = bundleCardPriceLabel(id);
+    el.innerHTML = label.html;
   });
 }
 
@@ -440,17 +363,23 @@ async function refreshBundleCardPrices() {
       if (out.networkError || !out.ok) {
         bundleCardPriceCache.set(p.id, {
           err: out.errorMessage || "unavailable",
-          total: null,
+          listTotal: null,
+          finalTotal: null,
         });
         return;
       }
       const data = out.body?.data;
       if (out.body?.code !== 200 || !data) {
-        bundleCardPriceCache.set(p.id, { err: "n/a", total: null });
+        bundleCardPriceCache.set(p.id, {
+          err: "n/a",
+          listTotal: null,
+          finalTotal: null,
+        });
         return;
       }
       bundleCardPriceCache.set(p.id, {
-        total: Number(data.finalTotal),
+        listTotal: Number(data.listPriceTotal ?? data.finalTotal),
+        finalTotal: Number(data.finalTotal),
         err: null,
       });
     })
@@ -476,9 +405,7 @@ function onBundleFiltersChanged() {
 }
 
 function setupBundleFilterListeners() {
-  for (const id of ["bundleFilterRegion", "bundleFilterCountry", "bundleFilterFrom", "bundleFilterTo"]) {
-    document.getElementById(id)?.addEventListener("change", () => onBundleFiltersChanged());
-  }
+  // Filter controls were removed from the booking form; nothing to wire up.
 }
 
 function populateCustomerSelects() {
@@ -2843,7 +2770,6 @@ function setActiveSegment(segmentKey) {
   };
   const buttons = {
     book: "tabBook",
-    manage: "tabManage",
   };
 
   for (const [key, panelId] of Object.entries(panels)) {
@@ -2863,18 +2789,11 @@ function setActiveSegment(segmentKey) {
 
 function setupSegmentTabs() {
   const tabBook = document.getElementById("tabBook");
-  const tabManage = document.getElementById("tabManage");
 
   if (tabBook) {
     tabBook.addEventListener("click", () => {
       setActiveSegment("book");
       document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth" });
-    });
-  }
-  if (tabManage) {
-    tabManage.addEventListener("click", () => {
-      setActiveSegment("manage");
-      document.getElementById("step-manage")?.scrollIntoView({ behavior: "smooth" });
     });
   }
 
@@ -2984,7 +2903,9 @@ function setupBookingFlowTabs() {
       const panel = document.getElementById(panelId);
       if (panel) panel.hidden = !isActive;
       if (tab) {
+        const isLocked = i > activeBookingStepIndex;
         tab.classList.toggle("segment-tab--active", isActive);
+        tab.classList.toggle("segment-tab--locked", isLocked);
         tab.setAttribute("aria-selected", isActive ? "true" : "false");
         tab.tabIndex = isActive ? 0 : -1;
       }
@@ -3031,7 +2952,8 @@ function setupBookingFlowTabs() {
     document.getElementById(id)?.addEventListener("click", () => {
       const steps = BOOKING_FLOW_STEPS;
       const idx = steps.findIndex((s) => s.tabId === id);
-      if (idx >= 0) setActiveStep(idx);
+      // Don't allow jumping ahead of the current step; only current/past.
+      if (idx >= 0 && idx <= activeBookingStepIndex) setActiveStep(idx);
     });
   }
 
@@ -4285,6 +4207,11 @@ function initAppShell() {
 
   document.getElementById("createForm").addEventListener("submit", onCreateBookingSubmit);
   document.getElementById("cancelForm").addEventListener("submit", onCancelBookingSubmit);
+
+  document.getElementById("cancelNavBtn")?.addEventListener("click", () => {
+    setActiveSegment("manage");
+    document.getElementById("step-manage")?.scrollIntoView({ behavior: "smooth" });
+  });
 }
 
 function setupMyAccountBookingsUI() {
@@ -4353,7 +4280,27 @@ async function loadMyAccount(customerID) {
   if (!panel) return;
 
   const out = await fetchJson(`${ACCOUNT_BASE}/${customerID}`);
-  if (out.networkError || !out.ok || !out.body?.data) return;
+  if (out.networkError) return;
+  if (!out.ok || !out.body?.data) {
+    // Demo accounts live in-memory inside the Docker container. If the
+    // container restarts, previously created IDs (e.g. 7, 8, …) disappear and
+    // this lookup will return 404. In that case, clear the stale session and
+    // ask the user to sign in again instead of leaving the UI in a broken state.
+    if (out.status === 404) {
+      clearSession();
+      const gate = document.getElementById("loginGate");
+      const shell = document.getElementById("appShell");
+      if (gate) gate.hidden = false;
+      if (shell) shell.hidden = true;
+      const errEl = document.getElementById("loginError");
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent =
+          "Your demo account was reset. Please sign in or sign up again to continue.";
+      }
+    }
+    return;
+  }
 
   const d = out.body.data;
   const nameEl = document.getElementById("myAccountName");
