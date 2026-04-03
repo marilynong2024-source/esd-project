@@ -153,9 +153,10 @@ body {
 
 /* ——— Hero + package search (Expedia-style) ——— */
 .hero--package {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 16px 12px 12px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 16px 20px 12px;
   display: flex;
   flex-direction: column;
   gap: 16px;
