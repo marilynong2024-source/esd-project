@@ -3018,7 +3018,7 @@ function setupBookingFlowTabs() {
 
   backBtn?.addEventListener("click", () => setActiveStep(activeBookingStepIndex - 1));
   nextBtn?.addEventListener("click", () => {
-    const steps = getBookingFlowSteps();
+    const steps = BOOKING_FLOW_STEPS;
     const last = steps.length - 1;
     if (activeBookingStepIndex >= last) {
       document.getElementById("createBtn")?.scrollIntoView({ behavior: "smooth", block: "center" });

@@ -327,10 +327,25 @@ body {
 }
 
 .package-search__pax-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  /* Keep pax pickers compact + side-by-side (Skyscanner-style). */
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
+  align-items: end;
   flex: 1 1 260px;
+}
+
+.package-search__pax label {
+  /* 6 fields exist in this bar; we try to keep them horizontal by using
+     a smaller basis so more controls fit per row. */
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .package-search__pax label {
+    flex: 1 1 160px;
+  }
 }
 
 .package-search__pax label {
@@ -711,6 +726,9 @@ h2 {
 
 .card--package {
   border-top: 3px solid var(--ocean);
+  /* Allow step navigation to be moved to bottom via flex ordering. */
+  display: flex;
+  flex-direction: column;
 }
 
 .card--manage {
@@ -1556,6 +1574,9 @@ button.seat--zone-exit_row.seat--window {
   background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: 12px;
+  /* Push the nav to the bottom of the card (after the create form). */
+  order: 99;
+  margin-top: auto;
 }
 
 .booking-step-nav__progress {
