@@ -50,7 +50,7 @@ def _save_accounts_to_disk() -> None:
         print(f"[account] Could not save {ACCOUNT_STORE_PATH}: {e}")
 
 
-# In-memory store for demo purposes (seed aligns with `database/customer_db.sql` / `init_db.sql`).
+# In-memory store for demo purposes (seed aligns with CustomerDB in `init_db.sql`; persisted via ACCOUNT_STORE_PATH in Docker).
 # Overwritten on startup if ACCOUNT_STORE_PATH file exists.
 ACCOUNTS = {
     1: {

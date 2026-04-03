@@ -515,13 +515,13 @@ function populateCustomerSelects() {
   if (!session || session.mode === "guest") {
     const o = document.createElement("option");
     o.value = "0";
-    o.textContent = "Guest checkout — no rewards wallet";
+    o.textContent = "Guest";
     bookSel.appendChild(o);
     bookSel.value = "0";
   } else {
     const o = document.createElement("option");
     o.value = String(session.customerID);
-    o.textContent = `${session.displayName || "Member"} (loyalty wallet)`;
+    o.textContent = session.displayName || "Member";
     bookSel.appendChild(o);
     bookSel.value = String(session.customerID);
   }
@@ -542,13 +542,18 @@ function populateCustomerSelects() {
       travSel.value = String(session.customerID);
     }
   }
+  updateCustomerFieldHint();
 }
 
 function updateCustomerFieldHint() {
   const hint = document.getElementById("customerIDHint");
   if (!hint) return;
-  hint.innerHTML =
-    "You're signed in as a <strong>loyalty member</strong>. Use coins in the last step; manage saved traveller profiles in step 2.";
+  const session = getSession();
+  if (!session || session.mode === "guest") {
+    hint.textContent = "No wallet or saved profiles.";
+    return;
+  }
+  hint.textContent = "Coins & saved travellers in steps 2 and 5.";
 }
 
 function updateDemoToolsForAuth() {
@@ -3060,34 +3065,21 @@ function setActiveSegment(segmentKey) {
     book: "segment-book",
     manage: "segment-manage",
   };
-  const buttons = {
-    book: "tabBook",
-  };
-
   for (const [key, panelId] of Object.entries(panels)) {
     const panel = document.getElementById(panelId);
-    const btn = document.getElementById(buttons[key]);
     const isActive = key === segmentKey;
     if (panel) {
       if (isActive) panel.removeAttribute("hidden");
       else panel.setAttribute("hidden", "");
     }
-    if (btn) {
-      btn.classList.toggle("segment-tab--active", isActive);
-      btn.setAttribute("aria-selected", isActive ? "true" : "false");
-    }
   }
 }
 
 function setupSegmentTabs() {
-  const tabBook = document.getElementById("tabBook");
-
-  if (tabBook) {
-    tabBook.addEventListener("click", () => {
-      setActiveSegment("book");
-      document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth" });
-    });
-  }
+  document.getElementById("backToBookingBtn")?.addEventListener("click", () => {
+    setActiveSegment("book");
+    document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth" });
+  });
 
   // Keep the existing “stepper” links working with the new tab panels.
   document.querySelectorAll("a.booking-flow__link").forEach((a) => {
@@ -3130,11 +3122,11 @@ function setupLoyaltyPaymentTabs() {
 }
 
 const BOOKING_FLOW_STEPS = [
-  { tabId: "bookingStep1Tab", panelId: "bookingStep1Panel", label: "Choose bundle" },
-  { tabId: "bookingStep2Tab", panelId: "bookingStep4Panel", label: "Traveller profiles" },
+  { tabId: "bookingStep1Tab", panelId: "bookingStep1Panel", label: "Bundle" },
+  { tabId: "bookingStep2Tab", panelId: "bookingStep4Panel", label: "Travellers" },
   { tabId: "bookingStep3Tab", panelId: "bookingStep2Panel", label: "Hotel" },
   { tabId: "bookingStep4Tab", panelId: "bookingStep3Panel", label: "Flights" },
-  { tabId: "bookingStep5Tab", panelId: "bookingStep5Panel", label: "Loyalty & payment" },
+  { tabId: "bookingStep5Tab", panelId: "bookingStep5Panel", label: "Pay" },
 ];
 
 const BOOKING_FLOW_ALL_TAB_IDS = [
@@ -3175,11 +3167,11 @@ function setupBookingFlowTabs() {
     if (backBtn) backBtn.disabled = idx <= 0;
     if (nextBtn) {
       nextBtn.hidden = false;
-      nextBtn.textContent = idx >= last ? "Go to confirm" : "Next";
+      nextBtn.textContent = idx >= last ? "Done" : "Next";
     }
     if (progressEl) {
       const stepMeta = steps[idx];
-      progressEl.textContent = `Step ${idx + 1} of ${steps.length} — ${stepMeta?.label ?? ""}`;
+      progressEl.textContent = `${idx + 1} / ${steps.length} · ${stepMeta?.label ?? ""}`;
     }
   };
 
@@ -4329,7 +4321,7 @@ function applySessionToBookingUI() {
   }
   const step5Tab = document.getElementById("bookingStep5Tab");
   if (step5Tab) {
-    step5Tab.textContent = "5. Loyalty & payment";
+    step5Tab.textContent = "5. Pay";
   }
   populateCustomerSelects();
   updateCustomerFieldHint();

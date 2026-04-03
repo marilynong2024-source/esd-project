@@ -776,6 +776,50 @@ h2 {
   border-top: 3px solid #78716c;
 }
 
+.cancel-booking__back {
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.payment-estimate {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.payment-estimate__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.payment-estimate__value {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--ocean-dark);
+}
+
+.payment-estimate__details {
+  margin: 0 0 14px;
+}
+
+.actions-row--tight-top {
+  margin-top: 6px;
+}
+
+.advanced-details--after-sms {
+  margin-top: 8px;
+}
+
 .card--receipt {
   border-top: 3px solid var(--accent);
 }

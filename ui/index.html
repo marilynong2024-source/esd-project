@@ -20,10 +20,8 @@
         </span>
       </div>
       <div class="card login-gate__card">
-        <h1 id="loginGateTitle" class="login-gate__title">Welcome to Horizon Packages</h1>
-        <p class="login-gate__lede muted">
-          Sign in as a loyalty member to book packages, save traveller passport profiles, and use reward coins.
-        </p>
+        <h1 id="loginGateTitle" class="login-gate__title">Sign in</h1>
+        <p class="login-gate__lede muted">Members get saved profiles, coins, and tier pricing.</p>
         <form id="loginForm" class="login-gate__form" novalidate>
           <label class="login-gate__field">
             <span>Email</span>
@@ -43,13 +41,11 @@
               id="loginPassword"
               name="password"
               autocomplete="current-password"
-              placeholder="Any non-empty value in this demo"
+              placeholder="Any password (demo)"
               required
             />
           </label>
-          <p class="muted login-gate__hint">
-            Demo members use the emails from the account service seed (e.g. <code>ava.chen@example.com</code>).
-          </p>
+          <p class="muted login-gate__hint">Try <code>ava.chen@example.com</code> or sign up below.</p>
           <div id="loginError" class="alert" role="alert" hidden></div>
           <button type="submit" class="btn-primary login-gate__submit" id="loginSubmitBtn">
             Sign in as loyalty member
@@ -91,7 +87,7 @@
                 id="signupPassword"
                 name="password"
                 autocomplete="new-password"
-                placeholder="Any non-empty value in this demo"
+                placeholder="Any password (demo)"
                 required
               />
             </label>
@@ -115,9 +111,7 @@
               <span>Date of birth (optional)</span>
               <input type="date" id="signupDob" name="dateOfBirth" />
             </label>
-            <p class="muted login-gate__hint">
-              This demo stores accounts in memory only (Docker container). Use test details, not real NRIC or card numbers.
-            </p>
+            <p class="muted login-gate__hint">Demo only — use test data.</p>
             <div id="signupError" class="alert" role="alert" hidden></div>
             <button type="submit" class="btn-primary login-gate__submit" id="signupSubmitBtn">
               Sign up &amp; start booking
@@ -177,11 +171,8 @@
 
   <section class="hero hero--package" aria-labelledby="hero-heading">
     <div class="hero__content hero__content--compact">
-      <p class="hero__eyebrow">Horizon Packages</p>
-      <h1 id="hero-heading">Book flight + hotel in a few steps</h1>
-      <p class="hero__lede hero__lede--short">
-        Search like a travel site, then refine bundles, travellers, hotel, and flights below.
-      </p>
+      <h1 id="hero-heading">Flight + hotel</h1>
+      <p class="hero__lede hero__lede--short">Search here, then finish booking in the form below.</p>
     </div>
 
     <div class="package-search" aria-labelledby="package-search-title">
@@ -284,11 +275,6 @@
       </div>
     </div>
 
-    <ul class="hero__trust hero__trust--below" role="list">
-      <li>Flights and hotels from the demo catalog</li>
-      <li>Optional seat map when the airline allows online selection</li>
-      <li>Confirmation and wallet stay in the summary panel</li>
-    </ul>
   </section>
 
   <main class="site-main site-main--booking">
@@ -305,27 +291,12 @@
     </nav>
 
     <div class="col col--booking">
-      <nav class="segment-tabs" aria-label="Booking sections">
-        <button
-          type="button"
-          class="segment-tab segment-tab--active"
-          id="tabBook"
-          aria-controls="segment-book"
-          aria-selected="true"
-        >
-          Trip
-        </button>
-      </nav>
-
       <div id="segment-book" class="segment-panel">
       <section id="step-book" class="card card--package">
         <div class="card-header">
           <div class="card-header__titles">
-            <h2>Plan your trip</h2>
-            <p class="card-sub">
-              Pick a curated bundle first (swipe through packages), then traveller profiles, hotel, flight, and payment.
-              Confirm at the bottom when you&rsquo;re ready.
-            </p>
+            <h2>Book</h2>
+            <p class="card-sub">Use the steps — bundle, hotel, flight, then pay.</p>
           </div>
         </div>
 
@@ -339,7 +310,7 @@
             aria-controls="bookingStep1Panel"
             tabindex="0"
           >
-            1. Choose bundle
+            1. Bundle
           </button>
           <button
             type="button"
@@ -350,7 +321,7 @@
             aria-controls="bookingStep4Panel"
             tabindex="-1"
           >
-            2. Traveller profiles (members)
+            2. Travellers
           </button>
           <button
             type="button"
@@ -383,7 +354,7 @@
             aria-controls="bookingStep5Panel"
             tabindex="-1"
           >
-            5. Loyalty &amp; payment
+            5. Pay
           </button>
         </nav>
 
@@ -392,7 +363,7 @@
             Back
           </button>
           <p class="booking-step-nav__progress muted" id="bookingStepProgress" aria-live="polite">
-            Step 1 of 5 — Choose bundle
+            1 / 5 · Bundle
           </p>
           <button type="button" class="btn-primary booking-step-nav__next" id="bookingStepNext">
             Next
@@ -402,36 +373,33 @@
         <form id="createForm" class="form-grid">
           <div id="demoQuickExampleWrap">
           <label class="form-grid-1col form-label--demo">
-            Quick example (optional)
+            Demo preset
             <select id="demoProfile">
-              <option value="">— Build my own —</option>
+              <option value="">— None —</option>
             </select>
           </label>
           <div class="actions-row form-grid-1col">
-            <button type="button" class="btn-secondary" id="loadDemoBtn">Load example</button>
-            <button type="button" class="btn-secondary" id="newManualBtn">Clear &amp; start fresh</button>
+            <button type="button" class="btn-secondary" id="loadDemoBtn">Load</button>
+            <button type="button" class="btn-secondary" id="newManualBtn">Reset</button>
           </div>
           </div>
 
           <div id="bookingStep1Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep1Tab">
           <label class="label--hero-field">
-            Who is this booking for?
+            Book for
             <select
               id="customerID"
               required
-              aria-label="Rewards wallet or guest checkout"
+              aria-label="Member or guest"
             ></select>
-            <span class="muted field-hint" id="customerIDHint"
-              >After you sign in, your loyalty wallet is selected here. As a guest, you book without saved profiles or coins.</span
-            >
+            <span class="muted field-hint" id="customerIDHint"></span>
           </label>
           <label>
-            Display name on the booking
-            <input type="text" id="bookerCustomName" placeholder="e.g. Jamie Tan" />
-            <span class="muted field-hint">Shown on your confirmation; can differ from the member name above.</span>
+            Name on confirmation (optional)
+            <input type="text" id="bookerCustomName" placeholder="As it should appear" />
           </label>
 
-          <div class="section-title section-title--spaced">Choose a bundle</div>
+          <div class="section-title section-title--spaced">Package</div>
           <label class="form-grid-1col">
             Package
             <select id="bundlePackageSelect" aria-label="Choose travel package">
@@ -439,7 +407,7 @@
             </select>
           </label>
           <p class="muted bundle-gallery__hint">
-            Pick a package below to <strong>filter the carousel to that route only</strong>, or leave &ldquo;Select a package&rdquo; to browse every deal. Card prices show <strong>Was</strong> (strikethrough) vs <strong>Now</strong> when the bundle discount applies (SGD).
+            Choosing a package filters the list. Leave unselected to see all. Prices in SGD.
           </p>
           <div class="bundle-gallery-wrap">
             <button
@@ -481,10 +449,8 @@
               <input type="number" id="bundleNumberOfTravellers" aria-label="Total travellers" readonly />
             </label>
           </div>
-          <p class="muted">Group size for seats, rooms, and bundle discount rules.</p>
-
           <details class="bundle-advanced">
-            <summary class="bundle-advanced__summary">Fine-tune route &amp; dates</summary>
+            <summary class="bundle-advanced__summary">Change route or dates</summary>
             <div class="form-grid">
               <label>
                 Origin city
@@ -508,12 +474,12 @@
               </label>
             </div>
             <div class="actions-row form-grid-1col">
-              <button type="button" class="btn-secondary" id="bundleSearchBtn">Recalculate bundle price</button>
+              <button type="button" class="btn-secondary" id="bundleSearchBtn">Update price</button>
             </div>
           </details>
 
           <div class="actions-row form-grid-1col">
-            <button type="button" class="btn-primary" id="bundleQuickApplyBtn">Update bundle price</button>
+            <button type="button" class="btn-primary" id="bundleQuickApplyBtn">Refresh price</button>
           </div>
           <div id="bundleStatus" class="muted" aria-live="polite"></div>
 
@@ -551,25 +517,22 @@
               value="+65 9123 4567"
               placeholder="+65 … or 91234567"
             />
-            <span class="muted section-hint form-hint-inline"
-              >Used for booking confirmed / refund texts if Twilio is enabled in the sidebar.</span
-            >
+            <span class="muted section-hint form-hint-inline">For SMS alerts if you turn them on →</span>
           </label>
           </div>
 
           <div id="bookingStep4Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep2Tab" hidden>
             <div class="card-header__titles">
-              <div class="section-title form-grid-1col section-title--flush">Traveller profiles</div>
-              <p class="card-sub card-sub--tight">Create, edit, or delete saved traveller passport details — then pick who will be on the booking.</p>
+              <div class="section-title form-grid-1col section-title--flush">Saved travellers</div>
+              <p class="card-sub card-sub--tight">Passport details for people on this trip.</p>
             </div>
 
             <label>
-              Which member’s saved passports?
+              Member
               <select
                 id="travellerCustomerID"
-                aria-label="Member whose saved traveller profiles to load"
+                aria-label="Member for saved profiles"
               ></select>
-              <span class="muted field-hint">Same people as under “Who is this booking for?” — we keep profiles per household member.</span>
             </label>
 
             <div class="actions-row form-grid-1col">
@@ -580,8 +543,6 @@
                 New profile
               </button>
             </div>
-            <p class="muted section-hint--flush">Pick a saved profile to edit, or create a new one.</p>
-
             <div id="travellerProfilesError" class="alert" role="alert" hidden></div>
 
             <div id="travellerProfilesList" class="traveller-list" aria-label="Traveller profiles list"></div>
@@ -665,9 +626,8 @@
             <label class="form-grid-1col">
               Lead traveller
               <select id="leadTravellerSelect">
-                <option value="">— Pick from saved profiles —</option>
+                <option value="">— Select —</option>
               </select>
-              <span class="muted">Tip: pick the lead traveller for this booking.</span>
             </label>
 
             <select id="companionTravellerSelect" multiple size="5" hidden></select>
@@ -679,9 +639,7 @@
               <select id="flightID" required aria-label="Choose flight for this route">
                 <option value="">— Loading flights for your route… —</option>
               </select>
-              <span class="muted field-hint" id="flightSelectHint"
-                >Flights come from the catalog with at least one seat left. Dates update when you pick a flight.</span
-              >
+              <span class="muted field-hint" id="flightSelectHint"></span>
             </label>
             <div class="form-grid">
               <label>
@@ -701,7 +659,7 @@
               <div class="seat-group-summary" id="seatGroupSummary">
                 <span class="seat-pill" id="seatLeadPill">Lead traveller seat: —</span>
                 <span class="seat-pill seat-pill--muted" id="seatCompanionPill">Group seats: 0/0</span>
-                <span class="seat-pill seat-pill--hint" id="seatGroupHint">Seat assignment follows your total traveller count.</span>
+                <span class="seat-pill seat-pill--hint" id="seatGroupHint"></span>
               </div>
               <div id="seatMapWrap" class="seat-map-wrap" hidden>
                 <div class="seat-map-legend">
@@ -772,9 +730,7 @@
                 Search hotels
               </button>
             </div>
-            <div class="muted section-hint" id="hotelSelectedHint">
-              Pick a hotel option to continue.
-            </div>
+            <div class="muted section-hint" id="hotelSelectedHint">Choose a hotel from the results.</div>
             <div id="hotelResults" class="hotel-results" aria-label="Hotel results"></div>
             <div class="muted">
               Selected hotel: <strong id="hotelSelectedDisplay">—</strong>
@@ -816,7 +772,7 @@
               step="0.01"
               inputmode="decimal"
             />
-            <span class="muted field-hint">Flight + hotel before rewards; tier and coins adjust what you pay in the next step.</span>
+            <span class="muted field-hint">Before coins &amp; discounts (step 5).</span>
           </label>
           </div>
 
@@ -836,7 +792,7 @@
               aria-controls="panelLoyaltyPoints"
               tabindex="-1"
             >
-              Loyalty points
+              Coins
             </button>
             <button
               type="button"
@@ -853,11 +809,9 @@
 
           <div id="panelLoyaltyPoints" class="segment-panel" role="tabpanel" aria-labelledby="tabLoyaltyPoints" hidden>
             <label id="coinsOffsetWrap">
-              Apply reward coins
+              Coins to use
               <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
-              <span class="muted field-hint"
-                >Each coin is 1 cent off your bill in this demo (e.g. 500 coins ≈ S$5.00).</span
-              >
+              <span class="muted field-hint">1 coin = 1¢ off (e.g. 500 ≈ S$5).</span>
               <div class="coins-meta">
                 Wallet: <strong id="coinsAvailableCents">-</strong> coins
                 <span class="muted coins-meta__sgd" id="coinsAvailableSgd"></span>
@@ -874,16 +828,20 @@
           </div>
 
           <div id="panelPayment" class="segment-panel" role="tabpanel" aria-labelledby="tabPayment">
-            <div class="muted">
-              <strong>How your total is calculated:</strong> we apply your <strong>tier discount</strong> first,
-              then your <strong>promo code</strong>, then <strong>coins</strong> (1 cent of coin ≈ S$0.01 off). The number we charge is:
-              <div>Estimated amount to pay: <strong id="computedTotalPrice">-</strong></div>
-            </div>
+            <p class="payment-estimate">
+              <span class="payment-estimate__label">Estimated to pay</span>
+              <strong id="computedTotalPrice" class="payment-estimate__value">-</strong>
+            </p>
+            <details class="advanced-details payment-estimate__details">
+              <summary>How the total is calculated</summary>
+              <p class="muted advanced-details__body">
+                Order: tier discount → promo code → coins. Each coin is 1¢ off.
+              </p>
+            </details>
 
             <label>
-              Currency (fixed)
+              Currency
               <input type="text" id="currency" value="SGD" required readonly />
-              <span class="muted">All prices are handled in SGD for this demo.</span>
             </label>
 
             <label>
@@ -913,17 +871,14 @@
                 <input type="text" id="paymentCardCvc" placeholder="123" inputmode="numeric" autocomplete="cc-csc" />
               </label>
             </div>
-            <p class="muted field-hint" id="paymentSplitHint">
-              If coins do not fully cover the total, the remaining amount is charged to card.
-            </p>
+            <p class="muted field-hint" id="paymentSplitHint">Any remainder is charged to card.</p>
 
             <label class="form-grid-1col" id="breakfastAddonWrap">
-              Hotel extras
+              Extras
               <span class="inline-checkbox">
                 <input type="checkbox" id="hotelIncludesBreakfast" />
-                <span>Add breakfast package</span>
+                <span>Add breakfast (Standard rooms only)</span>
               </span>
-              <span class="muted">Only for <strong>Standard</strong> rooms. Deluxe already includes breakfast.</span>
             </label>
 
             <div class="form-grid-1col form-submit-wrap">
@@ -931,14 +886,11 @@
                 <span aria-hidden="true">✓</span>
                 <span>Confirm &amp; pay</span>
               </button>
-              <p class="muted form-after-submit-hint">
-                Next: check <strong>Your summary</strong> on the right for your confirmation. If you need to cancel, note the <strong>booking reference</strong> for step 2.
-              </p>
+              <p class="muted form-after-submit-hint">Confirmation appears in <strong>Your summary</strong> →</p>
               <details class="advanced-details">
-                <summary>For developers &amp; instructors</summary>
+                <summary>API note (instructors)</summary>
                 <p class="muted advanced-details__body">
-                  Submits to <code>POST /booking</code> (diagram alias <code>POST /book-package</code>). Tier, coins, and
-                  companion IDs mirror what a full stack would send from OutSystems or loyalty services.
+                  <code>POST /booking</code> (alias <code>POST /book-package</code>).
                 </p>
               </details>
             </div>
@@ -955,9 +907,15 @@
       <section id="step-manage" class="card card--manage">
         <div class="card-header">
           <div class="card-header__titles">
-            <h2>Change or cancel</h2>
-            <p class="card-sub">Use the booking reference from your confirmation. Refunds depend on who initiates and how far out the trip is.</p>
+            <h2>Cancel booking</h2>
+            <p class="card-sub">Enter the booking number from your confirmation.</p>
           </div>
+        </div>
+
+        <div class="actions-row cancel-booking__back">
+          <button type="button" class="btn-secondary" id="backToBookingBtn">
+            ← Back to booking
+          </button>
         </div>
 
         <form id="cancelForm" class="form-grid-1col">
@@ -974,26 +932,22 @@
               aria-label="Booking reference number from confirmation"
             />
           </label>
-          <p class="muted form-grid-1col muted--compact-top">
-            This is the confirmation reference the system issued after payment — not your name, email, or login.
-          </p>
           <label>
-            Who is cancelling?
+            Cancelled by
             <select id="cancelSource">
-              <option value="customer" selected>You (traveller)</option>
+              <option value="customer" selected>You</option>
               <option value="airline">Airline</option>
               <option value="hotel">Hotel</option>
       </select>
     </label>
           <button type="submit" class="btn-secondary" id="cancelBtn">
             <span aria-hidden="true">↩</span>
-            <span>Submit cancellation request</span>
+            <span>Submit cancellation</span>
           </button>
           <details class="advanced-details">
-            <summary>Technical note</summary>
+            <summary>Refund rules (demo)</summary>
             <p class="muted advanced-details__body">
-              Calls <code>POST /booking/cancel/{id}</code> (diagram alias <code>POST /cancel-booking</code>). Demo rules:
-              customer-led hotel refunds may apply 7+ days before departure.
+              <code>POST /booking/cancel/{id}</code>. Some hotel refunds only 7+ days before travel.
             </p>
           </details>
   </form>
@@ -1008,13 +962,13 @@
       <section id="step-receipt" class="card card--receipt">
         <div class="card-header">
           <div class="card-header__titles">
-            <h2>Your summary</h2>
-            <p class="card-sub">Wallet, confirmation, and any system messages — stay on this panel as you work through steps 1 and 2.</p>
+            <h2>Summary</h2>
+            <p class="card-sub">Wallet, confirmation, and messages.</p>
           </div>
         </div>
 
         <div class="loyalty-panel">
-          <div class="section-title">Loyalty wallet</div>
+          <div class="section-title">Wallet</div>
         <div class="summary-row">
           <span class="label">Coins</span>
           <span class="value" id="loyaltyCoins">-</span>
@@ -1027,7 +981,7 @@
 
         <div id="memberPanels">
           <div id="panelMyAccount" class="segment-panel" hidden>
-            <div class="section-title section-title--spaced">My account</div>
+            <div class="section-title section-title--spaced">Account</div>
             <div class="summary-row">
               <span class="label">Name</span>
               <span class="value" id="myAccountName">-</span>
@@ -1044,17 +998,11 @@
               <span class="label">Tier</span>
               <span class="value" id="myAccountTier">-</span>
             </div>
-            <p class="muted section-hint section-hint--flush">
-              Member status and loyalty points are loaded from the account + loyalty services.
-            </p>
           </div>
 
           <div id="panelMyBookings" class="segment-panel" hidden>
-            <div class="section-title section-title--spaced">My bookings</div>
-            <p class="muted section-hint section-hint--flush">
-              Shows your most recent bookings. Use “Change / cancel” to manage them.
-            </p>
-            <div class="actions-row" style="margin-top: 6px;">
+            <div class="section-title section-title--spaced">Bookings</div>
+            <div class="actions-row actions-row--tight-top">
               <button type="button" class="btn-secondary" id="myBookingsRefreshBtn">
                 Refresh
               </button>
@@ -1063,32 +1011,27 @@
           </div>
         </div>
 
-        <div class="section-title section-title--spaced">Confirmation details</div>
+        <div class="section-title section-title--spaced">Confirmation</div>
         <div class="result-header">
           <span class="result-header__label">Status</span>
           <span id="resultStatus" class="muted"></span>
         </div>
 
         <div class="actions-row">
-          <button type="button" id="copyResultBtn" class="btn-secondary">Copy full details</button>
-          <button type="button" id="refreshNotifBtn" class="btn-secondary">Refresh messages</button>
+          <button type="button" id="copyResultBtn" class="btn-secondary">Copy</button>
+          <button type="button" id="refreshNotifBtn" class="btn-secondary">Refresh</button>
         </div>
 
         <pre id="result" class="code-block" aria-label="Latest confirmation response">{ }</pre>
 
-        <div class="section-title section-title--spaced">Text message alerts (optional)</div>
-        <p class="muted section-hint">
-          Get an SMS when your booking is confirmed or cancelled. You can ignore this if you don't need texts.
-        </p>
+        <div class="section-title section-title--spaced">SMS (optional)</div>
         <label class="twilio-enable-row">
           <input type="checkbox" id="twilioEnabled" />
-          <span>Send me SMS updates for this booking</span>
+          <span>Text me booking updates</span>
         </label>
-        <details class="advanced-details" style="margin-top: 6px;">
-          <summary>SMS provider setup (for instructors)</summary>
-          <p class="muted section-hint">
-            Only needed if you're wiring this demo to a real Twilio account.
-          </p>
+        <details class="advanced-details advanced-details--after-sms">
+          <summary>Twilio setup</summary>
+          <p class="muted section-hint">For a real SMS provider only.</p>
           <div class="form-grid form-grid--twilio" role="group" aria-label="SMS provider settings">
             <p class="muted section-hint" id="twilioSidHint"></p>
             <label>
@@ -1126,8 +1069,7 @@
           </div>
         </details>
 
-        <div class="section-title section-title--spaced">Trip updates</div>
-        <p class="muted section-hint">Technical log of confirmations and events — useful for class demos and debugging.</p>
+        <div class="section-title section-title--spaced">Activity</div>
         <pre id="notifications" class="code-block code-block--compact" aria-label="Notification log">{ }</pre>
 
         <div id="uiError" class="alert" role="alert"></div>
@@ -1136,11 +1078,11 @@
   </main>
 
   <footer class="site-footer">
-    <p>Horizon Packages · Course demo environment</p>
+    <p>Horizon Packages · demo</p>
     <details class="advanced-details advanced-details--footer">
-      <summary>Infrastructure &amp; API notes</summary>
+      <summary>Stack info</summary>
       <p class="muted advanced-details__body">
-        UI talks to services via <code>/api/</code> (nginx). Run the stack with Docker to use live booking, loyalty, and notifications.
+        UI → <code>/api/</code> via nginx. Use Docker for live services.
       </p>
     </details>
   </footer>

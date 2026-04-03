@@ -45,7 +45,7 @@ Your **slides, report, video (`video.txt`), and eLearn zip** are still your team
 | Service **reused** across scenarios | **Loyalty**, **payment**, **flight**, **hotel**, **notification** used in multiple flows. |
 | **External service** | **Twilio** (SMS, UI + saved config) is the main live hook; **payment** is simulated in Docker. |
 | ≥2 scenarios with **orchestration/choreography** | Booking orchestrates many HTTP calls; **RabbitMQ** `notify.user` choreography to notification (+ optional Twilio). |
-| Exclusive **data store** per service where applicable | e.g. booking MySQL; in-memory stores in demo services — document in report appendix. |
+| Exclusive **data store** per service where applicable | Booking → MySQL; account → JSON file; other demo services in-memory — document in report appendix. |
 | ≥1 service with a **DB** | **booking** + `booking-db` (MySQL in Compose). |
 | **HTTP** between services | Flask REST calls throughout. |
 | **Message-based** communication | RabbitMQ from booking → notification. |
@@ -85,6 +85,57 @@ Your **slides, report, video (`video.txt`), and eLearn zip** are still your team
 - `GET /loyalty/{customerID}/points`
 - `GET /notifications`
 - `POST /graphql`
+
+---
+
+## Databases (diagram vs Docker runtime)
+
+**What your ERD / course diagram shows:** several logical databases (**FlightDB**, **HotelDB**, **CustomerDB**, **travel_booking** / package bookings, **LoyaltyDB**, **TravellerDB**). Those schemas and seed rows are defined together in **`init_db.sql`** at the repo root — use that file so your report matches the diagram.
+
+**What actually runs in `docker compose up`:**
+
+| Store | Technology | Env / compose keys | Notes |
+|--------|------------|--------------------|--------|
+| Booking / packages | **MySQL 8** (`booking-db`) | `BOOKING_DB_URL` (booking service); `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` (MySQL container) | Default URL: `mysql+pymysql://travel_user:travel_pass@booking-db:3306/travel_booking`. Host port **3307** → container 3306. Data dir persisted on volume **`booking_mysql_data`**. |
+| Accounts | **JSON file** | `ACCOUNT_STORE_PATH` (default in compose: `/app/data/accounts.json`) | Volume **`account_data`**. Mirrors **CustomerDB** concept from the diagram; not MySQL in this stack. |
+| Flight, hotel, loyalty, payment, discount, notification | **In-process memory** | (none for DB) | Restart clears state; say so in the report. |
+| Traveller profiles (diagram: TravellerDB) | **OutSystems REST** (optional) | `TRAVELLER_PROFILE_BASE_URL`, `TRAVELLER_PROFILE_REQUIRED`, `TRAVELLER_PROFILE_UPDATE_PATH`, `TRAVELLER_PROFILE_DELETE_PATH` | When URL is empty, booking uses demo fallbacks per code. |
+
+### Table columns by logical database (`init_db.sql`)
+
+**FlightDB**
+
+- **Flight:** `flightID`, `flightNumber`, `airline`, `origin`, `destination`, `originCity`, `destinationCity`, `departureTime`, `arrivalTime`, `durationMins`, `economyPrice`, `businessPrice`, `totalSeats`, `availableSeats`, `status`, `imageUrl`
+- **FlightReservations:** `id`, `BookingID`, `FlightNum`, `SeatNo`, `Status`, `CreatedAt`
+
+**HotelDB**
+
+- **Hotel:** `hotelID`, `name`, `city`, `country`, `address`, `starRating`, `description`, `imageUrl`, `amenities`
+- **RoomType:** `roomTypeID`, `hotelID`, `typeName`, `pricePerNight`, `maxGuests`, `totalRooms`, `availableRooms`, `description`, `imageUrl`
+- **HotelBookings:** `id`, `BookingID`, `HotelID`, `RoomType`, `CheckIn`, `CheckOut`, `NumberOfKeys`, `Status`, `CreatedAt`
+
+**CustomerDB**
+
+- **customer_accounts:** `customer_id`, `email`, `password_hash`, `first_name`, `last_name`, `phone_number`, `date_of_birth`, `nationality`, `account_status`, `created_at`, `updated_at`
+- **CustomerProfile:** `customerID`, `Nationality`, `CreatedAt`, `AccountStatus`
+
+**travel_booking** (Compose + booking service)
+
+- **bookings** / **PackageBookings** (same shape): `id`, `customerID`, `flightID`, `hotelID`, `hotelRoomType`, `hotelIncludesBreakfast`, `departureTime`, `totalPrice`, `currency`, `fareType`, `loyaltyTier`, `status`, `noOfRooms`, `refundPercentage`, `refundAmount`, `cancellationPolicyID`, `cancellationTimestamp`, `seatNumber`, `travellerProfileId`, `travellerDisplayName`, `travellerProfileIdsJson`, `adultCount`, `childCount`, `infantCount`, `passengerName`, `passengerEmail`, `passengerPhone`
+- **BundleCatalog:** `bundleCode`, `title`, `originCity`, `destinationCity`, `defaultNights`, `highlight`, `displayOrder`
+
+On first startup, the booking app may add **`seatNumbersJson`** via `ensure_booking_columns()` if the column is missing (ORM uses it; add it to your diagram notes if you show a physical schema).
+
+**LoyaltyDB**
+
+- **LoyaltyAccounts:** `ID`, `CustomerID`, `PointsBalance`, `TierLevel`, `UpdatedAt`
+- **LoyaltyTransactions:** `ID`, `CustomerID`, `BookingID`, `PointsChanged`, `TransactionDate`, `Reason`
+
+**TravellerDB**
+
+- **TravellerProfiles:** `ID`, `CustomerID`, `FullName`, `PassportNumber`, `Nationality`, `DateOfBirth`, `MealPreference`, `CreatedAt`
+
+See **`database/README.md`** for how this relates to Compose and why duplicate `database/*.sql` files were removed.
 
 ---
 

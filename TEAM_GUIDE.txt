@@ -150,7 +150,7 @@ TABLE OF CONTENTS
   ---------------- ------ ----------------------- ---------------------------
   ui (nginx)       8080   static files            Proxies /api/* to backends
   booking          5101   MySQL (booking-db)      Orchestration, traveller API
-  account          5100   in-memory ACCOUNTS      Customer lookup
+  account          5100   JSON /app/data/accounts.json (volume account_data)  Customer lookup; mirrors CustomerDB from init_db.sql
   flight           5102   in-memory FLIGHTS      Catalog, reserve/confirm
   hotel            5103   in-memory HOTELS        Catalog, hold/confirm
   payment          5104   in-memory PAYMENTS      process + refund-payment
@@ -186,8 +186,8 @@ TABLE OF CONTENTS
   nginx/ui.conf      reverse proxy rules for /api/booking, loyalty, etc.
   docker-compose.yml stack definition + notification_twilio_data volume
   kong.yml           Kong declarative routes (BTL)
-  database/*.sql     reference / seed SQL for various conceptual DBs
-  init_db.sql        root-level seed reference
+  database/README.md explains diagram SQL vs Compose; no per-DB *.sql fragments
+  init_db.sql        canonical multi-DB seed + ERD alignment (run manually on MySQL)
   scripts/smoke_test.ps1 optional automated checks
   travellerprofile/  OutSystems client library (used by booking)
 
@@ -230,7 +230,10 @@ TABLE OF CONTENTS
   (e.g. booking). Do NOT commit real secrets.
 
   Booking-related:
-    BOOKING_DB_URL       MySQL URL for SQLAlchemy
+    BOOKING_DB_URL       MySQL URL for SQLAlchemy (travel_booking in Compose)
+
+  Account persistence (Docker):
+    ACCOUNT_STORE_PATH   JSON file path (compose: /app/data/accounts.json; volume account_data)
     TRAVELLER_PROFILE_BASE_URL   OutSystems REST base (empty = optional OS)
     TRAVELLER_PROFILE_REQUIRED   true = strict validation when URL set
     TRAVELLER_PROFILE_UPDATE_PATH / DELETE_PATH  OS action names
@@ -454,7 +457,7 @@ TABLE OF CONTENTS
 
   Service: booking-db (MySQL 8)
   ORM: Flask-SQLAlchemy in booking service
-  Migrations: ensure_booking_columns() and SQL under database/ for reference
+  Migrations: ensure_booking_columns(); full diagram schema in root init_db.sql
 
   Satisfies “at least one microservice uses a DB” — cite booking + ERD in appendix.
 
@@ -477,6 +480,7 @@ TABLE OF CONTENTS
 ================================================================================
 
   * booking MySQL: source of truth for bookings.
+  * account: JSON file under ACCOUNT_STORE_PATH (Docker volume) — survives container restarts.
   * flight/hotel/loyalty/payment/notification lists: in-memory — restart clears.
   * Twilio config file survives in Docker volume across notification restarts.
   * State these boundaries in report to avoid “looks like production” claims.
@@ -1161,7 +1165,7 @@ APPENDIX D — FILES TO INCLUDE IN SUBMISSION ZIP
 
   Include:
     All service folders, ui/, nginx/, docker-compose.yml, kong.yml,
-    Dockerfile per service, database/*.sql, init_db.sql, scripts/,
+    Dockerfile per service, database/README.md, init_db.sql, scripts/,
     .env.example, README.md, TEAM_GUIDE.txt, SCORE_BOOST_CHECKLIST.md,
     travellerprofile/, booking supporting modules.
 
