@@ -1779,10 +1779,10 @@ button.seat--zone-exit_row.seat--window {
 
 .login-gate__inner {
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 
 .login-gate__brand {
@@ -1793,7 +1793,7 @@ button.seat--zone-exit_row.seat--window {
 }
 
 .login-gate__card {
-  padding: 28px 24px 24px;
+  padding: 24px 22px 20px;
   box-shadow: var(--shadow-lg);
 }
 
@@ -1805,7 +1805,7 @@ button.seat--zone-exit_row.seat--window {
 }
 
 .login-gate__lede {
-  margin: 0 0 20px;
+  margin: 0 0 14px;
   font-size: 0.9rem;
   line-height: 1.45;
 }
@@ -1813,7 +1813,7 @@ button.seat--zone-exit_row.seat--window {
 .login-gate__form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .login-gate__field {
@@ -1827,7 +1827,7 @@ button.seat--zone-exit_row.seat--window {
 .login-gate__field input {
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   font: inherit;
 }
 
@@ -1845,14 +1845,55 @@ button.seat--zone-exit_row.seat--window {
   margin-top: 4px;
 }
 
-.login-gate__divider {
-  text-align: center;
-  font-size: 0.8rem;
-  margin: 6px 0;
+.login-gate__divider-line {
+  border: 0;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 18px 0 14px;
 }
 
-.login-gate__guest {
-  width: 100%;
+.login-gate__signup {
+  padding-top: 0;
+}
+
+.login-gate__subtitle {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.login-gate__signup .login-gate__form {
+  /* Make first+last name sit side-by-side nicely. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+}
+
+.login-gate__signup .login-gate__field {
+  grid-column: 1 / -1;
+}
+
+.login-gate__signup .login-gate__field--inline {
+  grid-column: span 1;
+}
+
+.login-gate__signup .login-gate__hint {
+  grid-column: 1 / -1;
+}
+
+.login-gate__signup #signupError,
+.login-gate__signup #signupSubmitBtn {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 520px) {
+  .login-gate__signup .login-gate__form {
+    grid-template-columns: 1fr;
+  }
+  .login-gate__signup .login-gate__field--inline {
+    grid-column: 1 / -1;
+  }
 }
 
 .session-badge {

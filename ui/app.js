@@ -3655,6 +3655,40 @@ function initLoginAndSessionUI() {
   document.getElementById("loginForm")?.addEventListener("submit", onLoginSubmit);
   document.getElementById("logoutBtn")?.addEventListener("click", onLogout);
   document.getElementById("signupForm")?.addEventListener("submit", onSignupSubmit);
+
+  document.getElementById("showSignupBtn")?.addEventListener("click", () => {
+    const gateTitle = document.getElementById("loginGateTitle");
+    const gateLead = document.querySelector(".login-gate__lede");
+    const loginForm = document.getElementById("loginForm");
+    const signupSection = document.getElementById("signupSection");
+    const loginDivider = document.getElementById("loginDivider");
+
+    if (gateTitle) gateTitle.textContent = "Sign up";
+    if (gateLead)
+      gateLead.textContent =
+        "Create a loyalty account to book packages, save traveller profiles, and use reward coins.";
+
+    if (loginForm) loginForm.hidden = true;
+    if (loginDivider) loginDivider.hidden = true;
+    if (signupSection) signupSection.hidden = false;
+  });
+
+  document.getElementById("backToSigninBtn")?.addEventListener("click", () => {
+    const gateTitle = document.getElementById("loginGateTitle");
+    const gateLead = document.querySelector(".login-gate__lede");
+    const loginForm = document.getElementById("loginForm");
+    const signupSection = document.getElementById("signupSection");
+    const loginDivider = document.getElementById("loginDivider");
+
+    if (gateTitle) gateTitle.textContent = "Welcome to Horizon Packages";
+    if (gateLead)
+      gateLead.textContent =
+        "Sign in as a loyalty member to book packages, save traveller passport profiles, and use reward coins.";
+
+    if (signupSection) signupSection.hidden = true;
+    if (loginDivider) loginDivider.hidden = false;
+    if (loginForm) loginForm.hidden = false;
+  });
 }
 
 async function onLoginSubmit(e) {

@@ -54,12 +54,24 @@
           <button type="submit" class="btn-primary login-gate__submit" id="loginSubmitBtn">
             Sign in as loyalty member
           </button>
+
+          <button
+            type="button"
+            class="btn-secondary login-gate__submit"
+            id="showSignupBtn"
+            aria-controls="signupSection"
+          >
+            Sign up instead
+          </button>
         </form>
 
-        <hr class="login-gate__divider-line" />
+        <hr class="login-gate__divider-line" id="loginDivider" />
 
-        <div class="login-gate__signup" id="signupSection">
+        <div class="login-gate__signup" id="signupSection" hidden>
           <h2 class="login-gate__subtitle">Create a new loyalty account</h2>
+          <button type="button" class="btn-secondary login-gate__submit" id="backToSigninBtn">
+            Back to sign in
+          </button>
           <form id="signupForm" class="login-gate__form" novalidate>
             <label class="login-gate__field">
               <span>Email</span>
