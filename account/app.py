@@ -85,6 +85,47 @@ def to_dict(record_id: int, record: dict) -> dict:
     }
 
 
+@app.route("/account/login", methods=["POST"])
+def login():
+    """
+    Demo login: match email to a seeded loyalty account. Password must be non-empty
+    but is not verified (course / local demo only).
+    """
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password")
+    if not email:
+        return jsonify({"code": 400, "message": "email is required"}), 400
+    if password is None or str(password).strip() == "":
+        return jsonify({"code": 401, "message": "password is required"}), 401
+
+    for cid, rec in ACCOUNTS.items():
+        if str(rec.get("email") or "").strip().lower() != email:
+            continue
+        if rec.get("accountStatus") not in (None, "Active"):
+            return jsonify({"code": 403, "message": "Account is not active"}), 403
+        fn = rec.get("firstName") or ""
+        ln = rec.get("lastName") or ""
+        display = f"{fn} {ln}".strip() or rec.get("email")
+        return (
+            jsonify(
+                {
+                    "code": 200,
+                    "data": {
+                        "customerID": cid,
+                        "email": rec.get("email"),
+                        "firstName": rec.get("firstName"),
+                        "lastName": rec.get("lastName"),
+                        "displayName": display,
+                    },
+                }
+            ),
+            200,
+        )
+
+    return jsonify({"code": 401, "message": "Unknown email — try a seeded demo account"}), 401
+
+
 @app.route("/account/<int:customer_id>", methods=["GET"])
 def get_account(customer_id: int):
     record = ACCOUNTS.get(customer_id)

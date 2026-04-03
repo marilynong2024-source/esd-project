@@ -10,7 +10,61 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <a class="skip-link" href="#createForm">Skip to booking form</a>
+  <section id="loginGate" class="login-gate" aria-labelledby="loginGateTitle">
+    <div class="login-gate__inner">
+      <div class="login-gate__brand">
+        <span class="brand__mark" aria-hidden="true">◇</span>
+        <span class="brand__text">
+          <span class="brand__name">Horizon Packages</span>
+          <span class="brand__tagline">Flight + hotel · one checkout</span>
+        </span>
+      </div>
+      <div class="card login-gate__card">
+        <h1 id="loginGateTitle" class="login-gate__title">Sign in or continue as guest</h1>
+        <p class="login-gate__lede muted">
+          Loyalty members can save traveller passport profiles and use reward coins. Guests can complete a booking with manual traveller details only.
+        </p>
+        <form id="loginForm" class="login-gate__form">
+          <label class="login-gate__field">
+            <span>Email</span>
+            <input
+              type="email"
+              id="loginEmail"
+              name="email"
+              autocomplete="username"
+              placeholder="ava.chen@example.com"
+              required
+            />
+          </label>
+          <label class="login-gate__field">
+            <span>Password</span>
+            <input
+              type="password"
+              id="loginPassword"
+              name="password"
+              autocomplete="current-password"
+              placeholder="Any non-empty value in this demo"
+              required
+            />
+          </label>
+          <p class="muted login-gate__hint">
+            Demo members use the emails from the account service seed (e.g. <code>ava.chen@example.com</code>).
+          </p>
+          <div id="loginError" class="alert" role="alert" hidden></div>
+          <button type="submit" class="btn-primary login-gate__submit" id="loginSubmitBtn">
+            Sign in as loyalty member
+          </button>
+        </form>
+        <div class="login-gate__divider muted" role="presentation">or</div>
+        <button type="button" class="btn-secondary login-gate__guest" id="continueGuestBtn">
+          Continue as guest — no saved profiles or rewards wallet
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <div id="appShell" class="app-shell" hidden>
+  <a class="skip-link" href="#step-book">Skip to booking form</a>
 
   <header class="site-header">
     <div class="site-header__inner">
@@ -22,6 +76,10 @@
         </span>
       </a>
       <nav class="site-nav" aria-label="Primary">
+        <span id="sessionBadge" class="session-badge" aria-live="polite"></span>
+        <button type="button" class="btn-secondary btn--nav" id="logoutBtn" aria-label="Log out">
+          Log out
+        </button>
         <span class="site-nav__link site-nav__link--active">Book a package</span>
         <span class="site-nav__hint">Need to cancel? Use the booking reference after you confirm.</span>
       </nav>
@@ -204,7 +262,7 @@
             aria-controls="bookingStep4Panel"
             tabindex="-1"
           >
-            2. Traveller profile
+            2. Traveller profiles (members)
           </button>
           <button
             type="button"
@@ -254,6 +312,7 @@
         </div>
 
         <form id="createForm" class="form-grid">
+          <div id="demoQuickExampleWrap">
           <label class="form-grid-1col form-label--demo">
             Quick example (optional)
             <select id="demoProfile">
@@ -264,6 +323,7 @@
             <button type="button" class="btn-secondary" id="loadDemoBtn">Load example</button>
             <button type="button" class="btn-secondary" id="newManualBtn">Clear &amp; start fresh</button>
           </div>
+          </div>
 
           <div id="bookingStep1Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep1Tab">
           <label class="label--hero-field">
@@ -273,8 +333,8 @@
               required
               aria-label="Rewards wallet or guest checkout"
             ></select>
-            <span class="muted field-hint"
-              >Signed-in members earn and spend reward coins. Choose <strong>Guest checkout</strong> if you only need a ticket and stay without a wallet.</span
+            <span class="muted field-hint" id="customerIDHint"
+              >After you sign in, your loyalty wallet is selected here. As a guest, you book without saved profiles or coins.</span
             >
           </label>
           <label>
@@ -953,6 +1013,8 @@
       </p>
     </details>
   </footer>
+
+  </div>
 
   <script src="app.js" defer></script>
 </body>

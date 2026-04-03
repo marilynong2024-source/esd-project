@@ -1042,17 +1042,6 @@ def get_reserved_seats_for_flight(flight_id: str):
 @app.route("/travellerprofiles/byaccount/<int:customer_id>", methods=["GET"])
 def traveller_profiles_byaccount(customer_id: int):
     err, rows = fetch_byaccount_rows(customer_id)
-    if rows is None and err is None:
-        return (
-            jsonify(
-                {
-                    "code": 200,
-                    "data": [],
-                    "message": "Traveller profile service not configured (set TRAVELLER_PROFILE_BASE_URL to enable).",
-                }
-            ),
-            200,
-        )
     if err:
         if not _traveller_profile_env_required():
             return (
@@ -1080,9 +1069,9 @@ def traveller_get(traveller_profile_id: int):
         return jsonify({"code": 400, "message": "customerID must be an integer"}), 400
 
     err, rows = fetch_byaccount_rows(customer_id)
-    if rows is None and err is None:
-        return jsonify({"code": 500, "message": "Traveller profile service is not configured"}), 500
     if err:
+        if not _traveller_profile_env_required():
+            return jsonify({"code": 200, "data": {}, "message": err}), 200
         return jsonify({"code": 502, "message": err}), 502
     for row in rows or []:
         if _traveller_profile_row_id(row) == int(traveller_profile_id):

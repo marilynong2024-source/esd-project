@@ -9,12 +9,21 @@ services:
           - /account
         strip_path: false
 
+  # Booking Flask app also exposes top-level paths (not only /booking/*).
+  # Without these routes, Kong would 404 for traveller profiles, book-package, cancel-booking.
   - name: booking
     url: http://booking:5101
     routes:
       - name: booking-route
         paths:
           - /booking
+        strip_path: false
+      - name: booking-top-level-route
+        paths:
+          - /book-package
+          - /cancel-booking
+          - /travellerprofiles
+          - /traveller
         strip_path: false
 
   - name: flight

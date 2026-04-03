@@ -1752,3 +1752,112 @@ button.seat--zone-exit_row.seat--window {
 #companionTravellerSelect {
   min-height: 110px;
 }
+
+/* ——— Login gate (loyalty vs guest) ——— */
+.login-gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  background: var(--bg);
+  background-image: linear-gradient(
+      180deg,
+      rgba(13, 148, 136, 0.08) 0%,
+      transparent 35%
+    ),
+    radial-gradient(ellipse 80% 45% at 50% 0%, rgba(13, 148, 136, 0.15), transparent);
+}
+
+.login-gate__inner {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.login-gate__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+}
+
+.login-gate__card {
+  padding: 28px 24px 24px;
+  box-shadow: var(--shadow-lg);
+}
+
+.login-gate__title {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.login-gate__lede {
+  margin: 0 0 20px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.login-gate__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-gate__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.login-gate__field input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.login-gate__hint {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.login-gate__hint code {
+  font-size: 0.85em;
+}
+
+.login-gate__submit {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.login-gate__divider {
+  text-align: center;
+  font-size: 0.8rem;
+  margin: 6px 0;
+}
+
+.login-gate__guest {
+  width: 100%;
+}
+
+.session-badge {
+  font-weight: 600;
+  color: var(--ocean-dark);
+  padding: 6px 12px;
+  background: rgba(13, 148, 136, 0.1);
+  border-radius: 999px;
+  font-size: 0.8125rem;
+}
+
+.btn--nav {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  border-radius: 999px;
+}

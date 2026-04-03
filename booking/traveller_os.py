@@ -7,6 +7,10 @@ Booking-side hook to teammate’s Traveller Profile REST (OutSystems).
 logic here).
 
 Env: TRAVELLER_PROFILE_BASE_URL, TRAVELLER_PROFILE_REQUIRED
+
+When TRAVELLER_PROFILE_BASE_URL is unset or blank, uses the same default base as
+travellerprofile/outsystems_client.py so Docker + empty .env still reach OutSystems.
+Override TRAVELLER_PROFILE_BASE_URL in `.env` if your team uses another host.
 """
 
 from __future__ import annotations
@@ -17,9 +21,15 @@ from typing import Any
 
 import requests
 
+_DEFAULT_TRAVELLER_PROFILE_BASE = (
+    "https://personal-zhhppbon.outsystemscloud.com/"
+    "TravellerProfileService/rest/TravellerProfileAPI"
+)
+
 
 def _base_url() -> str:
-    return os.environ.get("TRAVELLER_PROFILE_BASE_URL", "").strip().rstrip("/")
+    raw = os.environ.get("TRAVELLER_PROFILE_BASE_URL", "").strip().rstrip("/")
+    return raw or _DEFAULT_TRAVELLER_PROFILE_BASE
 
 
 def _required() -> bool:
@@ -60,18 +70,15 @@ def _unwrap_traveller_list(body: Any) -> list[dict[str, Any]]:
 
 def fetch_byaccount_rows(
     customer_id: int,
-) -> tuple[str | None, list[dict[str, Any]] | None]:
+) -> tuple[str | None, list[dict[str, Any]]]:
     """
     One GET …/byaccount/{customerId} for all companion rows.
 
     Returns:
-      (None, None) — TRAVELLER_PROFILE_BASE_URL not set (skip remote).
       (err, []) — request/HTTP/parse failure.
       (None, rows) — HTTP 200 (rows may be empty).
     """
     base = _base_url()
-    if not base:
-        return None, None
     url = f"{base}/byaccount/{int(customer_id)}"
     try:
         r = requests.get(url, timeout=12)
@@ -99,12 +106,10 @@ def fetch_traveller_profile_for_booking(
     """
     Returns:
       (profile, None) — matched row.
-      (None, None) — no URL, or HTTP 200 but no row matches Id (or empty list).
+      (None, None) — HTTP 200 but no row matches Id (or empty list).
       (None, err) — network error, timeout, non-JSON, or HTTP error from OutSystems.
     """
     err, rows = fetch_byaccount_rows(customer_id)
-    if rows is None:
-        return None, None
     if err:
         return None, err
     for row in rows:
@@ -207,20 +212,7 @@ def validate_travellers_for_booking(
     if not ids:
         return [], None, False, []
 
-    base = _base_url()
-    if not base:
-        if _required():
-            return (
-                [],
-                "TRAVELLER_PROFILE_BASE_URL is not set but traveller profile id(s) were sent",
-                False,
-                [],
-            )
-        return [], None, False, ids
-
     err, rows = fetch_byaccount_rows(customer_id)
-    if rows is None:
-        return [], "Traveller Profile base URL was unset during fetch", False, []
     if err:
         return [], err, True, ids
 

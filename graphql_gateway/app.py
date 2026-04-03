@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import graphene
@@ -6,10 +8,15 @@ import requests
 app = Flask(__name__)
 CORS(app)
 
-FLIGHT_BASE = "http://flight:5102/flight"
-HOTEL_BASE = "http://hotel:5103/hotel"
-LOYALTY_BASE = "http://loyalty:5105/loyalty"
-HTTP_TIMEOUT_SECONDS = 8
+# Docker Compose service DNS names; override via env if you rename services or ports.
+def _base(name: str, default: str) -> str:
+    return os.environ.get(name, default).strip().rstrip("/")
+
+
+FLIGHT_BASE = _base("GRAPHQL_FLIGHT_BASE", "http://flight:5102/flight")
+HOTEL_BASE = _base("GRAPHQL_HOTEL_BASE", "http://hotel:5103/hotel")
+LOYALTY_BASE = _base("GRAPHQL_LOYALTY_BASE", "http://loyalty:5105/loyalty")
+HTTP_TIMEOUT_SECONDS = int(os.environ.get("GRAPHQL_HTTP_TIMEOUT_SECONDS", "8"))
 
 
 def _get_json(url: str, params: dict | None = None) -> dict | None:
