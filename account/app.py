@@ -126,6 +126,44 @@ def login():
     return jsonify({"code": 401, "message": "Unknown email — try a seeded demo account"}), 401
 
 
+@app.route("/account/signup", methods=["POST"])
+def signup():
+    """
+    Create a new demo loyalty account and return minimal profile details.
+
+    Body: { email, firstName, lastName, phoneNumber?, nationality?, dateOfBirth? }
+    """
+    global NEXT_ID
+    data = request.get_json() or {}
+    raw_email = (data.get("email") or "").strip().lower()
+    if not raw_email:
+        return jsonify({"code": 400, "message": "email is required"}), 400
+
+    # Reject duplicates by email (case-insensitive).
+    for rec in ACCOUNTS.values():
+        if str(rec.get("email") or "").strip().lower() == raw_email:
+            return jsonify({"code": 409, "message": "An account with this email already exists"}), 409
+
+    record_id = NEXT_ID
+    NEXT_ID += 1
+
+    record = {
+        "email": data.get("email"),
+        "firstName": data.get("firstName") or "",
+        "lastName": data.get("lastName") or "",
+        "phoneNumber": data.get("phoneNumber"),
+        "nationality": data.get("nationality"),
+        "dateOfBirth": data.get("dateOfBirth"),
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    }
+    ACCOUNTS[record_id] = record
+
+    out = to_dict(record_id, record)
+    out["displayName"] = f"{record.get('firstName') or ''} {record.get('lastName') or ''}".strip() or out["email"]
+    return jsonify({"code": 201, "data": out}), 201
+
+
 @app.route("/account/<int:customer_id>", methods=["GET"])
 def get_account(customer_id: int):
     record = ACCOUNTS.get(customer_id)

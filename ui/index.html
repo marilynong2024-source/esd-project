@@ -20,11 +20,11 @@
         </span>
       </div>
       <div class="card login-gate__card">
-        <h1 id="loginGateTitle" class="login-gate__title">Sign in or continue as guest</h1>
+        <h1 id="loginGateTitle" class="login-gate__title">Welcome to Horizon Packages</h1>
         <p class="login-gate__lede muted">
           Sign in as a loyalty member to book packages, save traveller passport profiles, and use reward coins.
         </p>
-        <form id="loginForm" class="login-gate__form">
+        <form id="loginForm" class="login-gate__form" novalidate>
           <label class="login-gate__field">
             <span>Email</span>
             <input
@@ -55,6 +55,52 @@
             Sign in as loyalty member
           </button>
         </form>
+
+        <hr class="login-gate__divider-line" />
+
+        <details class="login-gate__signup" id="signupSection">
+          <summary>Create a new loyalty account</summary>
+          <form id="signupForm" class="login-gate__form" novalidate>
+            <label class="login-gate__field">
+              <span>Email</span>
+              <input
+                type="email"
+                id="signupEmail"
+                name="email"
+                autocomplete="email"
+                placeholder="you@example.com"
+                required
+              />
+            </label>
+            <label class="login-gate__field login-gate__field--inline">
+              <span>First name</span>
+              <input type="text" id="signupFirstName" name="firstName" autocomplete="given-name" />
+            </label>
+            <label class="login-gate__field login-gate__field--inline">
+              <span>Last name</span>
+              <input type="text" id="signupLastName" name="lastName" autocomplete="family-name" />
+            </label>
+            <label class="login-gate__field">
+              <span>Mobile (optional)</span>
+              <input type="tel" id="signupPhone" name="phoneNumber" autocomplete="tel" />
+            </label>
+            <label class="login-gate__field">
+              <span>Nationality (optional)</span>
+              <input type="text" id="signupNationality" name="nationality" />
+            </label>
+            <label class="login-gate__field">
+              <span>Date of birth (optional)</span>
+              <input type="date" id="signupDob" name="dateOfBirth" />
+            </label>
+            <p class="muted login-gate__hint">
+              This demo stores accounts in memory only (Docker container). Use test details, not real NRIC or card numbers.
+            </p>
+            <div id="signupError" class="alert" role="alert" hidden></div>
+            <button type="submit" class="btn-primary login-gate__submit" id="signupSubmitBtn">
+              Sign up &amp; start booking
+            </button>
+          </form>
+        </details>
       </div>
     </div>
   </section>

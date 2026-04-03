@@ -3654,6 +3654,7 @@ let appShellInitialized = false;
 function initLoginAndSessionUI() {
   document.getElementById("loginForm")?.addEventListener("submit", onLoginSubmit);
   document.getElementById("logoutBtn")?.addEventListener("click", onLogout);
+  document.getElementById("signupForm")?.addEventListener("submit", onSignupSubmit);
 }
 
 async function onLoginSubmit(e) {
@@ -3687,6 +3688,58 @@ async function onLoginSubmit(e) {
     return;
   }
   const d = body.data;
+  setSession({
+    mode: "member",
+    customerID: Number(d.customerID),
+    email: d.email,
+    displayName:
+      d.displayName ||
+      `${d.firstName || ""} ${d.lastName || ""}`.trim() ||
+      d.email,
+  });
+  enterAppAfterAuth();
+}
+
+async function onSignupSubmit(e) {
+  e.preventDefault();
+  const errEl = document.getElementById("signupError");
+  const email = document.getElementById("signupEmail")?.value?.trim() || "";
+  const firstName = document.getElementById("signupFirstName")?.value?.trim() || "";
+  const lastName = document.getElementById("signupLastName")?.value?.trim() || "";
+  const phoneNumber = document.getElementById("signupPhone")?.value?.trim() || "";
+  const nationality = document.getElementById("signupNationality")?.value?.trim() || "";
+  const dateOfBirth = document.getElementById("signupDob")?.value?.trim() || "";
+  if (errEl) {
+    errEl.hidden = true;
+    errEl.textContent = "";
+  }
+  if (!email) {
+    if (errEl) {
+      errEl.textContent = "Email is required to create an account.";
+      errEl.hidden = false;
+    }
+    return;
+  }
+  const out = await fetchJson(`${ACCOUNT_BASE}/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, firstName, lastName, phoneNumber, nationality, dateOfBirth }),
+  });
+  if (out.networkError) {
+    if (errEl) {
+      errEl.textContent = out.errorMessage;
+      errEl.hidden = false;
+    }
+    return;
+  }
+  if (!out.ok || !out.body?.data) {
+    if (errEl) {
+      errEl.textContent = out.body?.message || `Sign up failed (${out.status})`;
+      errEl.hidden = false;
+    }
+    return;
+  }
+  const d = out.body.data;
   setSession({
     mode: "member",
     customerID: Number(d.customerID),
