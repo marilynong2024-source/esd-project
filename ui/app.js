@@ -3201,14 +3201,6 @@ async function loadTravellerProfiles() {
     errEl.textContent = "";
   }
 
-  if (isGuestSession()) {
-    latestTravellerRows = [];
-    populateTravellerSelectorsFromRows([]);
-    if (listEl) listEl.textContent = "";
-    resetTravellerEdit();
-    return;
-  }
-
   const customerIdRaw = document.getElementById("travellerCustomerID")?.value ?? "";
 
   const customerID = Number(customerIdRaw || 0);
@@ -3438,14 +3430,6 @@ function getTravellerCreatePayload() {
 }
 
 function onTravellerCreateNew() {
-  if (isGuestSession()) {
-    const statusEl = document.getElementById("travellerEditStatus");
-    if (statusEl) {
-      statusEl.textContent =
-        "Saved traveller profiles are available after you sign in as a loyalty member.";
-    }
-    return;
-  }
   selectedTravellerRow = null;
 
   const wrap = document.getElementById("travellerEditWrap");
@@ -3668,9 +3652,21 @@ function initLoginAndSessionUI() {
       gateLead.textContent =
         "Create a loyalty account to book packages, save traveller profiles, and use reward coins.";
 
-    if (loginForm) loginForm.hidden = true;
-    if (loginDivider) loginDivider.hidden = true;
-    if (signupSection) signupSection.hidden = false;
+    if (loginForm) {
+      loginForm.hidden = true;
+      loginForm.style.display = "none";
+    }
+    if (loginDivider) {
+      loginDivider.hidden = true;
+      loginDivider.style.display = "none";
+    }
+    if (signupSection) {
+      signupSection.hidden = false;
+      signupSection.style.display = "block";
+      // Focus the first field for a "page switch" feel.
+      const first = document.getElementById("signupEmail");
+      first?.focus?.();
+    }
   });
 
   document.getElementById("backToSigninBtn")?.addEventListener("click", () => {
@@ -3685,9 +3681,18 @@ function initLoginAndSessionUI() {
       gateLead.textContent =
         "Sign in as a loyalty member to book packages, save traveller passport profiles, and use reward coins.";
 
-    if (signupSection) signupSection.hidden = true;
-    if (loginDivider) loginDivider.hidden = false;
-    if (loginForm) loginForm.hidden = false;
+    if (signupSection) {
+      signupSection.hidden = true;
+      signupSection.style.display = "none";
+    }
+    if (loginDivider) {
+      loginDivider.hidden = false;
+      loginDivider.style.display = "";
+    }
+    if (loginForm) {
+      loginForm.hidden = false;
+      loginForm.style.display = "";
+    }
   });
 }
 
@@ -3789,10 +3794,22 @@ async function onSignupSubmit(e) {
 function enterAppAfterAuth() {
   const gate = document.getElementById("loginGate");
   const shell = document.getElementById("appShell");
-  if (gate) gate.hidden = true;
-  if (shell) shell.hidden = false;
+  if (gate) {
+    gate.hidden = true;
+    gate.style.display = "none";
+  }
+  if (shell) {
+    shell.hidden = false;
+    shell.style.display = "block";
+  }
   initAppShell();
   applySessionToBookingUI();
+  // Prevent the user from scrolling back into the auth gate view.
+  try {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  } catch {
+    window.scrollTo(0, 0);
+  }
 }
 
 function onLogout() {
