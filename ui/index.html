@@ -667,10 +667,10 @@
               <select id="leadTravellerSelect">
                 <option value="">— Pick from saved profiles —</option>
               </select>
-              <span class="muted">Tip: for online seat maps, the lead traveller seat drives auto-assignment for companions.</span>
+              <span class="muted">Tip: pick the lead traveller for this booking.</span>
             </label>
 
-            <label class="form-grid-1col">
+            <label class="form-grid-1col" hidden>
               Companions (optional)
               <select id="companionTravellerSelect" multiple size="5"></select>
               <span class="muted">We’ll attach the selected companions to your booking.</span>
@@ -704,8 +704,8 @@
               <p id="seatPolicyText" class="muted seat-policy-line"></p>
               <div class="seat-group-summary" id="seatGroupSummary">
                 <span class="seat-pill" id="seatLeadPill">Lead traveller seat: —</span>
-                <span class="seat-pill seat-pill--muted" id="seatCompanionPill">Companions: 0</span>
-                <span class="seat-pill seat-pill--hint" id="seatGroupHint">Companions will be auto-assigned nearby in this demo.</span>
+                <span class="seat-pill seat-pill--muted" id="seatCompanionPill">Group seats: 0/0</span>
+                <span class="seat-pill seat-pill--hint" id="seatGroupHint">Seat assignment follows your total traveller count.</span>
               </div>
               <div id="seatMapWrap" class="seat-map-wrap" hidden>
                 <div class="seat-map-legend">

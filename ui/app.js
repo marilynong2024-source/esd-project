@@ -1376,7 +1376,7 @@ function selectSeat(seatCode) {
     detail.textContent =
       selectedSeatCodes.length === 1
         ? leadLabel
-        : `${leadLabel}${leadLabel ? " " : ""}(+${selectedSeatCodes.length - 1} companion seat(s))`;
+        : `${leadLabel}${leadLabel ? " " : ""}(+${selectedSeatCodes.length - 1} additional seat(s))`;
   }
 
   if (blocked) {
@@ -1400,9 +1400,12 @@ function getSeatRequiredCount() {
   const leadId = Number(leadEl?.value || 0);
   if (leadId < 1) return 0;
 
-  const compSel = document.getElementById("companionTravellerSelect");
-  const companions = compSel ? Array.from(compSel.selectedOptions || []).length : 0;
-  return 1 + companions;
+  // Keep group-seat behaviour without relying on the companion selector UI.
+  const packageTotal = Number(document.getElementById("packageTotalTravellers")?.value || 0);
+  const bundleTotal = Number(document.getElementById("bundleNumberOfTravellers")?.value || 0);
+  const inferred = packageTotal > 0 ? packageTotal : bundleTotal;
+  if (Number.isFinite(inferred) && inferred > 0) return inferred;
+  return 1;
 }
 
 function computeSeatCodesForGroup(leadCode, requiredCount) {
@@ -1711,14 +1714,12 @@ function updateSeatGroupSummary() {
   const leadPill = document.getElementById("seatLeadPill");
   const compPill = document.getElementById("seatCompanionPill");
   const hintPill = document.getElementById("seatGroupHint");
-  const compSel = document.getElementById("companionTravellerSelect");
-  const companions = Array.from(compSel?.selectedOptions || []).length;
   const required = getSeatRequiredCount();
   const selectedCount = seatCodes.length;
 
   if (leadPill) leadPill.textContent = `Lead traveller seat: ${seat === "—" ? "not selected" : seat}`;
   if (compPill)
-    compPill.textContent = `Companion seats: ${Math.max(0, selectedCount - 1)}/${companions}`;
+    compPill.textContent = `Group seats: ${selectedCount}/${required || 0}`;
 
   if (hintPill) {
     if (!required) {
@@ -1727,7 +1728,7 @@ function updateSeatGroupSummary() {
       hintPill.textContent = "All seats for your group are selected.";
     } else {
       hintPill.textContent =
-        "Pick the lead traveller seat on the map — companions will be auto-assigned nearby in this demo.";
+        "Pick the lead seat on the map and nearby seats are auto-assigned for your group.";
     }
   }
 }
@@ -2512,7 +2513,7 @@ async function onCreateBookingSubmit(e) {
     if (required < 1) {
       setError(
         createError,
-        "Pick your lead traveller (and companions) before selecting seats."
+        "Pick your lead traveller before selecting seats."
       );
       createBtn.disabled = false;
       return;
@@ -2521,7 +2522,7 @@ async function onCreateBookingSubmit(e) {
     if (!Array.isArray(selectedSeatCodes) || selectedSeatCodes.length !== required) {
       setError(
         createError,
-        `Select seats for ${required} travellers on the map (lead seat drives auto-assignment for companions).`
+        `Select seats for ${required} travellers on the map (lead seat drives auto-assignment for the group).`
       );
       createBtn.disabled = false;
       return;
