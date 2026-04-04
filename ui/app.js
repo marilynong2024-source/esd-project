@@ -279,6 +279,201 @@ const BUNDLE_PRESETS = [
       "5 nights · Early sakura window, Ueno park picnics, day trip to Kawaguchiko — alternate Tokyo window vs city break.",
     image: "https://picsum.photos/seed/pkg-tyo-sak/520/300",
   },
+  {
+    id: "dxb-lon",
+    title: "Dubai to London",
+    route: "Dubai → London",
+    origin: "Dubai",
+    destination: "London",
+    region: "intercontinental",
+    depart: "2026-06-04T09:00",
+    ret: "2026-06-11T18:00",
+    blurb:
+      "7 nights · Skyline souks to West End — long-haul mix of desert glam and Thames-side walks.",
+    image: "https://picsum.photos/seed/pkg-dxb-lon/520/300",
+  },
+  {
+    id: "ams-lon",
+    title: "Amsterdam to London",
+    route: "Amsterdam → London",
+    origin: "Amsterdam",
+    destination: "London",
+    region: "europe",
+    depart: "2026-07-08T10:30",
+    ret: "2026-07-12T17:00",
+    blurb:
+      "4 nights · Canals, Rijksmuseum mornings, Eurostar-ready hop into theatre and markets.",
+    image: "https://picsum.photos/seed/pkg-ams-lon/520/300",
+  },
+  {
+    id: "ams-sin",
+    title: "Amsterdam to Singapore",
+    route: "Amsterdam → Singapore",
+    origin: "Amsterdam",
+    destination: "Singapore",
+    region: "intercontinental",
+    depart: "2026-08-15T13:00",
+    ret: "2026-08-24T11:00",
+    blurb:
+      "9 nights · Schiphol long-haul into hawker centres, heritage shophouses, and Gardens by the Bay.",
+    image: "https://picsum.photos/seed/pkg-ams-sin/520/300",
+  },
+  {
+    id: "sfo-sin",
+    title: "San Francisco to Singapore",
+    route: "San Francisco → Singapore",
+    origin: "San Francisco",
+    destination: "Singapore",
+    region: "intercontinental",
+    depart: "2026-09-02T01:00",
+    ret: "2026-09-12T23:00",
+    blurb:
+      "10 nights · Pacific crossing into tropical city rhythm — Marina Bay, Sentosa, and food courts.",
+    image: "https://picsum.photos/seed/pkg-sfo-sin/520/300",
+  },
+  {
+    id: "lax-tyo",
+    title: "Los Angeles to Tokyo",
+    route: "Los Angeles → Tokyo",
+    origin: "Los Angeles",
+    destination: "Tokyo",
+    region: "intercontinental",
+    depart: "2026-10-05T12:00",
+    ret: "2026-10-14T16:00",
+    blurb:
+      "9 nights · Transpacific into Shibuya nights, day trips to Kamakura or Disney — jet-lag friendly pacing.",
+    image: "https://picsum.photos/seed/pkg-lax-tyo/520/300",
+  },
+  {
+    id: "sgn-sin",
+    title: "Ho Chi Minh City to Singapore",
+    route: "Ho Chi Minh City → Singapore",
+    origin: "Ho Chi Minh City",
+    destination: "Singapore",
+    region: "asia",
+    depart: "2026-11-06T08:00",
+    ret: "2026-11-10T20:00",
+    blurb:
+      "4 nights · Saigon energy to orderly Lion City — short hop, maximum contrast in food and pace.",
+    image: "https://picsum.photos/seed/pkg-sgn-sin/520/300",
+  },
+  {
+    id: "han-bkk",
+    title: "Hanoi to Bangkok",
+    route: "Hanoi → Bangkok",
+    origin: "Hanoi",
+    destination: "Bangkok",
+    region: "asia",
+    depart: "2026-05-18T07:00",
+    ret: "2026-05-24T12:00",
+    blurb:
+      "6 nights · Old Quarter pho to Chao Phraya sunsets — two Southeast Asian capitals in one trip.",
+    image: "https://picsum.photos/seed/pkg-han-bkk/520/300",
+  },
+  {
+    id: "cgk-sin",
+    title: "Jakarta to Singapore",
+    route: "Jakarta → Singapore",
+    origin: "Jakarta",
+    destination: "Singapore",
+    region: "asia",
+    depart: "2026-04-12T09:00",
+    ret: "2026-04-15T18:00",
+    blurb:
+      "3 nights · Quick Java hop into hawker culture and rooftop bars — ideal add-on weekend.",
+    image: "https://picsum.photos/seed/pkg-cgk-sin/520/300",
+  },
+  {
+    id: "maa-sin",
+    title: "Chennai to Singapore",
+    route: "Chennai → Singapore",
+    origin: "Chennai",
+    destination: "Singapore",
+    region: "asia",
+    depart: "2026-07-22T06:00",
+    ret: "2026-07-27T22:00",
+    blurb:
+      "5 nights · Coromandel coast to equatorial city — spice routes meet modern Southeast Asia.",
+    image: "https://picsum.photos/seed/pkg-maa-sin/520/300",
+  },
+  {
+    id: "mnl-sin",
+    title: "Manila to Singapore",
+    route: "Manila → Singapore",
+    origin: "Manila",
+    destination: "Singapore",
+    region: "asia",
+    depart: "2026-08-20T10:00",
+    ret: "2026-08-26T09:00",
+    blurb:
+      "6 nights · Luzon gateway into Lion City dining, museums, and green corridors.",
+    image: "https://picsum.photos/seed/pkg-mnl-sin/520/300",
+  },
+  {
+    id: "fra-sin",
+    title: "Frankfurt to Singapore",
+    route: "Frankfurt → Singapore",
+    origin: "Frankfurt",
+    destination: "Singapore",
+    region: "intercontinental",
+    depart: "2026-12-01T14:00",
+    ret: "2026-12-10T11:00",
+    blurb:
+      "9 nights · Rhine-Main hub to tropical metropolis — fairs city to food-hall capital.",
+    image: "https://picsum.photos/seed/pkg-fra-sin/520/300",
+  },
+  {
+    id: "tyo-syd",
+    title: "Tokyo to Sydney",
+    route: "Tokyo → Sydney",
+    origin: "Tokyo",
+    destination: "Sydney",
+    region: "asia",
+    depart: "2026-06-20T11:00",
+    ret: "2026-06-28T09:00",
+    blurb:
+      "8 nights · Neon to surf — Pacific rim pairing with harbour walks and coastal days.",
+    image: "https://picsum.photos/seed/pkg-tyo-syd/520/300",
+  },
+  {
+    id: "lon-sin",
+    title: "London to Singapore",
+    route: "London → Singapore",
+    origin: "London",
+    destination: "Singapore",
+    region: "intercontinental",
+    depart: "2026-05-25T22:00",
+    ret: "2026-06-02T18:00",
+    blurb:
+      "8 nights · After theatre season, swap drizzle for equatorial nights and rooftop pools.",
+    image: "https://picsum.photos/seed/pkg-lon-sin/520/300",
+  },
+  {
+    id: "bkk-tyo",
+    title: "Bangkok to Tokyo",
+    route: "Bangkok → Tokyo",
+    origin: "Bangkok",
+    destination: "Tokyo",
+    region: "asia",
+    depart: "2026-09-08T08:00",
+    ret: "2026-09-15T17:00",
+    blurb:
+      "7 nights · Night markets to metro lines — temples, ramen alleys, and orderly Shibuya crossings.",
+    image: "https://picsum.photos/seed/pkg-bkk-tyo/520/300",
+  },
+  {
+    id: "par-tyo",
+    title: "Paris to Tokyo",
+    route: "Paris → Tokyo",
+    origin: "Paris",
+    destination: "Tokyo",
+    region: "intercontinental",
+    depart: "2026-10-12T13:00",
+    ret: "2026-10-21T11:00",
+    blurb:
+      "9 nights · Haussmann boulevards to Shinjuku skyscrapers — long-haul culture contrast.",
+    image: "https://picsum.photos/seed/pkg-par-tyo/520/300",
+  },
 ];
 
 const BUNDLE_REGION_OPTIONS = [
@@ -347,6 +542,12 @@ function countryLabelForBundleDestinationCity(destCity) {
   return slug ? BUNDLE_COUNTRY_LABEL[slug] : "";
 }
 
+function isSameCityRoute(origin, destination) {
+  const o = String(origin ?? "").trim().toLowerCase();
+  const d = String(destination ?? "").trim().toLowerCase();
+  return o.length > 0 && d.length > 0 && o === d;
+}
+
 /** Drop cached hotel cards that are not in the current Fine-tune destination city. */
 function filterHotelRowsToBundleDestination(rows) {
   const dest = document.getElementById("bundleDestination")?.value?.trim() || "";
@@ -370,6 +571,21 @@ function applyBundleDestinationToHotelSearchInputs() {
 }
 
 async function refreshHotelsForBundleDestination() {
+  const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const d = document.getElementById("bundleDestination")?.value?.trim() || "";
+  if (isSameCityRoute(o, d)) {
+    const selectedHintEl = document.getElementById("hotelSelectedHint");
+    const resultsEl = document.getElementById("hotelResults");
+    if (selectedHintEl) {
+      selectedHintEl.textContent =
+        "Choose different origin and destination cities to search hotels.";
+    }
+    if (resultsEl) resultsEl.textContent = "";
+    latestHotelRows = [];
+    destinationHasHotels = false;
+    renderHotelResults([]);
+    return;
+  }
   applyBundleDestinationToHotelSearchInputs();
   await searchHotels();
 }
@@ -389,16 +605,6 @@ function countriesUsedByPresets(regionFilter = "all") {
 /** id -> { total?, err?, loading? } for card badges */
 const bundleCardPriceCache = new Map();
 let bundleCardPriceTimer = null;
-
-/** Seeded members — option value is customerID; label is guest-facing (no raw IDs in the UI). */
-const CUSTOMER_OPTIONS = [
-  { id: 1, label: "Ava Chen" },
-  { id: 2, label: "Ben Kumar" },
-  { id: 3, label: "Casey Tan" },
-  { id: 4, label: "Dana Ng" },
-  { id: 5, label: "Evan Lee" },
-  { id: 6, label: "Fiona Ong" },
-];
 
 const TRIP_WINDOW_OPTIONS = [
   { value: "2026-05-01T10:00|||2026-05-06T11:00", label: "1 May – 6 May 2026 · 5 nights" },
@@ -720,25 +926,15 @@ function setupBundleFilterListeners() {
   // Filter controls were removed from the booking form; nothing to wire up.
 }
 
+/** Syncs hidden booking `customerID` and Travellers-tab member select from the current session. */
 function populateCustomerSelects() {
-  const bookSel = document.getElementById("customerID");
-  if (bookSel?.tagName !== "SELECT") return;
+  const bookEl = document.getElementById("customerID");
+  if (!bookEl) return;
 
-  bookSel.replaceChildren();
   const session = getSession();
-  if (!session || session.mode === "guest") {
-    const o = document.createElement("option");
-    o.value = "0";
-    o.textContent = "Guest";
-    bookSel.appendChild(o);
-    bookSel.value = "0";
-  } else {
-    const o = document.createElement("option");
-    o.value = String(session.customerID);
-    o.textContent = session.displayName || "Member";
-    bookSel.appendChild(o);
-    bookSel.value = String(session.customerID);
-  }
+  const cidStr =
+    !session || session.mode === "guest" ? "0" : String(session.customerID);
+  bookEl.value = cidStr;
 
   const travSel = document.getElementById("travellerCustomerID");
   if (travSel?.tagName === "SELECT") {
@@ -756,18 +952,44 @@ function populateCustomerSelects() {
       travSel.value = String(session.customerID);
     }
   }
-  updateCustomerFieldHint();
+
+  applyBookingCustomerIdEffects();
 }
 
-function updateCustomerFieldHint() {
-  const hint = document.getElementById("customerIDHint");
-  if (!hint) return;
-  const session = getSession();
-  if (!session || session.mode === "guest") {
-    hint.textContent = "No wallet or saved profiles.";
-    return;
+function applyBookingCustomerIdEffects() {
+  const id = Number(document.getElementById("customerID")?.value || 0);
+  const travAcc = document.getElementById("travellerCustomerID");
+  if (travAcc && travAcc.tagName === "SELECT" && travAcc.options.length) {
+    const ids = new Set(
+      Array.from(travAcc.options).map((o) => Number(o.value))
+    );
+    if (id > 0 && ids.has(id)) {
+      travAcc.value = String(id);
+    } else {
+      travAcc.value = travAcc.options[0].value;
+    }
   }
-  hint.textContent = "Coins & saved travellers in steps 2 and 5.";
+  updateCoinsOffsetUI();
+  scheduleBundleCardPriceRefresh();
+  if (id) {
+    void updateLoyaltySummary(id).then(() => {
+      if (selectedBundlePresetId) void searchBundlePricing();
+    });
+  } else {
+    latestLoyalty = null;
+    const lc1 = document.getElementById("loyaltyCoins");
+    if (lc1) {
+      lc1.textContent = "-";
+      lc1.removeAttribute("title");
+    }
+    const lt0 = document.getElementById("loyaltyTier");
+    if (lt0) lt0.textContent = "-";
+    refreshPricePreview();
+  }
+  if (id) void loadMyAccount(id);
+  if (document.getElementById("leadTravellerSelect")) {
+    void loadTravellerProfiles();
+  }
 }
 
 function syncBundleTravellerTotals() {
@@ -995,8 +1217,8 @@ function onFineTuneDivergeFromPackage() {
   const hasRoutePackages = getRouteFilteredPresets().length > 0;
   if (st) {
     st.textContent = hasRoutePackages
-      ? "Trip details changed — pick a package again, or open Fine-tune and tap Recalculate bundle price."
-      : "Trip details changed — open Fine-tune and tap Recalculate bundle price to update your quote.";
+      ? "Trip details changed — pick a package again, or open Fine-tune and tap Update price."
+      : "Trip details changed — open Fine-tune and tap Update price to refresh your quote.";
   }
   populateBundlePackageSelect();
   renderBundleGallery();
@@ -1452,6 +1674,13 @@ async function searchBundlePricing(loyaltyCoinsToUseCentsOverride = null) {
     if (statusEl) statusEl.textContent = "Return date/time must be after outbound date/time.";
     return;
   }
+  if (isSameCityRoute(origin, destination)) {
+    if (statusEl) {
+      statusEl.textContent =
+        "Origin and destination must be different cities (e.g. Singapore → Bangkok).";
+    }
+    return;
+  }
 
   const qs = new URLSearchParams();
   qs.set("origin", origin);
@@ -1900,14 +2129,18 @@ async function tryHoldCurrentSeats() {
 }
 
 function getSeatRequiredCount() {
-  if (readTravellerProfileIdsFromInput().length < 1) return 0;
+  const party = readTravellerProfileIdsFromInput().length;
+  if (party < 1) return 0;
 
-  // Keep group-seat behaviour without relying on the companion selector UI.
+  // Use the largest of: travellers ticked "on this trip", hero package total, bundle step total
+  // (avoids stale hero "2" blocking 3 seats when bundle / party is 3).
   const packageTotal = Number(document.getElementById("packageTotalTravellers")?.value || 0);
   const bundleTotal = Number(document.getElementById("bundleNumberOfTravellers")?.value || 0);
-  const inferred = packageTotal > 0 ? packageTotal : bundleTotal;
-  if (Number.isFinite(inferred) && inferred > 0) return inferred;
-  return 1;
+  const fromTotals = Math.max(
+    Number.isFinite(packageTotal) && packageTotal > 0 ? packageTotal : 0,
+    Number.isFinite(bundleTotal) && bundleTotal > 0 ? bundleTotal : 0
+  );
+  return Math.max(party, fromTotals || party);
 }
 
 function isSeatUnavailableForSelection(seatCode) {
@@ -2123,6 +2356,20 @@ async function refreshFlightDropdownFromRoute() {
     if (hint) {
       hint.textContent =
         "Use the hero search, package filters, or Fine-tune route to set both cities.";
+    }
+    updateSeatSelectionUI();
+    syncRouteInventoryToPackageUI();
+    return;
+  }
+
+  if (isSameCityRoute(origin, dest)) {
+    sel.disabled = true;
+    routeFlightsInventoryChecked = false;
+    routeHasOutboundFlights = false;
+    ph.textContent = "— Same city —";
+    if (hint) {
+      hint.textContent =
+        "Origin and destination cannot be the same city. Change one of the cities to search flights.";
     }
     updateSeatSelectionUI();
     syncRouteInventoryToPackageUI();
@@ -2401,7 +2648,7 @@ function setCoinsToSpendCents(value) {
   if (!Number.isFinite(n) || n < 0) input.value = "0";
   else input.value = String(Math.floor(n));
   refreshPricePreview();
-  if (latestBundleParams) void refreshBundleForCoins();
+  if (lastBundleParams) void refreshBundleForCoins();
 }
 
 function updateBreakfastAddonUI() {
@@ -2674,12 +2921,6 @@ async function initHotelSelectionById(hotelId) {
 
 async function setManualDefaults() {
   clearBundleSelectionState();
-  const sess = getSession();
-  const defCid =
-    !sess || sess.mode === "guest" ? "0" : String(sess.customerID);
-  document.getElementById("customerID").value = defCid;
-  const tc = document.getElementById("travellerCustomerID");
-  if (tc) tc.value = defCid;
   pendingTravellerProfileIds = null;
   tripPartyOrderedIds = [];
   const pn0 = document.getElementById("passengerName");
@@ -2749,7 +2990,7 @@ async function setManualDefaults() {
   }
   updateSeatSelectionUI();
   void syncFlightScheduleUI();
-  void updateLoyaltySummary(1);
+  populateCustomerSelects();
   if (document.getElementById("packageSearchFrom")) {
     populatePackageSearchSelects();
     syncPackageSearchFromBundleFields();
@@ -3228,14 +3469,40 @@ async function onCancelBookingSubmit(e) {
   e.preventDefault();
 
   const cancelBtn = document.getElementById("cancelBtn");
+  const cancelFeedback = document.getElementById("cancelFeedback");
   const uiError = document.getElementById("uiError");
-  clearError(uiError);
+
+  const showCancelError = (msg) => {
+    if (cancelFeedback) {
+      cancelFeedback.className = "alert";
+      setError(cancelFeedback, msg);
+    } else if (uiError) {
+      setError(uiError, msg);
+    }
+  };
+  const showCancelSuccess = (msg) => {
+    if (cancelFeedback) {
+      cancelFeedback.className = "alert alert--success";
+      cancelFeedback.textContent = msg;
+      cancelFeedback.style.display = "block";
+    }
+  };
+  const clearCancelPanel = () => {
+    if (cancelFeedback) {
+      cancelFeedback.className = "alert";
+      clearError(cancelFeedback);
+    }
+    if (uiError) clearError(uiError);
+  };
+
+  clearCancelPanel();
+  if (!cancelBtn) return;
   cancelBtn.disabled = true;
 
   const idRaw = document.getElementById("cancelBookingID").value.trim();
   const cancelSource = document.getElementById("cancelSource").value;
   if (!idRaw || !/^\d+$/.test(idRaw) || Number(idRaw) < 1) {
-    setError(uiError, "Enter a valid booking reference (whole number from your confirmation).");
+    showCancelError("Enter a valid booking reference (whole number from your confirmation).");
     cancelBtn.disabled = false;
     return;
   }
@@ -3248,7 +3515,7 @@ async function onCancelBookingSubmit(e) {
     });
 
     if (out.networkError) {
-      setError(uiError, out.errorMessage);
+      showCancelError(out.errorMessage || "Could not reach the server.");
       showResult({ error: out.errorMessage }, "Can't reach the server");
       return;
     }
@@ -3258,7 +3525,7 @@ async function onCancelBookingSubmit(e) {
 
     if (out.parseError && data?._parseError) {
       const msg = "We didn't get a valid response for cancellation — check the booking service.";
-      setError(uiError, msg);
+      showCancelError(msg);
       showResult(data, "Something went wrong");
       return;
     }
@@ -3266,7 +3533,7 @@ async function onCancelBookingSubmit(e) {
     if (isBookingWelcomePayload(data)) {
       const msg =
         "Couldn't complete cancellation — wrong service or URL. Check the booking app and proxy.";
-      setError(uiError, msg);
+      showCancelError(msg);
       showResult({ _help: msg, received: data }, "Unexpected response");
       return;
     }
@@ -3282,7 +3549,7 @@ async function onCancelBookingSubmit(e) {
       ) {
         msg = `${msg} — use the booking reference from your confirmation, not your name or email.`;
       }
-      setError(uiError, msg);
+      showCancelError(msg);
       showResult(
         data ?? { error: msg },
         "Couldn't cancel"
@@ -3292,7 +3559,7 @@ async function onCancelBookingSubmit(e) {
 
     if (!data?.data) {
       const msg = "Cancellation response was incomplete.";
-      setError(uiError, msg);
+      showCancelError(msg);
       showResult(
         { _help: msg, received: data },
         "Incomplete response"
@@ -3304,6 +3571,9 @@ async function onCancelBookingSubmit(e) {
       data.data?.alreadyCancelled === true
         ? "Already cancelled"
         : "Cancellation processed";
+    showCancelSuccess(
+      `${doneTitle}. Full response is under My profile → Technical details (JSON).`
+    );
     showResult(data, doneTitle);
 
     await refreshNotifications();
@@ -3315,7 +3585,7 @@ async function onCancelBookingSubmit(e) {
     }
   } catch (err) {
     const msg = formatNetworkError(err);
-    setError(uiError, msg);
+    showCancelError(msg);
     showResult({ error: msg }, "Couldn't cancel");
   } finally {
     cancelBtn.disabled = false;
@@ -3747,6 +4017,18 @@ function applyPackageSearchToBundle() {
 
 function runPackageSearch() {
   applyPackageSearchToBundle();
+  const bo = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const bd = document.getElementById("bundleDestination")?.value?.trim() || "";
+  if (isSameCityRoute(bo, bd)) {
+    const st = document.getElementById("bundleStatus");
+    if (st) {
+      st.textContent =
+        "Origin and destination must be different cities. Pick another destination (or origin).";
+    }
+    void refreshFlightDropdownFromRoute();
+    void refreshHotelsForBundleDestination();
+    return;
+  }
   const bfr = document.getElementById("bundleFilterRegion");
   const bfc = document.getElementById("bundleFilterCountry");
   if (bfr) bfr.value = "all";
@@ -3766,8 +4048,7 @@ function runPackageSearch() {
   } else {
     const st = document.getElementById("bundleStatus");
     if (st) {
-      st.textContent =
-        "Flexible search on: browse packages below, then use Fine-tune or Recalculate if needed.";
+      st.textContent = "Browse packages below, or open Fine-tune to change route and Update price.";
     }
     scheduleBundleCardPriceRefresh();
   }
@@ -3936,6 +4217,41 @@ function travellerRowNumericId(row) {
   return Number(row?.Id ?? row?.id ?? row?.TravellerProfileId ?? 0) || 0;
 }
 
+/** Collapse spaces/punctuation so "A A" matches saved profile "aa". */
+function normalizeTravellerNameKey(s) {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * Traveller profile Id for the signed-in booker when their saved name matches session displayName.
+ */
+function getBookerTravellerProfileId(safeRows) {
+  const sess = getSession();
+  if (!sess || sess.mode !== "member") return 0;
+  const display = String(sess.displayName || "").trim();
+  const want = normalizeTravellerNameKey(display);
+  if (!want) return 0;
+  const rows = Array.isArray(safeRows) ? safeRows : [];
+  for (const row of rows) {
+    const id = travellerRowNumericId(row);
+    if (!id) continue;
+    const fn = String(
+      getOsField(row, ["FullName", "Name", "TravellerName", "fullName"]) || ""
+    ).trim();
+    if (normalizeTravellerNameKey(fn) === want) return id;
+  }
+  return 0;
+}
+
+/** Keep the booker’s profile first in the party (lead seat + contact) when they’re on the trip. */
+function ensureBookerFirstInTripParty(safeRows) {
+  const bid = getBookerTravellerProfileId(safeRows);
+  if (!bid || !tripPartyOrderedIds.includes(bid)) return;
+  tripPartyOrderedIds = [bid, ...tripPartyOrderedIds.filter((x) => x !== bid)];
+}
+
 function normalizeTripPartyForRows(safeRows, opts = {}) {
   const allowAutoFirst = Boolean(opts.allowAutoFirst);
   const validIds = new Set();
@@ -3957,6 +4273,8 @@ function normalizeTripPartyForRows(safeRows, opts = {}) {
     const first = travellerRowNumericId(safeRows[0]);
     if (first) tripPartyOrderedIds = [first];
   }
+
+  ensureBookerFirstInTripParty(safeRows);
 }
 
 function onToggleTripTraveller(id, checked) {
@@ -3976,16 +4294,6 @@ function onToggleTripTraveller(id, checked) {
   }
 }
 
-function onSetTripLead(id) {
-  const nid = Number(id);
-  if (!nid || !tripPartyOrderedIds.includes(nid)) return;
-  tripPartyOrderedIds = [nid, ...tripPartyOrderedIds.filter((x) => x !== nid)];
-  populateTravellerSelectorsFromRows(latestTravellerRows, { allowAutoFirst: false });
-  renderTravellerProfileList();
-  refreshTripContactSummary();
-  updateSeatGroupSummary();
-}
-
 function renderTravellerProfileList() {
   const listEl = document.getElementById("travellerProfilesList");
   if (!listEl) return;
@@ -3993,8 +4301,6 @@ function renderTravellerProfileList() {
   listEl.innerHTML = "";
   const party = readTravellerProfileIdsFromInput();
   const partySet = new Set(party);
-  const leadId = party[0] || 0;
-  const multi = party.length > 1;
 
   latestTravellerRows.forEach((row) => {
     const id = travellerRowNumericId(row);
@@ -4007,17 +4313,6 @@ function renderTravellerProfileList() {
     const selectedId = travellerRowNumericId(selectedTravellerRow);
     const isSelected = selectedId > 0 && selectedId === id;
     const isOnTrip = partySet.has(id);
-    const isLead = isOnTrip && leadId === id;
-
-    const leadBlock =
-      multi && isOnTrip
-        ? `<label class="traveller-item__lead">
-            <input type="radio" name="tripLeadTraveller" data-action="setTripLead" data-id="${id}" ${
-              isLead ? "checked" : ""
-            } />
-            <span>Lead</span>
-          </label>`
-        : "";
 
     const item = document.createElement("div");
     item.className = "traveller-item";
@@ -4029,7 +4324,6 @@ function renderTravellerProfileList() {
           } />
           <span>On this trip</span>
         </label>
-        ${leadBlock}
       </div>
       <div class="traveller-item__meta">
         <div class="traveller-item__title">${escapeHtml(title)}</div>
@@ -4528,28 +4822,12 @@ function setupTravellerProfilesUI() {
     customerInput.addEventListener("change", () => loadTravellerProfiles());
   }
 
-  // Keep tabs’ customerID in sync for convenience.
-  const bookingCustomerInput = document.getElementById("customerID");
-  if (bookingCustomerInput && customerInput) {
-    bookingCustomerInput.addEventListener("change", () => {
-      const bid = Number(bookingCustomerInput.value || 0);
-      // Guest checkout has no wallet; keep passport profiles on a real member account.
-      if (bid > 0) {
-        customerInput.value = String(bid);
-      }
-      void loadTravellerProfiles();
-    });
-  }
-
   if (listEl) {
     listEl.addEventListener("change", (e) => {
       const t = e.target;
       if (t?.matches?.("[data-action='toggleTripTraveller']")) {
         const id = Number(t.getAttribute("data-id"));
         onToggleTripTraveller(id, t.checked);
-      } else if (t?.matches?.("[data-action='setTripLead']") && t.checked) {
-        const id = Number(t.getAttribute("data-id"));
-        onSetTripLead(id);
       }
     });
     listEl.addEventListener("click", (e) => {
@@ -4784,28 +5062,9 @@ function applySessionToBookingUI() {
     step5Tab.textContent = "5. Pay";
   }
   populateCustomerSelects();
-  updateCustomerFieldHint();
   if (typeof window.__horizonRefreshBookingFlow === "function") {
     window.__horizonRefreshBookingFlow();
   }
-  updateCoinsOffsetUI();
-  const cid = Number(document.getElementById("customerID")?.value || 0);
-  if (cid) {
-    void updateLoyaltySummary(cid);
-    void loadMyAccount(cid);
-  }
-  else {
-    latestLoyalty = null;
-    const lc = document.getElementById("loyaltyCoins");
-    const lt = document.getElementById("loyaltyTier");
-    if (lc) {
-      lc.textContent = "-";
-      lc.removeAttribute("title");
-    }
-    if (lt) lt.textContent = "-";
-    refreshPricePreview();
-  }
-  void loadTravellerProfiles();
 }
 
 function initAppShell() {
@@ -4857,16 +5116,6 @@ function initAppShell() {
     });
     void searchBundlePricing();
   });
-  document.getElementById("bundleQuickApplyBtn")?.addEventListener("click", () => {
-    selectedBundlePresetId = null;
-    const pkg = document.getElementById("bundlePackageSelect");
-    if (pkg) pkg.value = "";
-    document.querySelectorAll(".bundle-card").forEach((b) => {
-      b.classList.remove("bundle-card--selected");
-      b.setAttribute("aria-pressed", "false");
-    });
-    void searchBundlePricing();
-  });
   document.getElementById("bundleDepartDateTime")?.addEventListener("change", () => {
     syncTripWindowFromDateInputs();
     void refreshFlightDropdownFromRoute();
@@ -4905,43 +5154,6 @@ function initAppShell() {
   void initHotelSelectionById(hotelId > 0 ? hotelId : 1);
   void refreshHotelsForBundleDestination();
 
-  document.getElementById("customerID").addEventListener("change", () => {
-    const id = Number(document.getElementById("customerID").value || 0);
-    const travAcc = document.getElementById("travellerCustomerID");
-    if (travAcc && travAcc.tagName === "SELECT" && travAcc.options.length) {
-      const ids = new Set(
-        Array.from(travAcc.options).map((o) => Number(o.value))
-      );
-      if (id > 0 && ids.has(id)) {
-        travAcc.value = String(id);
-      } else {
-        travAcc.value = travAcc.options[0].value;
-      }
-    }
-    updateCoinsOffsetUI();
-    scheduleBundleCardPriceRefresh();
-    if (id) {
-      void updateLoyaltySummary(id).then(() => {
-        if (selectedBundlePresetId) void searchBundlePricing();
-      });
-    } else {
-      latestLoyalty = null;
-      const lc1 = document.getElementById("loyaltyCoins");
-      if (lc1) {
-        lc1.textContent = "-";
-        lc1.removeAttribute("title");
-      }
-      const lt0 = document.getElementById("loyaltyTier");
-      if (lt0) lt0.textContent = "-";
-      refreshPricePreview();
-    }
-    if (id) void loadMyAccount(id);
-    // Keep Trip-tab traveller selectors in sync with Who's booking?
-    if (document.getElementById("leadTravellerSelect")) {
-      void loadTravellerProfiles();
-    }
-  });
-
   for (const id of ["bundleAdults", "bundleChildren", "bundleInfants"]) {
     document.getElementById(id)?.addEventListener("change", () => {
       syncBundleTravellerTotals();
@@ -4963,14 +5175,14 @@ function initAppShell() {
     ?.addEventListener("input", () => {
       refreshPricePreview();
       scheduleBundleCardPriceRefresh();
-      if (latestBundleParams) void refreshBundleForCoins();
+      if (lastBundleParams) void refreshBundleForCoins();
     });
   document
     .getElementById("coinsToSpendCents")
     ?.addEventListener("change", () => {
       refreshPricePreview();
       scheduleBundleCardPriceRefresh();
-      if (latestBundleParams) void refreshBundleForCoins();
+      if (lastBundleParams) void refreshBundleForCoins();
     });
 
   const btnNone = document.getElementById("coinsUseNoneBtn");
@@ -5152,6 +5364,13 @@ async function saveAccountProfile() {
     email: d.email || sess.email,
     displayName: display || sess.displayName,
   });
+
+  if (latestTravellerRows.length) {
+    populateTravellerSelectorsFromRows(latestTravellerRows, { allowAutoFirst: false });
+    renderTravellerProfileList();
+    refreshTripContactSummary();
+    updateSeatGroupSummary();
+  }
 
   const nameMain = document.getElementById("accountPageName");
   const emailMain = document.getElementById("accountPageEmail");

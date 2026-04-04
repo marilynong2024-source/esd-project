@@ -21,7 +21,6 @@
       </div>
       <div class="card login-gate__card">
         <h1 id="loginGateTitle" class="login-gate__title">Sign in</h1>
-        <p class="login-gate__lede muted">Members get saved profiles, coins, and tier pricing.</p>
         <form id="loginForm" class="login-gate__form" novalidate>
           <label class="login-gate__field">
             <span>Email</span>
@@ -45,9 +44,13 @@
               required
             />
           </label>
-          <p class="muted login-gate__hint">Seeded emails are listed in <code>database/ACCESSIBLE_ACCOUNTS.txt</code> — or sign up below.</p>
           <div id="loginError" class="alert" role="alert" hidden></div>
-          <button type="submit" class="btn-primary login-gate__submit" id="loginSubmitBtn">
+          <button
+            type="submit"
+            class="btn-primary login-gate__submit"
+            id="loginSubmitBtn"
+            title="Seeded test accounts: database/ACCESSIBLE_ACCOUNTS.txt"
+          >
             Sign in as loyalty member
           </button>
 
@@ -102,9 +105,6 @@
                 required
               />
             </label>
-            <p class="muted login-gate__hint login-gate__field login-gate__hint--after-phone">
-              We use this number for booking confirmation texts when Twilio is enabled.
-            </p>
             <label class="login-gate__field login-gate__field--inline">
               <span>First name</span>
               <input type="text" id="signupFirstName" name="firstName" autocomplete="given-name" />
@@ -121,7 +121,6 @@
               <span>Date of birth (optional)</span>
               <input type="date" id="signupDob" name="dateOfBirth" />
             </label>
-            <p class="muted login-gate__hint">Use realistic test data suitable for your environment.</p>
             <div id="signupError" class="alert" role="alert" hidden></div>
             <button type="submit" class="btn-primary login-gate__submit" id="signupSubmitBtn">
               Sign up &amp; start booking
@@ -213,7 +212,6 @@
     <div class="package-search" aria-labelledby="package-search-title">
       <div class="package-search__head">
         <h1 id="package-search-title" class="package-search__title">Horizon Packages</h1>
-        <p class="package-search__tagline">Search route, dates, and travellers — then continue under Plan &amp; pay.</p>
       </div>
       <div class="package-search__body">
         <fieldset class="package-search__trip-type">
@@ -299,7 +297,7 @@
 
         <label class="package-search__checkbox">
           <input type="checkbox" id="packageFlexibleDates" />
-          Show packages that allow different hotel dates or nearby cities
+          Flexible dates / nearby cities
         </label>
 
         <div class="package-search__actions">
@@ -320,7 +318,6 @@
         <div class="card-header">
           <div class="card-header__titles">
             <h2>Book</h2>
-            <p class="card-sub">Use the steps — bundle, hotel, flight, then pay.</p>
           </div>
         </div>
 
@@ -404,15 +401,7 @@
           </div>
 
           <div id="bookingStep1Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep1Tab">
-          <label class="label--hero-field">
-            Book for
-            <select
-              id="customerID"
-              required
-              aria-label="Member or guest"
-            ></select>
-            <span class="muted field-hint" id="customerIDHint"></span>
-          </label>
+          <input type="hidden" id="customerID" name="customerID" value="0" />
 
           <div id="bundlePackageSection">
           <div class="section-title section-title--spaced">Package</div>
@@ -422,9 +411,6 @@
               <option value="">— Select a package —</option>
             </select>
           </label>
-          <p class="muted bundle-gallery__hint">
-            Choosing a package filters the list. Leave unselected to see all. Use header “Prices in” for display currency (checkout stays in SGD).
-          </p>
           <div class="bundle-gallery-wrap">
             <button
               type="button"
@@ -496,9 +482,6 @@
           </details>
 
           <div id="bundlePricingActions">
-            <div class="actions-row form-grid-1col">
-              <button type="button" class="btn-primary" id="bundleQuickApplyBtn">Refresh price</button>
-            </div>
             <div id="bundleStatus" class="muted" aria-live="polite"></div>
           </div>
           <p id="bundleNoPackagesMsg" class="muted bundle-no-packages-msg" hidden>
@@ -514,10 +497,6 @@
           <div id="bookingStep4Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep2Tab" hidden>
             <div class="card-header__titles">
               <div class="section-title form-grid-1col section-title--flush">Saved travellers</div>
-              <p class="card-sub card-sub--tight">
-                Tick <strong>On this trip</strong> for everyone flying. With more than one traveller, pick who is
-                <strong>Lead</strong> (main contact and seat that drives group seating).
-              </p>
             </div>
 
             <p class="traveller-lead-hint" id="travellerEmptyHint" hidden></p>
@@ -668,16 +647,14 @@
               </div>
               <div id="seatMapWrap" class="seat-map-wrap" hidden>
                 <div class="seat-map-legend">
-                  <span><span class="swatch taken"></span> Taken</span>
-                  <span><span class="swatch free"></span> Free</span>
-                  <span><span class="swatch picked"></span> Your seat</span>
+                  <span><span class="swatch free"></span> Open · solid outline</span>
+                  <span><span class="swatch taken"></span> Taken · grey · dashed</span>
+                  <span><span class="swatch picked"></span> Yours</span>
                 </div>
                 <div class="seat-map-legend seat-map-legend--types">
-                  <span><span class="swatch type-window"></span> Window</span>
-                  <span><span class="swatch type-aisle"></span> Aisle</span>
-                  <span><span class="swatch type-middle"></span> Middle</span>
-                  <span><span class="swatch type-extra"></span> Extra legroom</span>
-                  <span><span class="swatch type-exit"></span> Exit row</span>
+                  <span><span class="swatch stripe stripe--std"></span> Standard</span>
+                  <span><span class="swatch stripe stripe--extra"></span> Extra legroom</span>
+                  <span><span class="swatch stripe stripe--exit"></span> Exit row</span>
                 </div>
                 <div class="seat-map" id="seatMap" aria-label="Aircraft seat map"></div>
                 <p class="muted">Selected seat: <strong id="seatSelectedDisplay">—</strong></p>
@@ -690,8 +667,7 @@
           </div>
 
           <div id="bookingStep2Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep3Tab" hidden>
-            <div class="muted section-hint section-hint--flush">
-              Contact details
+            <div class="section-hint section-hint--flush">
               <div class="contact-inline">
                 <span>Phone:</span> <strong id="summaryPassengerPhone">—</strong>
                 <span class="contact-inline__name-label">Name:</span> <strong id="summaryPassengerName">—</strong>
@@ -735,7 +711,7 @@
                 Search hotels
               </button>
             </div>
-            <div class="muted section-hint" id="hotelSelectedHint">Choose a hotel from the results.</div>
+            <div class="section-hint" id="hotelSelectedHint"></div>
             <div id="hotelResults" class="hotel-results" aria-label="Hotel results"></div>
             <div class="muted">
               Selected hotel: <strong id="hotelSelectedDisplay">—</strong>
@@ -779,9 +755,8 @@
               inputmode="decimal"
               readonly
               aria-readonly="true"
-              title="Total comes from your bundle quote and hotel step; use step 5 for coins and discounts."
+              title="From bundle quote and hotel step"
             />
-            <span class="muted field-hint">From your bundle quote — coins &amp; discounts apply on step 5.</span>
           </label>
           </div>
 
@@ -794,9 +769,6 @@
           <div id="panelPayment" class="segment-panel pay-step" role="region" aria-label="Discounts, rewards, and payment">
             <div class="pay-step__rewards" id="coinsOffsetWrap">
               <div class="section-title section-title--flush">Use reward balance (optional)</div>
-              <p class="muted pay-step__hint">
-                Wallet balance is shown below. Enter how many <strong>cents</strong> to apply (100¢ = S$1 off). Reward cents are fixed in SGD terms and are <strong>not</strong> converted when you change “Prices in”. The remaining balance is recorded as paid by the simulated payment service (no real card charge).
-              </p>
               <label class="pay-step__coins-field">
                 Cents to apply
                 <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
@@ -817,9 +789,6 @@
                 <strong id="computedTotalPrice" class="pay-step__due-value">-</strong>
                 <span class="muted pay-step__due-currency">SGD</span>
               </summary>
-              <p class="muted advanced-details__body">
-                Order: member tier discount → promo code (SILVER10 / GOLD15 / PLAT20) → reward cents. Tier upgrades after each completed trip (Silver 2+, Gold 5+, Platinum 10+).
-              </p>
             </details>
             <p class="muted field-hint" id="payStepFxFootnote" hidden></p>
 
@@ -831,10 +800,7 @@
             <input type="hidden" id="fareType" value="Flexi" />
 
             <div class="pay-step__simulated-payment muted" role="note">
-              <p class="pay-step__simulated-payment__title"><strong>Simulated payment</strong></p>
-              <p class="field-hint">
-                No card or Stripe — the server marks the booking as paid. For an SMS when you confirm, set your mobile on <strong>My profile</strong> (E.164 or 8-digit SG), and configure Twilio on the notification service.
-              </p>
+              <p class="pay-step__simulated-payment__title">Test checkout — no real card charge.</p>
             </div>
 
             <label class="form-grid-1col" id="breakfastAddonWrap">
@@ -850,7 +816,6 @@
                 <span aria-hidden="true">✓</span>
                 <span>Confirm &amp; pay</span>
               </button>
-              <p class="muted form-after-submit-hint">After pay, a confirmation dialog opens. You can review your wallet on <strong>My profile</strong>.</p>
               <details class="advanced-details">
                 <summary>API note (instructors)</summary>
                 <p class="muted advanced-details__body">
@@ -872,7 +837,6 @@
         <div class="card-header">
           <div class="card-header__titles">
             <h2>Cancel booking</h2>
-            <p class="card-sub">Enter the booking number from your confirmation.</p>
           </div>
         </div>
 
@@ -914,7 +878,8 @@
               <code>POST /booking/cancel/{id}</code>. Some hotel refunds only 7+ days before travel.
             </p>
           </details>
-  </form>
+        </form>
+        <div id="cancelFeedback" class="alert" role="status" aria-live="polite"></div>
       </section>
 
       </div>
@@ -937,9 +902,6 @@
           <div class="card-header">
             <div class="card-header__titles">
               <h3 id="accountProfileTitle" class="account-page__section-title">Your profile</h3>
-              <p class="card-sub">
-                Edit how we reach you. Saving updates the contact details sent when you confirm a booking.
-              </p>
             </div>
           </div>
           <div class="form-grid account-page__profile-grid">
@@ -988,10 +950,7 @@
             <p class="muted account-stat-card__hint" id="accountPageTierHint"></p>
           </article>
           <article class="account-stat-card account-stat-card--wide">
-            <h3 class="account-stat-card__label">How tiers work</h3>
-            <p class="muted account-stat-card__body" id="accountPageProgramCopy">
-              Tiers are based on <strong>completed bookings</strong>: Bronze (0–1), Silver (2–4), Gold (5–9), Platinum (10+). Each trip also earns reward cents you can spend on the next booking.
-            </p>
+            <h3 class="account-stat-card__label">Tier progress</h3>
             <p class="account-stat-card__progress" id="accountPageNextTier" aria-live="polite"></p>
           </article>
         </div>
@@ -1000,7 +959,6 @@
           <div class="card-header">
             <div class="card-header__titles">
               <h2 class="account-page__section-title">Notifications &amp; activity</h2>
-              <p class="card-sub">SMS settings, last API response, and notification log.</p>
             </div>
           </div>
 
@@ -1030,7 +988,6 @@
         </label>
         <details class="advanced-details advanced-details--after-sms">
           <summary>Twilio setup</summary>
-          <p class="muted section-hint">For a real SMS provider only.</p>
           <div class="form-grid form-grid--twilio" role="group" aria-label="SMS provider settings">
             <p class="muted section-hint" id="twilioSidHint"></p>
             <label>
@@ -1078,7 +1035,6 @@
           <div class="card-header">
             <div class="card-header__titles">
               <h3 class="account-page__section-title">My bookings</h3>
-              <p class="card-sub">Recent trips for this account.</p>
             </div>
             <button type="button" class="btn-secondary" id="myBookingsRefreshBtn">Refresh</button>
           </div>

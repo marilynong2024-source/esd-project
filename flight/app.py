@@ -436,6 +436,17 @@ def search_flights():
     origin_country = (request.args.get("originCountry") or "").strip().lower()
     destination_country = (request.args.get("destinationCountry") or "").strip().lower()
 
+    if origin_city and destination_city and origin_city == destination_city:
+        return (
+            jsonify(
+                {
+                    "code": 400,
+                    "message": "Origin and destination cannot be the same city.",
+                }
+            ),
+            400,
+        )
+
     city_to_country = {
         "singapore": "singapore",
         "tokyo": "japan",
@@ -509,6 +520,16 @@ def availability():
     destination_city = (
         request.args.get("destinationCity") or request.args.get("destination") or ""
     ).strip().lower()
+    if origin_city and destination_city and origin_city == destination_city:
+        return (
+            jsonify(
+                {
+                    "code": 400,
+                    "message": "Origin and destination cannot be the same city.",
+                }
+            ),
+            400,
+        )
     depart_raw = (request.args.get("departDate") or request.args.get("departureDate") or "").strip()
     try:
         win = int(request.args.get("dateWindowDays") or "2")

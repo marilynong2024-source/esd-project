@@ -353,7 +353,13 @@ INSERT INTO BundleCatalog (bundleCode, title, originCity, destinationCity, defau
     ('PKG_LON_TYO', 'London to Tokyo', 'London', 'Tokyo', 8, 'Shinjuku & day trips', 8),
     ('PKG_SYD_SIN', 'Sydney to Singapore', 'Sydney', 'Singapore', 7, 'Hawkers & Marina Bay', 9),
     ('PKG_TYO_BKK', 'Tokyo to Bangkok', 'Tokyo', 'Bangkok', 6, 'Two-city foodie hop', 10),
-    ('PKG_BKK_DPS', 'Bangkok to Bali', 'Bangkok', 'Bali', 7, 'Temples to surf', 11);
+    ('PKG_BKK_DPS', 'Bangkok to Bali', 'Bangkok', 'Bali', 7, 'Temples to surf', 11),
+    ('PKG_PAR_ROM', 'Paris art and cafe week', 'Singapore', 'Paris', 7, 'Louvre and Seine walks', 12),
+    ('PKG_BALI_WELL', 'Bali slow wellness', 'Singapore', 'Bali', 7, 'Spas and quiet coast', 13),
+    ('PKG_BKK_WKND', 'Bangkok long weekend', 'Singapore', 'Bangkok', 4, 'Short break bites', 14),
+    ('PKG_SYD_SPR', 'Sydney spring coastal', 'Singapore', 'Sydney', 7, 'Spring daylight walks', 15),
+    ('PKG_LON_FEST', 'London winter lights', 'Singapore', 'London', 10, 'Festive season glow', 16),
+    ('PKG_TYO_SAK', 'Tokyo spring dates', 'Singapore', 'Tokyo', 5, 'Sakura window', 17);
 
 -- Member demo bookings: flightID matches FlightDB.flightNumber; hotelID matches destination city in HotelDB.
 INSERT INTO bookings (
@@ -800,20 +806,29 @@ INSERT INTO bookings (customerID, flightID, hotelID, hotelRoomType, hotelInclude
 (19, 'SQ221', 1, 'DLX', 0, '2026-07-13T14:00:00', 3081, 'SGD', 'Saver', 'Bronze', 'PENDING', NULL, NULL, NULL, NULL, NULL, NULL, 'Guest Booker 66', 'booker66@example.com', '+6580000066', 1),
 (20, 'SQ944', 2, 'STD', 0, '2026-08-14T15:00:00', 3131, 'SGD', 'Standard', NULL, 'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL, 'Guest Booker 67', 'booker67@example.com', '+6580000067', 1);
 
+-- Extra catalog rows (origin/destination align with flight service programmatic routes; destination has hotel inventory in demo stack where noted)
 INSERT INTO BundleCatalog (bundleCode, title, originCity, destinationCity, defaultNights, highlight, displayOrder) VALUES
-('PKG_ICN', 'Seoul long weekend', 'Singapore', 'Seoul', 4, 'K-beauty & BBQ', 12),
-('PKG_HKG', 'Hong Kong harbour hop', 'Singapore', 'Hong Kong', 3, 'Dim sum & skyline', 13),
-('PKG_DXB', 'Dubai desert & malls', 'Singapore', 'Dubai', 5, 'Gold souk days', 14),
-('PKG_MEL', 'Melbourne lanes', 'Singapore', 'Melbourne', 6, 'Coffee culture', 15),
-('PKG_PER', 'Perth & Rottnest', 'Singapore', 'Perth', 5, 'Quokka selfie day', 16),
-('PKG_TPE', 'Taipei night markets', 'Singapore', 'Taipei', 4, 'Bubble tea crawl', 17),
-('PKG_HAN', 'Hanoi heritage', 'Singapore', 'Hanoi', 5, 'Old Quarter walks', 18),
-('PKG_JKT', 'Jakarta business mix', 'Singapore', 'Jakarta', 3, 'Museums & malls', 19),
-('PKG_NYC', 'LondonûNew York hop', 'London', 'New York', 7, 'Transatlantic classic', 20),
-('PKG_AKL', 'Auckland escape', 'Sydney', 'Auckland', 4, 'North Island taste', 21),
-('PKG_PHUKET', 'BangkokûPhuket combo', 'Bangkok', 'Phuket', 5, 'Island add-on', 22),
-('PKG_FRA', 'Frankfurt fairs', 'Singapore', 'Frankfurt', 4, 'Messe & R÷mer', 23),
-('PKG_ZRH', 'Zurich lakes', 'Singapore', 'Zurich', 5, 'Alps day-trip ready', 24);
+('PKG_ICN', 'Seoul to Singapore', 'Seoul', 'Singapore', 5, 'K-culture to hawker crawl', 18),
+('PKG_DXB_LON', 'Dubai to London', 'Dubai', 'London', 5, 'Desert hub to Thames', 19),
+('PKG_AMS_LON', 'Amsterdam to London', 'Amsterdam', 'London', 3, 'Schiphol Euro hop', 20),
+('PKG_AMS_SIN', 'Amsterdam to Singapore', 'Amsterdam', 'Singapore', 7, 'Canals to Marina Bay', 21),
+('PKG_SFO_SIN', 'San Francisco to Singapore', 'San Francisco', 'Singapore', 7, 'Pacific crossing', 22),
+('PKG_LAX_TYO', 'Los Angeles to Tokyo', 'Los Angeles', 'Tokyo', 6, 'US West to Japan', 23),
+('PKG_SGN_SIN', 'Ho Chi Minh City to Singapore', 'Ho Chi Minh City', 'Singapore', 4, 'Mekong delta link', 24),
+('PKG_HAN_BKK', 'Hanoi to Bangkok', 'Hanoi', 'Bangkok', 5, 'Two capitals contrast', 25),
+('PKG_CGK_SIN', 'Jakarta to Singapore', 'Jakarta', 'Singapore', 3, 'Java neighbour hop', 26),
+('PKG_MAA_SIN', 'Chennai to Singapore', 'Chennai', 'Singapore', 4, 'South India connector', 27),
+('PKG_MNL_SIN', 'Manila to Singapore', 'Manila', 'Singapore', 4, 'Luzon gateway', 28),
+('PKG_FRA_SIN', 'Frankfurt to Singapore', 'Frankfurt', 'Singapore', 7, 'Rhine-Main to tropics', 29),
+('PKG_TYO_SYD', 'Tokyo to Sydney', 'Tokyo', 'Sydney', 7, 'Pacific rim cities', 30),
+('PKG_LON_SIN', 'London to Singapore', 'London', 'Singapore', 7, 'UK to Lion City', 31),
+('PKG_BKK_TYO', 'Bangkok to Tokyo', 'Bangkok', 'Tokyo', 5, 'Temples to neon', 32),
+('PKG_PAR_TYO', 'Paris to Tokyo', 'Paris', 'Tokyo', 7, 'Seine to Shibuya', 33),
+('PKG_TYO_SIN', 'Tokyo to Singapore', 'Tokyo', 'Singapore', 5, 'Return Lion City hop', 34),
+('PKG_BKK_SIN2', 'Bangkok to Singapore', 'Bangkok', 'Singapore', 3, 'Weekend reverse leg', 35),
+('PKG_DPS_SIN', 'Bali to Singapore', 'Bali', 'Singapore', 4, 'Island to city', 36),
+('PKG_KUL_SIN', 'Kuala Lumpur to Singapore', 'Kuala Lumpur', 'Singapore', 2, 'Short neighbour hop', 37);
+
 
 USE LoyaltyDB;
 INSERT INTO LoyaltyAccounts (CustomerID, PointsBalance, TierLevel) VALUES
