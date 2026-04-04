@@ -50,7 +50,7 @@ def _save_accounts_to_disk() -> None:
         print(f"[account] Could not save {ACCOUNT_STORE_PATH}: {e}")
 
 
-# In-memory store for demo purposes (seed aligns with CustomerDB in `init_db.sql`; persisted via ACCOUNT_STORE_PATH in Docker).
+# In-memory seed store (aligns with CustomerDB in `init_db.sql`; persisted via ACCOUNT_STORE_PATH in Docker).
 # Overwritten on startup if ACCOUNT_STORE_PATH file exists.
 ACCOUNTS = {
     1: {
@@ -136,8 +136,8 @@ def to_dict(record_id: int, record: dict) -> dict:
 @app.route("/account/login", methods=["POST"])
 def login():
     """
-    Demo login: match email to a seeded loyalty account. Password must be non-empty
-    but is not verified (course / local demo only).
+    Match email to a seeded account. Password must be non-empty but is not verified
+    (local / simulated auth — see database/ACCESSIBLE_ACCOUNTS.txt for seeded emails).
     """
     data = request.get_json() or {}
     email = (data.get("email") or "").strip().lower()
@@ -171,13 +171,18 @@ def login():
             200,
         )
 
-    return jsonify({"code": 401, "message": "Unknown email — try a seeded demo account"}), 401
+    return jsonify(
+        {
+            "code": 401,
+            "message": "Unknown email — use a seeded account from database/ACCESSIBLE_ACCOUNTS.txt or sign up",
+        }
+    ), 401
 
 
 @app.route("/account/signup", methods=["POST"])
 def signup():
     """
-    Create a new demo loyalty account and return minimal profile details.
+    Create a new loyalty account and return minimal profile details.
 
     Body: { email, firstName, lastName, phoneNumber?, nationality?, dateOfBirth? }
     """

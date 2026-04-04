@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   booking:
     build:
@@ -20,15 +18,18 @@ services:
       RABBIT_PORT: 5672
       EXCHANGE_NAME: travel_topic
       EXCHANGE_TYPE: topic
+      # Quoted defaults so YAML never coerces true/false to booleans.
       TRAVELLER_PROFILE_BASE_URL: ${TRAVELLER_PROFILE_BASE_URL:-}
-      # false = call OutSystems REST (real integration). true = in-memory demo only (no cloud).
-      TRAVELLER_PROFILE_LOCAL_DEMO: ${TRAVELLER_PROFILE_LOCAL_DEMO:-false}
-      TRAVELLER_PROFILE_REQUIRED: ${TRAVELLER_PROFILE_REQUIRED:-false}
+      # false = OutSystems REST from booking. true = in-memory demo (no cloud).
+      TRAVELLER_PROFILE_LOCAL_DEMO: "${TRAVELLER_PROFILE_LOCAL_DEMO:-false}"
+      TRAVELLER_PROFILE_REQUIRED: "${TRAVELLER_PROFILE_REQUIRED:-false}"
       TRAVELLER_PROFILE_UPDATE_PATH: ${TRAVELLER_PROFILE_UPDATE_PATH:-UpdateTravellerProfile}
       TRAVELLER_PROFILE_DELETE_PATH: ${TRAVELLER_PROFILE_DELETE_PATH:-DeleteTravellerProfile}
-      FX_API_ENABLED: ${FX_API_ENABLED:-false}
+      FX_API_ENABLED: "${FX_API_ENABLED:-false}"
       FX_API_URL: ${FX_API_URL:-}
-      SKIP_CATALOG_VALIDATION: ${SKIP_CATALOG_VALIDATION:-false}
+      EXCHANGE_RATE_API_KEY: ${EXCHANGE_RATE_API_KEY:-}
+      EXCHANGERATE_API_KEY: ${EXCHANGERATE_API_KEY:-}
+      SKIP_CATALOG_VALIDATION: "${SKIP_CATALOG_VALIDATION:-false}"
     depends_on:
       account:
         condition: service_started
@@ -60,6 +61,12 @@ services:
     build: ./flight
     # ports:
     #   - "5102:5102"
+    env_file:
+      - .env
+    environment:
+      AVIATIONSTACK_ENABLED: ${AVIATIONSTACK_ENABLED:-false}
+      AVIATIONSTACK_API_KEY: ${AVIATIONSTACK_API_KEY:-}
+      AVIATIONSTACK_BASE_URL: ${AVIATIONSTACK_BASE_URL:-https://api.aviationstack.com/v1}
 
   hotel:
     build: ./hotel
@@ -105,6 +112,8 @@ services:
     build: ./bundle_pricing
     # ports:
     #   - "5111:5111"
+    environment:
+      ACCOUNT_SERVICE_URL: http://account:5100
     depends_on:
       - account
       - flight
@@ -124,6 +133,11 @@ services:
       EXCHANGE_NAME: travel_topic
       EXCHANGE_TYPE: topic
       QUEUE_NAME: notify.user
+      SMU_NOTIFICATION_ENABLED: "${SMU_NOTIFICATION_ENABLED:-false}"
+      SMU_NOTIFICATION_BASE_URL: ${SMU_NOTIFICATION_BASE_URL:-}
+      SMU_NOTIFICATION_AUTH_HEADER: ${SMU_NOTIFICATION_AUTH_HEADER:-Authorization}
+      SMU_NOTIFICATION_AUTH_VALUE: ${SMU_NOTIFICATION_AUTH_VALUE:-}
+      SMU_NOTIFY_EMAIL_TO: ${SMU_NOTIFY_EMAIL_TO:-}
     volumes:
       - notification_twilio_data:/app/data
     depends_on:
@@ -203,10 +217,14 @@ services:
     depends_on:
       - account
       - booking
+      - flight
+      - hotel
+      - payment
       - loyalty
       - notification
       - graphql
       - bundle-pricing
+      - discount
 
 volumes:
   notification_twilio_data:

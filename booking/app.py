@@ -29,7 +29,11 @@ def _traveller_profile_env_required() -> bool:
         "true",
         "yes",
     )
-from fx_quote import optional_fx_snapshot
+from fx_quote import (
+    exchange_rate_api_key_from_env,
+    get_sgd_to_currency_rate,
+    optional_fx_snapshot,
+)
 from catalog_validate import validate_flight_and_hotel
 try:
     # When running inside booking Docker image, we copy the client as traveller_outsystems_client.py
@@ -455,8 +459,44 @@ def index():
             "POST /booking/cancel/<id>": "Cancel booking and get refund",
             "GET /booking/policies": "List cancellation/refund policy rules",
             "GET /booking/refund-estimate?bookingID=<id>&cancelSource=customer": "Estimate cancellation refund",
+            "GET /booking/fx-rate?to=USD": "SGD→currency rate for UI display",
+            "GET /booking/integrations/health": "FX env summary",
         },
     }), 200
+
+
+@app.route("/booking/integrations/health", methods=["GET"])
+def booking_integrations_health():
+    """One-place check for FX-related env (display rates + optional create-booking snapshot)."""
+    er_key = exchange_rate_api_key_from_env()
+    fx_on = os.environ.get("FX_API_ENABLED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    return (
+        jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "service": "booking",
+                    "fxSnapshotOnCreateBooking": fx_on,
+                    "fxSnapshotUrlConfigured": bool(
+                        (os.environ.get("FX_API_URL") or "").strip()
+                    ),
+                    "exchangeRateApiKeyConfigured": bool(er_key),
+                    "exchangeRateApiKeyPrefix": (er_key[:4] + "…")
+                    if len(er_key) > 6
+                    else ("set" if er_key else ""),
+                    "endpoints": {
+                        "displayCurrencyRate": "GET /booking/fx-rate?to=USD",
+                    },
+                },
+            }
+        ),
+        200,
+    )
 
 
 def _parse_traveller_profile_ids(data: dict) -> tuple[list[int], str | None]:
@@ -1171,6 +1211,22 @@ def get_booking_policies():
     return jsonify({"code": 200, "data": data}), 200
 
 
+@app.route("/booking/fx-rate", methods=["GET"])
+def booking_fx_rate():
+    """
+    Display-currency helper: SGD → target (multiply booking amounts by `rate`).
+    Query: to=USD (3-letter ISO code). Uses ExchangeRate-API v6 if EXCHANGE_RATE_API_KEY (or EXCHANGERATE_API_KEY) is set; else Frankfurter.
+    """
+    to = (request.args.get("to") or request.args.get("target") or "USD").strip()
+    try:
+        data = get_sgd_to_currency_rate(to)
+        return jsonify({"code": 200, "data": data}), 200
+    except ValueError as e:
+        return jsonify({"code": 400, "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"code": 503, "message": f"FX rate unavailable: {e}"}), 503
+
+
 @app.route("/booking/refund-estimate", methods=["GET"])
 def booking_refund_estimate():
     booking_id = request.args.get("bookingID")
@@ -1424,8 +1480,25 @@ def cancel_booking(booking_id: int):
     if not booking:
         return jsonify({"code": 404, "message": "Booking not found"}), 404
 
+    raw_early = request.get_json(silent=True)
+    req_early: dict = raw_early if isinstance(raw_early, dict) else {}
+
     if str(booking.status or "").upper() == "CANCELLED":
-        return _conflict("Booking is already cancelled")
+        # Idempotent: UI retries / double-clicks should not surface 409.
+        pct = booking.refundPercentage
+        amt = booking.refundAmount
+        result = {
+            "bookingID": booking_id,
+            "cancelSource": (req_early.get("cancelSource") or "customer").strip().lower(),
+            "refundPercentage": int(pct) if pct is not None else None,
+            "refundAmount": float(amt) if amt is not None else 0.0,
+            "status": "CANCELLED",
+            "cancellationPolicyID": booking.cancellationPolicyID,
+            "cancellationTimestamp": booking.cancellationTimestamp,
+            "currency": booking.currency or "SGD",
+            "alreadyCancelled": True,
+        }
+        return jsonify({"code": 200, "data": result}), 200
 
     try:
         departure_time = datetime.fromisoformat(booking.departureTime)
@@ -1498,6 +1571,8 @@ def cancel_booking(booking_id: int):
             }
         ), 502
 
+    cancel_warnings: list[str] = []
+
     # Required sequence after successful refund:
     # 1) release flight seat by seatNo
     # 2) release hotel room by roomID
@@ -1522,8 +1597,12 @@ def cancel_booking(booking_id: int):
             seat_numbers_for_release = []
     if not seat_numbers_for_release and booking.seatNumber:
         seat_numbers_for_release = [str(booking.seatNumber).strip().upper()]
-    if not seat_numbers_for_release:
-        seat_numbers_for_release = ["AUTO"]
+    # No placeholder release calls: flight service only tracks in-memory holds from this checkout flow.
+    seat_numbers_for_release = [
+        s
+        for s in seat_numbers_for_release
+        if s and str(s).strip().upper() not in ("AUTO", "NONE", "TBD")
+    ]
     room_id = f"{int(booking.hotelID)}:{(booking.hotelRoomType or 'STD').strip().upper()}"
 
     try:
@@ -1533,15 +1612,22 @@ def cancel_booking(booking_id: int):
                 json={"bookingID": booking_id, "flightNum": booking.flightID},
                 timeout=8,
             )
-            if not flight_release_resp.ok:
-                return jsonify(
-                    {
-                        "code": 502,
-                        "message": "Flight inventory release failed",
-                        "upstreamStatus": flight_release_resp.status_code,
-                        "upstreamBody": (flight_release_resp.text or "")[:500],
-                    }
-                ), 502
+            if flight_release_resp.ok:
+                continue
+            # Seed / DB-only bookings often have no row in Flight's in-memory map — treat as idempotent.
+            if flight_release_resp.status_code == 404:
+                cancel_warnings.append(
+                    f"Flight seat release: no in-service hold for {seat_no} (booking {booking_id}) — skipped."
+                )
+                continue
+            return jsonify(
+                {
+                    "code": 502,
+                    "message": "Flight inventory release failed",
+                    "upstreamStatus": flight_release_resp.status_code,
+                    "upstreamBody": (flight_release_resp.text or "")[:500],
+                }
+            ), 502
     except requests.RequestException as e:
         return jsonify({"code": 503, "message": f"Flight release unreachable: {e}"}), 503
 
@@ -1554,14 +1640,19 @@ def cancel_booking(booking_id: int):
     except requests.RequestException as e:
         return jsonify({"code": 503, "message": f"Hotel release unreachable: {e}"}), 503
     if not hotel_release_resp.ok:
-        return jsonify(
-            {
-                "code": 502,
-                "message": "Hotel inventory release failed",
-                "upstreamStatus": hotel_release_resp.status_code,
-                "upstreamBody": (hotel_release_resp.text or "")[:500],
-            }
-        ), 502
+        if hotel_release_resp.status_code == 404:
+            cancel_warnings.append(
+                f"Hotel room release: no in-service hold for {room_id} (booking {booking_id}) — skipped."
+            )
+        else:
+            return jsonify(
+                {
+                    "code": 502,
+                    "message": "Hotel inventory release failed",
+                    "upstreamStatus": hotel_release_resp.status_code,
+                    "upstreamBody": (hotel_release_resp.text or "")[:500],
+                }
+            ), 502
 
     booking.status = "CANCELLED"
     booking.refundPercentage = percentage
@@ -1581,7 +1672,6 @@ def cancel_booking(booking_id: int):
             }
         ), 500
 
-    cancel_warnings: list[str] = []
     try:
         for seat_no in seat_numbers_for_release:
             if not seat_no:

@@ -85,12 +85,20 @@ def get_twilio_public_config() -> dict[str, Any]:
         masked = sid[:2] + "…" + sid[-4:]
     elif sid:
         masked = "…"
+    to_env = str(os.environ.get("TWILIO_TO_NUMBER", "") or "").strip()
+    to_masked = ""
+    if len(to_env) > 8:
+        to_masked = to_env[:4] + "…" + to_env[-3:]
+    elif to_env:
+        to_masked = "…"
     return {
         "enabled": bool(_RUNTIME.get("enabled")),
         "accountSidMasked": masked,
         "hasAccountSid": bool(sid),
         "fromNumber": str(_RUNTIME.get("fromNumber", "") or ""),
         "hasAuthToken": bool(str(_RUNTIME.get("authToken", "") or "").strip()),
+        "defaultToFromEnv": bool(to_env),
+        "defaultToMasked": to_masked,
     }
 
 
@@ -200,10 +208,12 @@ def send_sms_for_amqp_event(
     """Send a short SMS summarising a RabbitMQ booking event."""
     to = _normalize_phone_e164(event_payload.get("passengerPhone"))
     if not to:
+        to = _normalize_phone_e164(os.environ.get("TWILIO_TO_NUMBER"))
+    if not to:
         return {
             "skipped": True,
             "reason": "No SMS destination: enter a valid mobile on the booking form "
-            "(e.g. +65 9123 4567 or 91234567)",
+            "(e.g. +65 9123 4567 or 91234567), or set TWILIO_TO_NUMBER in .env for demos",
         }
 
     bid = event_payload.get("bookingID", "?")

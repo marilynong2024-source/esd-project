@@ -81,6 +81,9 @@ In THIS repo you have THREE kinds of storage
                        Live UI traveller CRUD → OutSystems when
                        TRAVELLER_PROFILE_LOCAL_DEMO=false.
 
+                       Seeded account emails + loyalty snapshot:
+                       ACCESSIBLE_ACCOUNTS.txt (this folder).
+
 
 ================================================================================
   1a. OUTSYSTEMS (“DATABASE” — PLATFORM STORE, NOT IN THIS REPO)
@@ -129,7 +132,7 @@ In THIS repo you have THREE kinds of storage
                           TRAVELLER_PROFILE_DELETE_PATH
 
 
-  [ Create body fields ]   (seed / demo)
+  [ Create body fields ]   (reference / seed payloads)
 
       CustomerID, FullName, PassportNumber, PassportExpiry, DateOfBirth,
       Nationality, SeatPreference, MealPreference,

@@ -1,4 +1,4 @@
-# Quick integration smoke checks (Twilio config, Stripe env shape, Kong, RabbitMQ, GraphQL).
+# Quick integration smoke checks (Twilio config, payment health, Kong, RabbitMQ, GraphQL).
 # Run from repo root with the stack up:  docker compose up -d
 #   powershell -ExecutionPolicy Bypass -File scripts/check_stack_integrations.ps1
 
@@ -40,8 +40,11 @@ finally {
 Write-Host ""
 Write-Host "=== UI nginx (localhost:8080) ===" -ForegroundColor Cyan
 Test-Url "Twilio config GET" "http://localhost:8080/api/notification/twilio/config" | Out-Null
-Test-Url "Payment health + Stripe env" "http://localhost:8080/api/payment/payment/health" | Out-Null
+Test-Url "Payment health (simulated)" "http://localhost:8080/api/payment/payment/health" | Out-Null
 Test-Url "GraphQL gateway health" "http://localhost:8080/api/graphql/health" | Out-Null
+Test-Url "Booking FX integrations health" "http://localhost:8080/api/booking/booking/integrations/health" | Out-Null
+Test-Url "Flight external integrations health" "http://localhost:8080/api/flight/integrations/health" | Out-Null
+Test-Url "Booking FX rate USD" "http://localhost:8080/api/booking/booking/fx-rate?to=USD" | Out-Null
 
 Write-Host ""
 Write-Host "=== Kong gateway (localhost:9000) ===" -ForegroundColor Cyan
@@ -104,9 +107,12 @@ Write-Host "=== Twilio / Stripe hints ===" -ForegroundColor Cyan
 try {
     $tw = Invoke-RestMethod "http://localhost:8080/api/notification/twilio/config"
     $d = $tw.data
-    Write-Host "Twilio enabled=$($d.enabled) hasSid=$($d.hasAccountSid) hasToken=$($d.hasAuthToken) from=$($d.fromNumber)"
+    Write-Host "Twilio enabled=$($d.enabled) hasSid=$($d.hasAccountSid) hasToken=$($d.hasAuthToken) from=$($d.fromNumber) defaultToEnv=$($d.defaultToFromEnv)"
     if (-not $d.hasAccountSid) {
         Write-Host "  Hint: set TWILIO_* in .env or use UI SMS settings (sidebar)." -ForegroundColor DarkYellow
+    }
+    if (-not $d.defaultToFromEnv) {
+        Write-Host "  Hint: optional TWILIO_TO_NUMBER when booking form has no mobile." -ForegroundColor DarkYellow
     }
 }
 catch { Write-Host "(skip Twilio JSON)" -ForegroundColor DarkGray }
@@ -115,14 +121,7 @@ try {
     $ph = Invoke-RestMethod "http://localhost:8080/api/payment/payment/health"
     $root = $ph.data
     if (-not $root) { $root = $ph }
-    $s = $root.stripeEnv
-    if ($s) {
-        Write-Host "Stripe configured=$($s.configured) secretKeyLooksValid=$($s.secretKeyLooksValid)"
-        if ($s.hint) { Write-Host "  Hint: $($s.hint)" -ForegroundColor DarkYellow }
-    }
-    else {
-        Write-Host "Stripe: (rebuild payment image for /payment/health + stripeEnv details)" -ForegroundColor DarkYellow
-    }
+    Write-Host "Payment engine=$($root.engine) service=$($root.service)"
 }
 catch { Write-Host "(skip payment health JSON)" -ForegroundColor DarkGray }
 

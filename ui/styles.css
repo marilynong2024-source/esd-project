@@ -136,6 +136,29 @@ body {
   font-size: 0.8125rem;
 }
 
+.site-header__fx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.site-header__fx-label {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.site-header__fx-select {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  min-width: 4.75rem;
+}
+
 /* Tight segmented group: Booking · Account · Bookings · Cancel */
 .site-nav__cluster {
   display: inline-flex;
@@ -166,45 +189,6 @@ body {
 
 .site-nav__logout {
   flex-shrink: 0;
-}
-
-/* Lead traveller contact — one visual block (account defaults, editable per trip) */
-.lead-contact-card {
-  margin-top: 4px;
-  padding: 14px 16px 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: linear-gradient(
-    160deg,
-    rgba(13, 148, 136, 0.07) 0%,
-    rgba(255, 255, 255, 0.92) 48%
-  );
-  box-shadow: 0 1px 0 rgba(13, 148, 136, 0.06);
-}
-
-.lead-contact-card__title {
-  margin: 0 0 6px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text);
-}
-
-.lead-contact-card__lede {
-  margin: 0 0 12px;
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  max-width: 52ch;
-}
-
-.lead-contact-card__fields {
-  margin: 0;
-  align-items: start;
-}
-
-.lead-contact-card__fields label {
-  margin-bottom: 0;
 }
 
 .site-nav__link {
@@ -625,91 +609,10 @@ body {
   opacity: 0.85;
 }
 
-/* ——— Booking flow (guided steps) ——— */
-.booking-flow {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 16px 12px;
-}
-
-/* Inside main grid: no extra horizontal inset / margin (main already pads); tight row under progress */
-.booking-flow--in-main {
-  max-width: none;
-  margin: 0;
-  padding: 0 0 6px;
-}
-
-.booking-flow__list {
-  list-style: none;
-  margin: 0;
-  padding: 14px 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px 4px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-}
-
-.booking-flow__item {
-  margin: 0;
-}
-
-.booking-flow__item--line {
-  flex: 1 1 20px;
-  max-width: 48px;
-  min-width: 20px;
-  height: 2px;
-  background: var(--border);
-  border-radius: 1px;
-  opacity: 0.85;
-}
-
-@media (max-width: 640px) {
-  .booking-flow__item--line {
-    display: none;
-  }
-}
-
-.booking-flow__link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  text-decoration: none;
-  color: var(--text);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.booking-flow__link:hover,
-.booking-flow__link:focus-visible {
-  background: rgba(13, 148, 136, 0.12);
-  color: var(--ocean-dark);
-  outline: none;
-}
-
-.booking-flow__num {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--hero-gradient);
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
 #step-book,
 #step-manage,
-#step-receipt {
+#step-receipt,
+#segment-account {
   scroll-margin-top: 100px;
 }
 
@@ -761,26 +664,15 @@ body {
   align-items: start;
 }
 
-/* Progress bar spans full width; trip + summary sit below with a small row gap (avoids a tall empty band). */
 .site-main.site-main--booking {
-  grid-template-columns: 1.55fr 0.95fr;
-  grid-template-areas:
-    "flow flow"
-    "booking sidebar";
-  row-gap: 10px;
+  grid-template-columns: 1fr;
+  grid-template-areas: "booking";
+  row-gap: 0;
   column-gap: 24px;
 }
 
 .site-main.site-main--booking .col--booking {
   grid-area: booking;
-}
-
-.site-main.site-main--booking .col--sidebar {
-  grid-area: sidebar;
-}
-
-.site-main.site-main--booking .booking-flow--in-main {
-  grid-area: flow;
 }
 
 @media (max-width: 900px) {
@@ -789,11 +681,8 @@ body {
   }
 
   .site-main.site-main--booking {
-    grid-template-areas:
-      "flow"
-      "booking"
-      "sidebar";
-    row-gap: 8px;
+    grid-template-areas: "booking";
+    row-gap: 0;
   }
 }
 
@@ -1004,14 +893,6 @@ label {
   font-weight: 500;
 }
 
-.form-label--demo {
-  background: #fafaf9;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px dashed var(--border);
-  margin-bottom: 4px;
-}
-
 input,
 select {
   padding: 10px 12px;
@@ -1029,6 +910,18 @@ select:focus {
   border-color: var(--ocean);
   box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.2);
   background-color: #fff;
+}
+
+input.input--computed {
+  cursor: default;
+  background-color: #f1f5f9;
+  color: var(--text);
+}
+
+input.input--computed:focus {
+  border-color: var(--border);
+  box-shadow: none;
+  background-color: #f1f5f9;
 }
 
 /* Native selects: clearer control + chevron (skip multi-select) */
@@ -1083,6 +976,11 @@ select:not([multiple]) {
 
 .section-title--spaced {
   margin-top: 20px;
+}
+
+/* Author rules must not override the HTML hidden attribute (e.g. Next on pay step). */
+[hidden] {
+  display: none !important;
 }
 
 /* Buttons: only .btn-* for form actions; seat map uses button.seat */
@@ -1159,11 +1057,26 @@ button {
 
 .form-submit-wrap .btn-primary {
   width: 100%;
-  max-width: min(100%, 32rem);
+  max-width: 100%;
   margin-top: 8px;
-  padding: 12px 28px;
+  padding: 14px 28px;
   font-size: 1rem;
   justify-content: center;
+}
+
+.booking-flow-lock-note {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(13, 148, 136, 0.08);
+  border: 1px solid rgba(13, 148, 136, 0.22);
+  font-size: 0.875rem;
+}
+
+#step-book.booking-flow--completed #seatMapWrap:not([hidden]) {
+  pointer-events: none;
+  opacity: 0.55;
+  filter: grayscale(0.2);
 }
 
 .actions-row {
@@ -1297,6 +1210,11 @@ button {
 /* ——— Bundle gallery (step 1) ——— */
 .bundle-gallery__hint {
   margin-bottom: 6px;
+}
+
+.bundle-no-packages-msg {
+  margin: 10px 0 14px;
+  font-size: 0.9rem;
 }
 
 .bundle-filters {
@@ -1834,6 +1752,11 @@ button.seat--zone-exit_row.seat--window {
   border-style: dashed;
 }
 
+.segment-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .segment-panel[hidden] {
   display: none;
 }
@@ -1869,11 +1792,39 @@ button.seat--zone-exit_row.seat--window {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.traveller-item__pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.traveller-item__on-trip,
+.traveller-item__lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.traveller-item__on-trip input,
+.traveller-item__lead input {
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .traveller-item__meta {
   min-width: 0;
+  flex: 1 1 160px;
 }
 
 .traveller-item__title {
@@ -2193,6 +2144,11 @@ button.seat--zone-exit_row.seat--window {
   grid-column: 1 / -1;
 }
 
+.login-gate__signup .login-gate__hint--after-phone {
+  margin: -4px 0 4px;
+  font-size: 0.85rem;
+}
+
 .login-gate__signup #signupError,
 .login-gate__signup #signupSubmitBtn {
   grid-column: 1 / -1;
@@ -2282,6 +2238,22 @@ button.seat--zone-exit_row.seat--window {
 .pay-step__hint {
   margin: 0 0 12px;
   font-size: 0.9rem;
+}
+
+.pay-step__simulated-payment {
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.pay-step__simulated-payment__title {
+  margin: 0 0 8px;
+}
+
+.pay-step__simulated-payment .field-hint {
+  margin: 0;
 }
 
 .pay-step__coins-field {
@@ -2435,8 +2407,20 @@ body.modal-open {
 
 /* ——— My Account full page ——— */
 .account-page {
-  max-width: 720px;
+  max-width: 880px;
   margin: 0 auto;
+}
+
+.account-page__profile {
+  margin-bottom: 20px;
+}
+
+.account-page__profile-grid {
+  margin-bottom: 12px;
+}
+
+.account-page__receipt {
+  margin-bottom: 20px;
 }
 
 .account-page__toolbar {

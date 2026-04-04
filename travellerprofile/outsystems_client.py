@@ -51,7 +51,9 @@ _DEFAULT = (
 
 
 def _base_url() -> str:
-    return os.environ.get("TRAVELLER_PROFILE_BASE_URL", _DEFAULT).strip().rstrip("/")
+    # Treat unset or blank env like Docker Compose `${VAR:-}` the same as missing — use default base.
+    raw = os.environ.get("TRAVELLER_PROFILE_BASE_URL", "").strip().rstrip("/")
+    return raw or _DEFAULT
 
 
 def _row_id(row: dict[str, Any]) -> int | None:

@@ -1,0 +1,73 @@
+================================================================================
+ACCESSIBLE ACCOUNTS — Horizon / ESD stack (local + Docker)
+================================================================================
+This file lists seeded loyalty accounts and what each is wired to in this repo.
+For database roles (MySQL vs OutSystems), see DATABASE_GUIDE.txt.
+
+--------------------------------------------------------------------------------
+SIGN-IN (Account service: POST /account/login via UI)
+--------------------------------------------------------------------------------
+  • Email must match one of the seeded addresses below (case-insensitive).
+  • Password: any non-empty string (not verified — local / course setup only).
+  • New accounts: use Sign up in the UI (POST /account/signup); they get the next
+    customerID and an empty loyalty wallet until their first booking.
+
+--------------------------------------------------------------------------------
+SEEDED CUSTOMER ACCOUNTS (in-memory seed in account/app.py; optional JSON file)
+--------------------------------------------------------------------------------
+customerID  Email                         Name              Phone           Nationality
+----------  ----------------------------  ----------------  --------------  -----------
+1           ava.chen@example.com          Ava Chen          +6591110001     Singapore
+2           ben.kumar@example.com         Ben Kumar         +6591110002     India
+3           casey.tan@example.com         Casey Tan         +6591110003     Malaysia
+4           dana.ng@example.com           Dana Ng           +6591110004     Singapore
+5           evan.lee@example.com          Evan Lee          +6591110005     Singapore
+6           fiona.ong@example.com         Fiona Ong         +6591110006     Singapore
+
+All seeded accounts: accountStatus Active.
+
+--------------------------------------------------------------------------------
+LOYALTY WALLET (loyalty/app.py — in-memory; customerID must match account)
+--------------------------------------------------------------------------------
+customerID  Tier        Booking count   Coins (cents)   Notes
+----------  ----------  --------------  --------------  --------------------------------
+1           Silver      3               11_200          100¢ = S$1 off at checkout
+2           Silver      2               8_600
+3           Gold        6               18_400
+4           Silver      2               5_200
+5           Bronze      0               800
+6           Platinum    13              98_200
+
+New sign-ups: default Bronze, 0 coins, 0 bookings until POST /booking completes.
+
+--------------------------------------------------------------------------------
+TRAVELLER PROFILES (OutSystems REST, not in this repo’s MySQL)
+--------------------------------------------------------------------------------
+  • Base URL: env TRAVELLER_PROFILE_BASE_URL (see .env / docker-compose).
+  • List profiles for a member: GET {BASE}/byaccount/{customerID}
+  • Create / update / delete: booking service proxies under /travellerprofiles/*
+    (UI calls these via /api/booking/...).
+
+  Traveller profile Ids are allocated in OutSystems. Use the byaccount response
+  when attaching profiles to a booking (step 2 — Travellers).
+
+  If TRAVELLER_PROFILE_LOCAL_DEMO=true, profiles are in-process only (no cloud).
+
+--------------------------------------------------------------------------------
+UI BOOKING FLOW (no preset picker)
+--------------------------------------------------------------------------------
+  • Use “Reset form” on step 1 to clear the wizard and restore default route/trip
+    window; then choose member/guest, bundle, hotel, flight, and pay.
+  • Curated bundle cards and trip windows are static catalog options in the UI,
+    not extra accounts.
+
+--------------------------------------------------------------------------------
+QUICK CHECKLIST
+--------------------------------------------------------------------------------
+  [ ] UI at http://localhost:8080 (same-origin /api/* through nginx)
+  [ ] Account + booking + loyalty containers running (docker compose)
+  [ ] OutSystems reachable from booking container if LOCAL_DEMO=false
+
+================================================================================
+(End of file — update this list if you change account/app.py or loyalty/app.py seeds.)
+================================================================================

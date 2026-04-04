@@ -10,6 +10,7 @@ const FLIGHT_BASE = "/api/flight";
 const BUNDLE_PRICE_BASE = "/api/bundle-price";
 
 const SESSION_STORAGE_KEY = "horizonPackagesSession";
+const DISPLAY_CURRENCY_STORAGE_KEY = "horizonDisplayCurrency";
 
 /** @returns {{ mode: 'guest' } | { mode: 'member', customerID: number, email?: string, displayName?: string } | null} */
 function getSession() {
@@ -36,6 +37,10 @@ function isMemberSession() {
   const s = getSession();
   return !!(s && s.mode === "member" && Number(s.customerID) > 0);
 }
+
+/** After successful Confirm & pay, block steps, seats, and resubmit until Reset form. */
+let bookingFlowCompletedLock = false;
+
 // Keep REST hotel base as fallback path if GraphQL is down.
 const HOTEL_BASE = "/api/hotel";
 const HOTEL_FALLBACK_IMAGE =
@@ -292,6 +297,25 @@ const CITY_COUNTRY_SLUG = {
   Sydney: "australia",
   London: "uk",
   Paris: "france",
+  "Kuala Lumpur": "malaysia",
+  Seoul: "south korea",
+  Dubai: "uae",
+  "Hong Kong": "hong kong",
+  Melbourne: "australia",
+  Manila: "philippines",
+  Chennai: "india",
+  Jakarta: "indonesia",
+  Frankfurt: "germany",
+  Amsterdam: "netherlands",
+  "Los Angeles": "usa",
+  "San Francisco": "usa",
+  Auckland: "new zealand",
+  "Ho Chi Minh City": "vietnam",
+  Hanoi: "vietnam",
+  Taipei: "taiwan",
+  Phuket: "thailand",
+  Perth: "australia",
+  "New York": "usa",
 };
 
 const BUNDLE_COUNTRY_LABEL = {
@@ -300,9 +324,55 @@ const BUNDLE_COUNTRY_LABEL = {
   thailand: "Thailand",
   indonesia: "Indonesia",
   australia: "Australia",
-  uk: "United Kingdom",
+  uk: "UK",
   france: "France",
+  taiwan: "Taiwan",
+  malaysia: "Malaysia",
+  "south korea": "South Korea",
+  uae: "UAE",
+  "hong kong": "Hong Kong SAR",
+  philippines: "Philippines",
+  india: "India",
+  germany: "Germany",
+  netherlands: "Netherlands",
+  usa: "USA",
+  "new zealand": "New Zealand",
+  vietnam: "Vietnam",
 };
+
+function countryLabelForBundleDestinationCity(destCity) {
+  const c = String(destCity || "").trim();
+  if (!c) return "";
+  const slug = CITY_COUNTRY_SLUG[c];
+  return slug ? BUNDLE_COUNTRY_LABEL[slug] : "";
+}
+
+/** Drop cached hotel cards that are not in the current Fine-tune destination city. */
+function filterHotelRowsToBundleDestination(rows) {
+  const dest = document.getElementById("bundleDestination")?.value?.trim() || "";
+  if (!dest || !Array.isArray(rows) || !rows.length) return rows;
+  const d = dest.trim().toLowerCase();
+  return rows.filter((h) => {
+    const c = String(h.city || "").trim().toLowerCase();
+    if (!c) return false;
+    return c === d || c.includes(d) || d.includes(c);
+  });
+}
+
+function applyBundleDestinationToHotelSearchInputs() {
+  const dest = document.getElementById("bundleDestination")?.value?.trim() || "";
+  const cityEl = document.getElementById("hotelSearchCity");
+  const countryEl = document.getElementById("hotelSearchCountry");
+  if (!cityEl || !countryEl || !dest) return;
+  cityEl.value = dest;
+  const country = countryLabelForBundleDestinationCity(dest);
+  countryEl.value = country || "";
+}
+
+async function refreshHotelsForBundleDestination() {
+  applyBundleDestinationToHotelSearchInputs();
+  await searchHotels();
+}
 
 function countriesUsedByPresets(regionFilter = "all") {
   const slugs = new Set();
@@ -320,7 +390,7 @@ function countriesUsedByPresets(regionFilter = "all") {
 const bundleCardPriceCache = new Map();
 let bundleCardPriceTimer = null;
 
-/** Demo members — option value is internal id; label is guest-facing (no raw IDs in the UI). */
+/** Seeded members — option value is customerID; label is guest-facing (no raw IDs in the UI). */
 const CUSTOMER_OPTIONS = [
   { id: 1, label: "Ava Chen" },
   { id: 2, label: "Ben Kumar" },
@@ -401,6 +471,135 @@ function populateBundleRouteSelectsFromPresets() {
   }
 }
 
+function storedDisplayCurrency() {
+  try {
+    const v = localStorage.getItem(DISPLAY_CURRENCY_STORAGE_KEY);
+    if (v && /^[A-Z]{3}$/.test(v)) return v;
+  } catch {
+    /* ignore */
+  }
+  return "SGD";
+}
+
+function setStoredDisplayCurrency(code) {
+  try {
+    localStorage.setItem(DISPLAY_CURRENCY_STORAGE_KEY, code);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * @param {number} sgdAmount
+ * @param {{ maxFrac?: number, forceSgd?: boolean }} [opts]
+ */
+function formatMoneyDisplayFromSgd(sgdAmount, opts) {
+  const n = Number(sgdAmount);
+  if (!Number.isFinite(n)) return "—";
+  const maxFrac = opts?.maxFrac !== undefined ? opts.maxFrac : 2;
+  const forceSgd = !!opts?.forceSgd;
+  const code = forceSgd ? "SGD" : displayFx.code;
+  const rate = forceSgd ? 1 : displayFx.rate;
+  const converted = n * rate;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: maxFrac,
+    }).format(converted);
+  } catch {
+    return `${code} ${converted.toFixed(maxFrac)}`;
+  }
+}
+
+async function fetchDisplayFxRate(code) {
+  const c = (code || "SGD").toUpperCase();
+  if (c === "SGD") {
+    displayFx.code = "SGD";
+    displayFx.rate = 1;
+    displayFx.source = "fixed";
+    return;
+  }
+  const out = await fetchJson(
+    `${API_BASE}/booking/fx-rate?${new URLSearchParams({ to: c }).toString()}`
+  );
+  if (out.networkError || !out.ok || out.body?.data?.rate == null) {
+    displayFx.code = "SGD";
+    displayFx.rate = 1;
+    displayFx.source = "unavailable";
+    const sel = document.getElementById("displayCurrencySelect");
+    if (sel && sel.value !== "SGD") {
+      sel.value = "SGD";
+      setStoredDisplayCurrency("SGD");
+    }
+    return;
+  }
+  displayFx.code = c;
+  displayFx.rate = Number(out.body.data.rate);
+  displayFx.source = String(out.body.data.source || "api");
+}
+
+function updatePayStepCurrencyLabels() {
+  const el = document.querySelector(".pay-step__due-currency");
+  if (el) {
+    el.textContent = displayFx.code === "SGD" ? "SGD" : displayFx.code;
+  }
+  const foot = document.getElementById("payStepFxFootnote");
+  if (foot) {
+    if (displayFx.code === "SGD") {
+      foot.hidden = true;
+      foot.textContent = "";
+    } else {
+      foot.hidden = false;
+      foot.textContent =
+        "Converted for display using daily rates. Booking and payment amounts are still processed in SGD.";
+    }
+  }
+}
+
+function refreshAllDisplayedPrices() {
+  updatePayStepCurrencyLabels();
+  updateBundleCardPriceLabels();
+  refreshPricePreview();
+  void refreshFlightDropdownFromRoute();
+  if (Array.isArray(latestHotelRows) && latestHotelRows.length) {
+    const filtered = filterHotelRowsToBundleDestination(latestHotelRows);
+    if (filtered.length !== latestHotelRows.length) {
+      latestHotelRows = filtered;
+    }
+    renderHotelResults(filtered);
+  }
+  updateHotelRoomDetailsUI();
+  updateCoinsOffsetUI();
+  const statusEl = document.getElementById("bundleStatus");
+  if (statusEl && latestBundlePricing && Number.isFinite(Number(latestBundlePricing.finalTotal))) {
+    const t = Number(latestBundlePricing.finalTotal);
+    statusEl.textContent = `Selected — total ${formatMoneyDisplayFromSgd(t)}. Continue with traveller, hotel & flight steps.`;
+  }
+  if (lastMyBookingsCustomerId) {
+    void loadMyBookings(lastMyBookingsCustomerId);
+  }
+}
+
+async function applyDisplayCurrencyFromUI() {
+  const sel = document.getElementById("displayCurrencySelect");
+  const code = sel?.value || storedDisplayCurrency();
+  setStoredDisplayCurrency(code);
+  await fetchDisplayFxRate(code);
+  refreshAllDisplayedPrices();
+}
+
+async function initDisplayCurrencyUI() {
+  const sel = document.getElementById("displayCurrencySelect");
+  if (!sel) return;
+  const cur = storedDisplayCurrency();
+  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  else sel.value = "SGD";
+  sel.addEventListener("change", () => void applyDisplayCurrencyFromUI());
+  await applyDisplayCurrencyFromUI();
+}
+
 function bundleCardPriceLabel(presetId) {
   const c = bundleCardPriceCache.get(presetId);
   if (!c || c.loading) {
@@ -422,15 +621,15 @@ function bundleCardPriceLabel(presetId) {
   if (!list || list <= final) {
     // No discount vs list price – keep the simple label.
     return {
-      html: `<span class="bundle-price__now">From SGD ${final}</span>`,
+      html: `<span class="bundle-price__now">From ${formatMoneyDisplayFromSgd(final, { maxFrac: 0 })}</span>`,
     };
   }
   const savings = Math.max(0, list - final);
   return {
     html: `
-      <span class="bundle-price__was">Was SGD ${list}</span>
-      <span class="bundle-price__now bundle-price__now--deal">Now SGD ${final}</span>
-      <span class="bundle-price__save">Save SGD ${savings}</span>
+      <span class="bundle-price__was">Was ${formatMoneyDisplayFromSgd(list, { maxFrac: 0 })}</span>
+      <span class="bundle-price__now bundle-price__now--deal">Now ${formatMoneyDisplayFromSgd(final, { maxFrac: 0 })}</span>
+      <span class="bundle-price__save">Save ${formatMoneyDisplayFromSgd(savings, { maxFrac: 0 })}</span>
     `,
   };
 }
@@ -571,11 +770,6 @@ function updateCustomerFieldHint() {
   hint.textContent = "Coins & saved travellers in steps 2 and 5.";
 }
 
-function updateDemoToolsForAuth() {
-  const wrap = document.getElementById("demoQuickExampleWrap");
-  if (wrap) wrap.hidden = !isMemberSession();
-}
-
 function syncBundleTravellerTotals() {
   const adults = Number(document.getElementById("bundleAdults")?.value || 0);
   const children = Number(document.getElementById("bundleChildren")?.value || 0);
@@ -666,6 +860,28 @@ function ensureTripWindowOption(depart, ret) {
 /** When true, Fine-tune origin/dest changes came from picking a package — do not clear selection. */
 let suppressBundleRouteDiverge = false;
 
+/**
+ * Curated package cards only when the stack has both outbound flights and destination hotels
+ * for the current Fine-tune route (after searches complete).
+ */
+function curatedPackagesAllowedForCurrentRoute() {
+  const presets = getRouteFilteredPresets();
+  if (!presets.length) return false;
+
+  const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const d = document.getElementById("bundleDestination")?.value?.trim() || "";
+  if (!o || !d) return true;
+
+  if (!routeFlightsInventoryChecked || !routeHotelsInventoryChecked) return true;
+
+  return routeHasOutboundFlights && destinationHasHotels;
+}
+
+function syncRouteInventoryToPackageUI() {
+  populateBundlePackageSelect();
+  renderBundleGallery();
+}
+
 function populateBundlePackageSelect() {
   const sel = document.getElementById("bundlePackageSelect");
   if (!sel) return;
@@ -675,7 +891,8 @@ function populateBundlePackageSelect() {
   ph.value = "";
   ph.textContent = "— Select a package —";
   sel.appendChild(ph);
-  for (const p of getRouteFilteredPresets()) {
+  const source = curatedPackagesAllowedForCurrentRoute() ? getRouteFilteredPresets() : [];
+  for (const p of source) {
     const o = document.createElement("option");
     o.value = p.id;
     o.textContent = `${p.title} (${p.route})`;
@@ -683,6 +900,83 @@ function populateBundlePackageSelect() {
   }
   const valid = keep && Array.from(sel.options).some((o) => o.value === keep);
   sel.value = valid ? keep : "";
+  updateBundlePackageSectionVisibility();
+}
+
+/** Hide curated packages when there are none for the route, or when flight/hotel inventory is missing. */
+function updateBundlePackageSectionVisibility() {
+  const section = document.getElementById("bundlePackageSection");
+  const presetRoutes = getRouteFilteredPresets();
+  const hasPresetRoutes = presetRoutes.length > 0;
+  const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const d = document.getElementById("bundleDestination")?.value?.trim() || "";
+
+  let inventoryBlocked = false;
+  let inventoryMsg = "";
+  if (
+    hasPresetRoutes &&
+    o &&
+    d &&
+    routeFlightsInventoryChecked &&
+    routeHotelsInventoryChecked
+  ) {
+    const noF = !routeHasOutboundFlights;
+    const noH = !destinationHasHotels;
+    if (noF && noH) {
+      inventoryBlocked = true;
+      inventoryMsg = `No packages for this trip — no outbound flights with enough seats for these dates, and no hotels in ${d}. Try other dates or cities.`;
+    } else if (noF) {
+      inventoryBlocked = true;
+      inventoryMsg = `No packages for this trip — no outbound flights for ${o} → ${d} with enough seats on these dates. Try different dates or another route.`;
+    } else if (noH) {
+      inventoryBlocked = true;
+      inventoryMsg = `No packages for this trip — no hotels available in ${d} for this search. Try another destination or adjust the hotel search.`;
+    }
+  }
+
+  const showPackageUi = hasPresetRoutes && !inventoryBlocked;
+
+  const routeDatesSection = document.getElementById("bundleRouteDatesSection");
+  const fineTunePriceRow = document.getElementById("bundleFineTunePriceRow");
+  const pricingActions = document.getElementById("bundlePricingActions");
+  const noPkgMsg = document.getElementById("bundleNoPackagesMsg");
+  const st = document.getElementById("bundleStatus");
+
+  if (!showPackageUi) {
+    if (routeDatesSection) routeDatesSection.hidden = true;
+    if (fineTunePriceRow) fineTunePriceRow.hidden = true;
+    if (pricingActions) pricingActions.hidden = true;
+    if (noPkgMsg) {
+      noPkgMsg.hidden = false;
+      noPkgMsg.textContent = !hasPresetRoutes
+        ? "No packages available."
+        : inventoryMsg || "No packages available.";
+    }
+    if (st && inventoryBlocked) st.textContent = "";
+  } else {
+    if (routeDatesSection) routeDatesSection.hidden = false;
+    if (fineTunePriceRow) fineTunePriceRow.hidden = false;
+    if (pricingActions) pricingActions.hidden = false;
+    if (noPkgMsg) {
+      noPkgMsg.hidden = true;
+      noPkgMsg.textContent = "No packages available.";
+    }
+  }
+
+  if (!section) return;
+  section.hidden = !showPackageUi;
+
+  if (!showPackageUi) {
+    selectedBundlePresetId = null;
+    const pkg = document.getElementById("bundlePackageSelect");
+    if (pkg) pkg.value = "";
+    document.querySelectorAll(".bundle-card").forEach((b) => {
+      b.classList.remove("bundle-card--selected");
+      b.setAttribute("aria-pressed", "false");
+    });
+    const track = document.getElementById("bundleGalleryTrack");
+    if (track) track.replaceChildren();
+  }
 }
 
 function onFineTuneDivergeFromPackage() {
@@ -698,9 +992,11 @@ function onFineTuneDivergeFromPackage() {
   lastBundleParams = null;
   setBundleResultVisible(false);
   const st = document.getElementById("bundleStatus");
+  const hasRoutePackages = getRouteFilteredPresets().length > 0;
   if (st) {
-    st.textContent =
-      "Trip details changed — pick a package again, or open Fine-tune and tap Recalculate bundle price.";
+    st.textContent = hasRoutePackages
+      ? "Trip details changed — pick a package again, or open Fine-tune and tap Recalculate bundle price."
+      : "Trip details changed — open Fine-tune and tap Recalculate bundle price to update your quote.";
   }
   populateBundlePackageSelect();
   renderBundleGallery();
@@ -711,9 +1007,18 @@ function setupBundleFineTuneListeners() {
   document.getElementById("bundleTripWindowSelect")?.addEventListener("change", () => {
     applyTripWindowFromSelect();
     onFineTuneDivergeFromPackage();
+    void refreshFlightDropdownFromRoute();
   });
-  document.getElementById("bundleOrigin")?.addEventListener("change", () => onFineTuneDivergeFromPackage());
-  document.getElementById("bundleDestination")?.addEventListener("change", () => onFineTuneDivergeFromPackage());
+  document.getElementById("bundleOrigin")?.addEventListener("change", () => {
+    onFineTuneDivergeFromPackage();
+    void refreshFlightDropdownFromRoute();
+    void refreshHotelsForBundleDestination();
+  });
+  document.getElementById("bundleDestination")?.addEventListener("change", () => {
+    onFineTuneDivergeFromPackage();
+    void refreshFlightDropdownFromRoute();
+    void refreshHotelsForBundleDestination();
+  });
   document.getElementById("bundlePackageSelect")?.addEventListener("change", (e) => {
     const v = e.target.value;
     if (!v) {
@@ -726,138 +1031,8 @@ function setupBundleFineTuneListeners() {
   });
 }
 
-/** Demo personas — pick from dropdown to fill the form for presentations */
-const DEMO_PROFILES = [
-  {
-    id: "ava",
-    label: "Ava Chen — casual traveller",
-    passengerName: "Ava Chen",
-    passengerEmail: "ava.chen@example.com",
-    passengerPhone: "+65 9123 4567",
-    customerID: 1,
-    bundleOrigin: "Singapore",
-    bundleDestination: "Tokyo",
-    flightID: "SQ001",
-    hotelID: 1,
-    hotelRoomType: "STD",
-    hotelIncludesBreakfast: false,
-    departureTime: "2026-05-01T10:00",
-    totalPrice: 1200,
-    currency: "SGD",
-    fareType: "Flexi",
-    discountCode: "",
-    coinsToSpendCents: 0,
-    preferredSeat: "11D",
-  },
-  {
-    id: "ava_family",
-    label: "Ava + 2 companions (instructors: OS profile Ids 9 & 10 after seed)",
-    passengerName: "Ava Chen",
-    passengerEmail: "ava.chen@example.com",
-    passengerPhone: "+65 9123 4567",
-    customerID: 1,
-    bundleOrigin: "Singapore",
-    bundleDestination: "Tokyo",
-    flightID: "SQ001",
-    rawTravellerProfileIds: [9, 10],
-    hotelID: 1,
-    hotelRoomType: "DLX",
-    hotelIncludesBreakfast: true,
-    departureTime: "2026-05-01T10:00",
-    totalPrice: 1800,
-    currency: "SGD",
-    fareType: "Flexi",
-    discountCode: "",
-    coinsToSpendCents: 0,
-    preferredSeat: "11A",
-  },
-  {
-    id: "ben",
-    label: "Ben Kumar — business trip",
-    passengerName: "Ben Kumar",
-    passengerEmail: "ben.kumar@example.com",
-    passengerPhone: "+65 8123 0000",
-    customerID: 2,
-    bundleOrigin: "Singapore",
-    bundleDestination: "Sydney",
-    flightID: "SQ002",
-    hotelID: 1,
-    hotelRoomType: "DLX",
-    hotelIncludesBreakfast: true,
-    departureTime: "2026-06-15T09:30",
-    totalPrice: 1500,
-    currency: "SGD",
-    fareType: "Standard",
-    discountCode: "",
-    coinsToSpendCents: 0,
-    preferredSeat: "11F",
-  },
-  {
-    id: "airasia",
-    label: "Casey — AirAsia AK123 (no online seat map)",
-    passengerName: "Casey Tan",
-    passengerEmail: "casey.tan@example.com",
-    passengerPhone: "+65 9000 1111",
-    customerID: 3,
-    bundleOrigin: "Singapore",
-    bundleDestination: "Kuala Lumpur",
-    flightID: "AK123",
-    hotelID: 1,
-    hotelRoomType: "STD",
-    hotelIncludesBreakfast: false,
-    departureTime: "2026-07-01T14:00",
-    totalPrice: 650,
-    currency: "SGD",
-    fareType: "Saver",
-    discountCode: "",
-    coinsToSpendCents: 0,
-    preferredSeat: null,
-  },
-  {
-    id: "scoot",
-    label: "Dana — Scoot TR789 (check-in only in demo)",
-    passengerName: "Dana Wong",
-    passengerEmail: "dana.wong@example.com",
-    passengerPhone: "+65 8444 2222",
-    customerID: 4,
-    bundleOrigin: "Singapore",
-    bundleDestination: "Bangkok",
-    flightID: "TR789",
-    hotelID: 1,
-    hotelRoomType: "STD",
-    hotelIncludesBreakfast: false,
-    departureTime: "2026-08-10T08:00",
-    totalPrice: 520,
-    currency: "SGD",
-    fareType: "Saver",
-    discountCode: "",
-    coinsToSpendCents: 0,
-    preferredSeat: null,
-  },
-  {
-    id: "elena",
-    label: "Elena — corporate (PLAT20)",
-    passengerName: "Elena Ruiz",
-    passengerEmail: "elena.ruiz@corp-demo.sg",
-    passengerPhone: "+65 9333 8888",
-    customerID: 5,
-    bundleOrigin: "Singapore",
-    bundleDestination: "Tokyo",
-    flightID: "SQ001",
-    hotelID: 1,
-    hotelRoomType: "DLX",
-    hotelIncludesBreakfast: true,
-    departureTime: "2026-09-01T12:00",
-    totalPrice: 2400,
-    currency: "SGD",
-    fareType: "Flexi",
-    discountCode: "PLAT20",
-    coinsToSpendCents: 500,
-    preferredSeat: "12A",
-  },
-];
-
-const DEFAULT_TAKEN_SEATS = new Set(["8A", "8B", "9D", "10F", "12C"]);
+/** Seats treated as already taken until the flight API refreshes (merged with API on refresh). */
+const DEFAULT_TAKEN_SEATS = new Set(["8A", "9D", "9E", "10F", "12C"]);
 let currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
 let seatRefreshToken = 0;
 /** Serializes taken-seat fetches so a click never uses a stale `currentTakenSeats` from an in-flight refresh. */
@@ -871,7 +1046,7 @@ function refreshTakenSeatsQueued(flightId) {
 }
 // Seat selection state for the current booking:
 // - codes[0] is the lead traveller seat
-// - the rest are companion seats (auto-assigned in this demo)
+// - the rest are companion seats (auto-assigned for the group)
 let selectedSeatCodes = [];
 const SEAT_HOLD_TOKEN_KEY = "horizonSeatHoldToken";
 let seatHoldExpiresAtIso = "";
@@ -908,10 +1083,17 @@ function getSeatCharacteristics(row, letter) {
 let latestResult = null;
 let latestLoyalty = null; // { coins, bookingCount, tier, ... } from loyalty service
 let latestTravellerRows = [];
+/** Ordered IDs for this trip: index 0 = lead (contact + primary seat). */
+let tripPartyOrderedIds = [];
 let selectedTravellerRow = null; // OutSystems traveller profile row object
-let pendingTravellerIdsFromDemo = null;
+let pendingTravellerProfileIds = null;
 let selectedHotel = null; // Hotel row from hotel service (for UI only)
 let latestHotelRows = [];
+/** Last outbound flight search for Fine-tune origin/destination (gates curated packages). */
+let routeHasOutboundFlights = false;
+let destinationHasHotels = false;
+let routeFlightsInventoryChecked = false;
+let routeHotelsInventoryChecked = false;
 let lastHotelRoomType = null;
 let travellerProfilesServiceAvailable = true; // avoids repeated 500 spam when OutSystems is not configured
 
@@ -919,6 +1101,10 @@ let travellerProfilesServiceAvailable = true; // avoids repeated 500 spam when O
 let latestBundlePricing = null; // { flightPrice, hotelPrice, discount, loyaltyUsed, finalTotal, ... }
 let lastBundleParams = null; // query params used for last bundle call
 let selectedBundlePresetId = null;
+let lastMyBookingsCustomerId = null;
+
+/** Multiply SGD amounts for labels; APIs and payment still use SGD. */
+const displayFx = { code: "SGD", rate: 1, source: "fixed" };
 
 /**
  * Detects GET / response (welcome page), not a booking payload.
@@ -1062,7 +1248,7 @@ function codeDiscountPercent(code, projectedTier) {
  * List price from the form, then tier % off list, then promo % off that subtotal, then coins (dollars).
  * Avoids applying both tier and code as full % of list (e.g. 20+20=40% off), which felt like a glitch.
  */
-/** In this demo, numeric customer id &gt; 0 means a member with a loyalty wallet; 0 = no wallet (e.g. guest flows). */
+/** Numeric customer id &gt; 0 means a member with a loyalty wallet; 0 = no wallet (e.g. guest flows). */
 function hasAccountCustomerId(customerID) {
   return Number(customerID) > 0;
 }
@@ -1119,29 +1305,9 @@ function refreshPricePreview() {
   const { finalPaid } = Number.isFinite(Number(bTotal))
     ? computeFinalPriceBreakdown(Number(bTotal))
     : computeFinalPriceBreakdown();
-  el.textContent = Number.isFinite(finalPaid) ? finalPaid.toFixed(2) : "-";
-  const splitHint = document.getElementById("paymentSplitHint");
-  if (splitHint) {
-    if (Number(finalPaid) <= 0) {
-      splitHint.textContent =
-        "Reward balance covers this trip. Card details are optional.";
-    } else {
-      splitHint.textContent = `Pay SGD ${Number(finalPaid).toFixed(2)} by card (after discounts & reward cents).`;
-    }
-  }
-}
-
-function isCardDetailsValidForAmount(amountToPay) {
-  if (Number(amountToPay || 0) <= 0) return { ok: true };
-  const name = String(document.getElementById("paymentCardName")?.value || "").trim();
-  const numRaw = String(document.getElementById("paymentCardNumber")?.value || "").replace(/\s+/g, "");
-  const exp = String(document.getElementById("paymentCardExpiry")?.value || "").trim();
-  const cvc = String(document.getElementById("paymentCardCvc")?.value || "").trim();
-  if (!name) return { ok: false, message: "Enter cardholder name." };
-  if (!/^\d{13,19}$/.test(numRaw)) return { ok: false, message: "Enter a valid card number (13-19 digits)." };
-  if (!/^\d{2}\/\d{2}$/.test(exp)) return { ok: false, message: "Enter expiry as MM/YY." };
-  if (!/^\d{3,4}$/.test(cvc)) return { ok: false, message: "Enter a valid CVC." };
-  return { ok: true };
+  el.textContent = Number.isFinite(finalPaid)
+    ? formatMoneyDisplayFromSgd(finalPaid)
+    : "-";
 }
 
 function validateBookingStepBeforeNext(stepIndex) {
@@ -1149,12 +1315,15 @@ function validateBookingStepBeforeNext(stepIndex) {
     const cid = Number(document.getElementById("customerID")?.value || 0);
     const pkg = String(document.getElementById("bundlePackageSelect")?.value || "").trim();
     if (cid < 1) return "Please sign in and select who this booking is for.";
-    if (!pkg) return "Choose a bundle package before continuing.";
+    if (curatedPackagesAllowedForCurrentRoute() && getRouteFilteredPresets().length > 0 && !pkg) {
+      return "Choose a bundle package before continuing.";
+    }
     return "";
   }
   if (stepIndex === 1) {
-    const lead = Number(document.getElementById("leadTravellerSelect")?.value || 0);
-    if (lead < 1) return "Choose a lead traveller profile before continuing.";
+    if (readTravellerProfileIdsFromInput().length < 1) {
+      return "Tick “On this trip” for at least one saved traveller before continuing.";
+    }
     return "";
   }
   if (stepIndex === 2) {
@@ -1169,7 +1338,7 @@ function validateBookingStepBeforeNext(stepIndex) {
     const seatPol = getSeatPolicy(flightId);
     if (seatPol.onlineSeatSelection) {
       const required = getSeatRequiredCount();
-      if (required < 1) return "Pick your lead traveller before selecting seats.";
+      if (required < 1) return "Choose who is on this trip before selecting seats.";
       if (!Array.isArray(selectedSeatCodes) || selectedSeatCodes.length !== required) {
         return `Select seats for ${required} travellers before continuing.`;
       }
@@ -1177,17 +1346,6 @@ function validateBookingStepBeforeNext(stepIndex) {
     return "";
   }
   return "";
-}
-
-function formatCardNumberInput(raw) {
-  const digits = String(raw || "").replace(/\D+/g, "").slice(0, 19);
-  return digits.replace(/(.{4})/g, "$1 ").trim();
-}
-
-function formatCardExpiryInput(raw) {
-  const digits = String(raw || "").replace(/\D+/g, "").slice(0, 4);
-  if (digits.length <= 2) return digits;
-  return `${digits.slice(0, 2)}/${digits.slice(2)}`;
 }
 
 function setBundleResultVisible(_isVisible) {
@@ -1203,7 +1361,7 @@ async function applyBundlePricingResult(bundle, inputsForThisCall) {
   if (statusEl) {
     const t = bundle.finalTotal;
     statusEl.textContent = Number.isFinite(Number(t))
-      ? `Selected — total SGD ${Number(t).toFixed(2)}. Continue with traveller, hotel & flight steps.`
+      ? `Selected — total ${formatMoneyDisplayFromSgd(Number(t))}. Continue with traveller, hotel & flight steps.`
       : "Bundle applied.";
   }
 
@@ -1224,9 +1382,9 @@ async function applyBundlePricingResult(bundle, inputsForThisCall) {
       opt.value = fn;
       const depText = String(inputsForThisCall?.departDate || "").replace("T", " ").slice(0, 16);
       const priceText = Number.isFinite(Number(bundle?.flightPrice))
-        ? `S$${Number(bundle.flightPrice).toFixed(0)}`
+        ? formatMoneyDisplayFromSgd(Number(bundle.flightPrice), { maxFrac: 0 })
         : Number.isFinite(Number(bundle?.finalTotal))
-          ? `S$${Number(bundle.finalTotal).toFixed(0)}`
+          ? formatMoneyDisplayFromSgd(Number(bundle.finalTotal), { maxFrac: 0 })
           : "price from quote";
       opt.textContent = `${fn} · ${depText || "bundle timing"} · ${priceText}`;
       flightIdEl.appendChild(opt);
@@ -1400,6 +1558,10 @@ function clearBundleSelectionState() {
 function renderBundleGallery() {
   const track = document.getElementById("bundleGalleryTrack");
   if (!track) return;
+  updateBundlePackageSectionVisibility();
+  if (!curatedPackagesAllowedForCurrentRoute() || !getRouteFilteredPresets().length) {
+    return;
+  }
   track.replaceChildren();
   const list = getFilteredPresets();
   if (!list.length) {
@@ -1479,6 +1641,7 @@ function selectBundlePreset(presetId) {
     el.setAttribute("aria-pressed", on ? "true" : "false");
   });
 
+  void refreshHotelsForBundleDestination();
   void searchBundlePricing();
   scheduleBundleCardPriceRefresh();
 }
@@ -1492,8 +1655,8 @@ function extractAirlineCode(flightId) {
 }
 
 /**
- * SQ = full-service style online seat map in this demo.
- * AK / AA / TR etc. = must use check-in / counter (demo blocks the map).
+ * SQ = full-service style online seat map in this app.
+ * AK / AA / TR etc. = must use check-in / counter (policy blocks the map).
  */
 function getSeatPolicy(flightId) {
   const code = extractAirlineCode(flightId);
@@ -1515,13 +1678,13 @@ function getSeatPolicy(flightId) {
       onlineSeatSelection: false,
       airlineName: "AirAsia",
       reason:
-        "AirAsia: seat assignment at online check-in or at the airport — advance seat map is disabled in this demo.",
+        "AirAsia: seat assignment at online check-in or at the airport — advance seat map is disabled in this app.",
     },
     AA: {
       onlineSeatSelection: false,
       airlineName: "American Airlines",
       reason:
-        "American Airlines: advance seat selection is not available in this demo — check in online or at the airport.",
+        "American Airlines: advance seat selection is not available in this app — check in online or at the airport.",
     },
     TR: {
       onlineSeatSelection: false,
@@ -1533,22 +1696,22 @@ function getSeatPolicy(flightId) {
       onlineSeatSelection: false,
       airlineName: "British Airways",
       reason:
-        "British Airways (demo): choose seats at online check-in or via the airline.",
+        "British Airways: choose seats at online check-in or via the airline.",
     },
     JL: {
       onlineSeatSelection: false,
       airlineName: "Japan Airlines",
-      reason: "JAL (demo): seat selection at check-in or partner flows — map disabled here.",
+      reason: "JAL: seat selection at check-in or partner flows — map disabled here.",
     },
     QF: {
       onlineSeatSelection: false,
       airlineName: "Qantas",
-      reason: "Qantas (demo): seat assignment via airline check-in.",
+      reason: "Qantas: seat assignment via airline check-in.",
     },
     TG: {
       onlineSeatSelection: false,
       airlineName: "Thai Airways",
-      reason: "Thai Airways (demo): advance seat map not enabled — check in online.",
+      reason: "Thai Airways: advance seat map not enabled — check in online.",
     },
   };
   const r = rules[code];
@@ -1559,7 +1722,7 @@ function getSeatPolicy(flightId) {
     onlineSeatSelection: false,
     airlineCode: code,
     airlineName: code,
-    reason: `Airline ${code}: online seat map not enabled in this demo — confirm your seat at check-in.`,
+    reason: `Airline ${code}: online seat map not enabled in this app — confirm your seat at check-in.`,
   };
 }
 
@@ -1589,6 +1752,7 @@ function resetSeatMap() {
 }
 
 async function selectSeat(seatCode) {
+  if (bookingFlowCompletedLock) return;
   const leadCode = String(seatCode).toUpperCase();
   const required = getSeatRequiredCount();
 
@@ -1711,7 +1875,7 @@ async function tryHoldCurrentSeats() {
   const flightId = String(document.getElementById("flightID")?.value || "").trim().toUpperCase();
   const required = getSeatRequiredCount();
   if (!flightId || required < 1) {
-    return { ok: false, message: "Choose a flight and lead traveller first." };
+    return { ok: false, message: "Choose a flight and who is on this trip first." };
   }
   if (!Array.isArray(selectedSeatCodes) || selectedSeatCodes.length !== required) {
     return { ok: false, message: `Select seats for ${required} travellers first.` };
@@ -1736,9 +1900,7 @@ async function tryHoldCurrentSeats() {
 }
 
 function getSeatRequiredCount() {
-  const leadEl = document.getElementById("leadTravellerSelect");
-  const leadId = Number(leadEl?.value || 0);
-  if (leadId < 1) return 0;
+  if (readTravellerProfileIdsFromInput().length < 1) return 0;
 
   // Keep group-seat behaviour without relying on the companion selector UI.
   const packageTotal = Number(document.getElementById("packageTotalTravellers")?.value || 0);
@@ -1905,7 +2067,7 @@ function updateSeatSelectionUI() {
   const blocked = document.getElementById("seatBlockedNote");
 
   if (policy.onlineSeatSelection) {
-    policyEl.textContent = `${policy.airlineName}: choose a seat on the map below (demo).`;
+    policyEl.textContent = `${policy.airlineName}: choose a seat on the map below.`;
     mapWrap.hidden = false;
     blocked.hidden = true;
     blocked.textContent = "";
@@ -1913,11 +2075,13 @@ function updateSeatSelectionUI() {
   } else {
     policyEl.textContent = policy.reason;
     mapWrap.hidden = true;
-    blocked.hidden = false;
-    blocked.textContent = policy.reason;
     clearSeatSelection();
     currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
     resetSeatMap();
+    if (blocked) {
+      blocked.hidden = true;
+      blocked.textContent = "";
+    }
   }
 
   updateSeatGroupSummary();
@@ -1954,70 +2118,92 @@ async function refreshFlightDropdownFromRoute() {
   const hint = document.getElementById("flightSelectHint");
   if (!origin || !dest) {
     sel.disabled = true;
+    routeFlightsInventoryChecked = false;
+    routeHasOutboundFlights = false;
     if (hint) {
       hint.textContent =
         "Use the hero search, package filters, or Fine-tune route to set both cities.";
     }
     updateSeatSelectionUI();
+    syncRouteInventoryToPackageUI();
     return;
   }
+
+  routeFlightsInventoryChecked = false;
+  syncRouteInventoryToPackageUI();
 
   sel.disabled = false;
   const qs = new URLSearchParams();
   qs.set("originCity", origin);
   qs.set("destinationCity", dest);
-  qs.set("minSeats", "1");
+  const pax = Number(document.getElementById("bundleNumberOfTravellers")?.value || 1);
+  qs.set("minSeats", String(Math.max(1, Number.isFinite(pax) ? pax : 1)));
   const depD = getOutboundDepartDateForFlightSearch();
   if (depD) {
     qs.set("departDate", depD);
     qs.set("dateWindowDays", "2");
   }
-  const out = await fetchJson(`${FLIGHT_BASE}/flight/search?${qs.toString()}`);
 
-  if (out.networkError || !out.ok || !Array.isArray(out.body?.data)) {
-    if (hint) hint.textContent = "Could not load flights for this route.";
-    updateSeatSelectionUI();
-    return;
-  }
+  try {
+    const out = await fetchJson(`${FLIGHT_BASE}/flight/search?${qs.toString()}`);
 
-  const flights = [...out.body.data];
-  flights.sort((a, b) => {
-    const ta = String(a.departureTime || "");
-    const tb = String(b.departureTime || "");
-    if (ta !== tb) return ta.localeCompare(tb);
-    return (Number(a.economyPrice) || 0) - (Number(b.economyPrice) || 0);
-  });
+    if (out.networkError || !out.ok || !Array.isArray(out.body?.data)) {
+      if (hint) hint.textContent = "Could not load flights for this route.";
+      ph.textContent = "— No flight (could not load) —";
+      routeHasOutboundFlights = false;
+      updateSeatSelectionUI();
+      return;
+    }
 
-  for (const f of flights) {
-    const fn = String(f.flightNum || f.flightNumber || "").toUpperCase();
-    if (!fn) continue;
-    const seats = Number(f.availableSeats ?? 0);
-    if (seats < 1) continue;
-    const dep = String(f.departureTime || "").replace("T", " ").slice(0, 16);
-    const price = Number(f.economyPrice ?? 0);
-    const air = String(f.airline || "").slice(0, 28);
-    const opt = document.createElement("option");
-    opt.value = fn;
-    opt.textContent = `${fn} · ${air} · ${dep} · ${seats} seats · S$${price.toFixed(0)}`;
-    sel.appendChild(opt);
-  }
+    const flights = [...out.body.data];
+    flights.sort((a, b) => {
+      const ta = String(a.departureTime || "");
+      const tb = String(b.departureTime || "");
+      if (ta !== tb) return ta.localeCompare(tb);
+      return (Number(a.economyPrice) || 0) - (Number(b.economyPrice) || 0);
+    });
 
-  if (hint) {
+    for (const f of flights) {
+      const fn = String(f.flightNum || f.flightNumber || "").toUpperCase();
+      if (!fn) continue;
+      const seats = Number(f.availableSeats ?? 0);
+      if (seats < 1) continue;
+      const dep = String(f.departureTime || "").replace("T", " ").slice(0, 16);
+      const price = Number(f.economyPrice ?? 0);
+      const air = String(f.airline || "").slice(0, 28);
+      const opt = document.createElement("option");
+      opt.value = fn;
+      opt.textContent = `${fn} · ${air} · ${dep} · ${seats} seats · ${formatMoneyDisplayFromSgd(price, { maxFrac: 0 })}`;
+      sel.appendChild(opt);
+    }
+
     const dateHint = depD ? ` near ${depD} (±2 days)` : "";
-    hint.textContent =
-      flights.length === 0
-        ? `No flights with seats for ${origin} → ${dest}${dateHint}. Try different dates or cities.`
-        : `${flights.length} outbound flight(s)${dateHint}: ${origin} → ${dest}.`;
-  }
+    const bookableCount = Math.max(0, sel.options.length - 1);
+    if (sel.options.length <= 1) {
+      ph.textContent = "— No flight for this route —";
+      routeHasOutboundFlights = false;
+      if (hint) {
+        hint.textContent = `No flights with enough seats for ${origin} → ${dest}${dateHint}. Try different dates or cities.`;
+      }
+    } else {
+      routeHasOutboundFlights = true;
+      if (hint) {
+        hint.textContent = `${bookableCount} outbound flight(s)${dateHint}: ${origin} → ${dest}.`;
+      }
+    }
 
-  if (keep && [...sel.options].some((o) => o.value === keep)) {
-    sel.value = keep;
-  } else if (sel.options.length > 1) {
-    sel.selectedIndex = 1;
-  }
+    if (keep && [...sel.options].some((o) => o.value === keep)) {
+      sel.value = keep;
+    } else if (sel.options.length > 1) {
+      sel.selectedIndex = 1;
+    }
 
-  updateSeatSelectionUI();
-  void syncFlightScheduleUI();
+    updateSeatSelectionUI();
+    void syncFlightScheduleUI();
+  } finally {
+    routeFlightsInventoryChecked = true;
+    syncRouteInventoryToPackageUI();
+  }
 }
 
 async function syncFlightScheduleUI() {
@@ -2091,11 +2277,22 @@ async function refreshTakenSeatsForFlight(flightId) {
 }
 
 function updateSeatGroupSummary() {
-  const seatCodes = Array.isArray(selectedSeatCodes) ? selectedSeatCodes : [];
-  const seat = seatCodes[0] ? String(seatCodes[0]).trim().toUpperCase() : "—";
+  const flightId = String(document.getElementById("flightID")?.value || "").trim();
+  const policy = getSeatPolicy(flightId);
+  const summaryEl = document.getElementById("seatGroupSummary");
   const leadPill = document.getElementById("seatLeadPill");
   const compPill = document.getElementById("seatCompanionPill");
   const hintPill = document.getElementById("seatGroupHint");
+
+  if (!policy.onlineSeatSelection) {
+    if (summaryEl) summaryEl.hidden = true;
+    return;
+  }
+
+  if (summaryEl) summaryEl.hidden = false;
+
+  const seatCodes = Array.isArray(selectedSeatCodes) ? selectedSeatCodes : [];
+  const seat = seatCodes[0] ? String(seatCodes[0]).trim().toUpperCase() : "—";
   const required = getSeatRequiredCount();
   const selectedCount = seatCodes.length;
 
@@ -2105,7 +2302,7 @@ function updateSeatGroupSummary() {
 
   if (hintPill) {
     if (!required) {
-      hintPill.textContent = "Pick your lead traveller to enable seat selection.";
+      hintPill.textContent = "Select who is on this trip to enable seat selection.";
     } else if (selectedCount === required) {
       hintPill.textContent = "All seats for your group are selected.";
     } else {
@@ -2116,92 +2313,27 @@ function updateSeatGroupSummary() {
 }
 
 function readTravellerProfileIdsFromInput() {
-  // UI: use names/selectors, but backend still needs numeric IDs.
-  const leadEl = document.getElementById("leadTravellerSelect");
-  const compEl = document.getElementById("companionTravellerSelect");
-
-  const ids = [];
-  const leadId = Number(leadEl?.value || 0);
-  if (leadId > 0) ids.push(leadId);
-
-  if (compEl) {
-    const selected = Array.from(compEl.selectedOptions || []).map((o) =>
-      Number(o.value)
-    );
-    for (const id of selected) {
-      if (id > 0) ids.push(id);
-    }
-  }
-
-  // Dedup while preserving order.
   const seen = new Set();
   const out = [];
-  for (const id of ids) {
-    if (!seen.has(id)) {
-      seen.add(id);
-      out.push(id);
+  for (const id of tripPartyOrderedIds) {
+    const n = Number(id);
+    if (n > 0 && !seen.has(n)) {
+      seen.add(n);
+      out.push(n);
     }
   }
   return out;
 }
 
 function applyTravellerSelectionFromIds(preferredIds) {
-  const leadEl = document.getElementById("leadTravellerSelect");
-  const compEl = document.getElementById("companionTravellerSelect");
-  if (!leadEl || !compEl) return;
-
   const ids = Array.isArray(preferredIds)
     ? preferredIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0)
     : [];
-  const leadId = ids[0] || 0;
-  leadEl.value = leadId ? String(leadId) : "";
-
-  // Update passengerName from lead.
-  const leadRow = latestTravellerRows.find((r) => travellerRowNumericId(r) === leadId);
-  const leadName = getOsField(leadRow, ["FullName", "Name", "TravellerName"]);
-  if (leadRow && leadName) {
-    document.getElementById("passengerName").value = leadName;
-    const phone = getOsField(leadRow, [
-      "EmergencyContactPhone",
-      "EmergencyPhone",
-      "emergencyContactPhone",
-    ]);
-    const passengerPhoneEl = document.getElementById("passengerPhone");
-    if (passengerPhoneEl && !String(passengerPhoneEl.value || "").trim() && phone) {
-      passengerPhoneEl.value = phone;
-    }
-  }
-
-  // Clear companions then mark selected.
-  Array.from(compEl.options || []).forEach((opt) => {
-    opt.selected = false;
-  });
-  const companionIds = new Set(ids.slice(1));
-  Array.from(compEl.options || []).forEach((opt) => {
-    const id = Number(opt.value);
-    if (companionIds.has(id)) opt.selected = true;
-  });
-
+  tripPartyOrderedIds = ids;
+  populateTravellerSelectorsFromRows(latestTravellerRows, { allowAutoFirst: false });
+  renderTravellerProfileList();
   refreshTripContactSummary();
-}
-
-function setTravellerProfileIdsInputFromDemo(p) {
-  const preferredIds = Array.isArray(p.rawTravellerProfileIds)
-    ? p.rawTravellerProfileIds
-    : Array.isArray(p.travellerProfileIds)
-      ? p.travellerProfileIds
-      : Array.isArray(p.travellerProfileId)
-        ? p.travellerProfileId
-        : p.travellerProfileId !== undefined && p.travellerProfileId !== null
-          ? [p.travellerProfileId]
-          : [];
-
-  pendingTravellerIdsFromDemo = preferredIds;
-
-  // If profiles are already loaded, apply immediately.
-  if (latestTravellerRows && latestTravellerRows.length) {
-    applyTravellerSelectionFromIds(preferredIds);
-  }
+  updateSeatGroupSummary();
 }
 
 /** Loyalty service returns `coins` as integer cents (100 = S$1.00 off at checkout). */
@@ -2240,6 +2372,7 @@ function updateCoinsOffsetUI() {
     }
     const sgdHint = document.getElementById("coinsAvailableSgd");
     if (sgdHint) {
+      // Wallet stays in reward cents / SGD-equivalent off — not converted by header FX.
       sgdHint.textContent =
         coinsAvailableCents > 0
           ? `· ${coinsAvailableCents.toLocaleString()}¢ stored · use the field above (cents) to apply up to the full balance`
@@ -2347,7 +2480,7 @@ function updateHotelRoomDetailsUI() {
 
   const label = room.label || room.typeName || roomCode || "Room";
   const price = Number.isFinite(Number(room.pricePerNight))
-    ? Number(room.pricePerNight).toFixed(2)
+    ? formatMoneyDisplayFromSgd(Number(room.pricePerNight))
     : null;
   const available = Number.isFinite(Number(room.availableRooms)) ? Number(room.availableRooms) : null;
   const breakfastIncluded = room.code === "DLX" || !!cb?.checked;
@@ -2355,7 +2488,7 @@ function updateHotelRoomDetailsUI() {
 
   const parts = [
     label,
-    price !== null ? `$${price}/night` : null,
+    price !== null ? `${price}/night` : null,
     addonText,
     available !== null ? `${available} rooms left` : null,
   ].filter(Boolean);
@@ -2382,7 +2515,9 @@ function renderHotelResults(hotels) {
       .map((rt) => {
         const code = rt.code || "";
         const label = rt.label || (code === "DLX" ? "Deluxe" : code === "STD" ? "Standard" : "Room");
-        const price = Number.isFinite(Number(rt.pricePerNight)) ? `$${Number(rt.pricePerNight).toFixed(2)}/night` : "";
+        const price = Number.isFinite(Number(rt.pricePerNight))
+          ? `${formatMoneyDisplayFromSgd(Number(rt.pricePerNight))}/night`
+          : "";
         const addon = rt.includesBreakfast ? "Breakfast included" : "Room only";
         const available =
           rt.availableRooms !== undefined && rt.availableRooms !== null
@@ -2442,16 +2577,26 @@ function renderHotelResults(hotels) {
 }
 
 async function searchHotels() {
-  const country = document.getElementById("hotelSearchCountry")?.value?.trim() || "";
-  const city = document.getElementById("hotelSearchCity")?.value?.trim() || "";
+  let country = document.getElementById("hotelSearchCountry")?.value?.trim() || "";
+  let city = document.getElementById("hotelSearchCity")?.value?.trim() || "";
   const name = document.getElementById("hotelSearchName")?.value?.trim() || "";
+  const dest = document.getElementById("bundleDestination")?.value?.trim() || "";
+  if (!city && dest) city = dest;
+  if (!country && dest) {
+    const inferred = countryLabelForBundleDestinationCity(dest);
+    if (inferred) country = inferred;
+  }
+
+  routeHotelsInventoryChecked = false;
+  syncRouteInventoryToPackageUI();
 
   const resultsEl = document.getElementById("hotelResults");
   const selectedHintEl = document.getElementById("hotelSelectedHint");
   if (selectedHintEl) selectedHintEl.textContent = "Searching hotels…";
   if (resultsEl) resultsEl.textContent = "Loading…";
 
-  const gqlQuery = `
+  try {
+    const gqlQuery = `
     query SearchHotels($country: String, $city: String, $name: String) {
       hotelSearch(country: $country, city: $city, name: $name) {
         hotelID
@@ -2472,42 +2617,49 @@ async function searchHotels() {
       }
     }
   `;
-  const gqlOut = await fetchGraphql(gqlQuery, { country, city, name });
-  let hotels = gqlOut.body?.data?.hotelSearch ?? [];
-  const gqlDataLooksEmpty =
-    Array.isArray(hotels) &&
-    hotels.length > 0 &&
-    hotels.every((h) => {
-      const id = Number(h?.hotelID ?? 0);
-      const hasName = !!String(h?.name || "").trim();
-      const hasRoomsArray = Array.isArray(h?.roomTypes) && h.roomTypes.length > 0;
-      return (!id || Number.isNaN(id)) && hasName && !hasRoomsArray;
-    });
+    const gqlOut = await fetchGraphql(gqlQuery, { country, city, name });
+    let hotels = gqlOut.body?.data?.hotelSearch ?? [];
+    const gqlDataLooksEmpty =
+      Array.isArray(hotels) &&
+      hotels.length > 0 &&
+      hotels.every((h) => {
+        const id = Number(h?.hotelID ?? 0);
+        const hasName = !!String(h?.name || "").trim();
+        const hasRoomsArray = Array.isArray(h?.roomTypes) && h.roomTypes.length > 0;
+        return (!id || Number.isNaN(id)) && hasName && !hasRoomsArray;
+      });
 
-  // Graceful fallback to REST search for resilience in demos.
-  if (!gqlOut.ok || gqlDataLooksEmpty) {
-    const qs = new URLSearchParams();
-    if (country) qs.set("country", country);
-    if (city) qs.set("city", city);
-    if (name) qs.set("name", name);
-    const restOut = await fetchJson(`${HOTEL_BASE}/hotel/search?${qs.toString()}`);
-    if (restOut.networkError) {
-      if (selectedHintEl) selectedHintEl.textContent = "Could not reach hotel service.";
-      if (resultsEl) resultsEl.textContent = restOut.errorMessage || gqlOut.errorMessage || "";
+    if (!gqlOut.ok || gqlDataLooksEmpty) {
+      const qs = new URLSearchParams();
+      if (country) qs.set("country", country);
+      if (city) qs.set("city", city);
+      if (name) qs.set("name", name);
+      const restOut = await fetchJson(`${HOTEL_BASE}/hotel/search?${qs.toString()}`);
+      if (restOut.networkError) {
+        if (selectedHintEl) selectedHintEl.textContent = "Could not reach hotel service.";
+        if (resultsEl) resultsEl.textContent = restOut.errorMessage || gqlOut.errorMessage || "";
+        latestHotelRows = [];
+        destinationHasHotels = false;
+        renderHotelResults([]);
+        return;
+      }
+      hotels = restOut.body?.data ?? [];
+    }
+
+    latestHotelRows = Array.isArray(hotels) ? hotels : [];
+    destinationHasHotels = latestHotelRows.length > 0;
+    if (!latestHotelRows.length) {
+      if (selectedHintEl) selectedHintEl.textContent = "No hotels match those details.";
+      renderHotelResults([]);
       return;
     }
-    hotels = restOut.body?.data ?? [];
-  }
 
-  latestHotelRows = Array.isArray(hotels) ? hotels : [];
-  if (!hotels.length) {
-    if (selectedHintEl) selectedHintEl.textContent = "No hotels match those details.";
-    renderHotelResults([]);
-    return;
+    if (selectedHintEl) selectedHintEl.textContent = "Pick one hotel option below.";
+    renderHotelResults(latestHotelRows);
+  } finally {
+    routeHotelsInventoryChecked = true;
+    syncRouteInventoryToPackageUI();
   }
-
-  if (selectedHintEl) selectedHintEl.textContent = "Pick one hotel option below.";
-  renderHotelResults(hotels);
 }
 
 async function initHotelSelectionById(hotelId) {
@@ -2520,168 +2672,22 @@ async function initHotelSelectionById(hotelId) {
   setHotelSelection(out.body.data);
 }
 
-function populateDemoProfileOptions() {
-  const sel = document.getElementById("demoProfile");
-  if (!sel) return;
-  DEMO_PROFILES.forEach((p) => {
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = p.label;
-    sel.appendChild(opt);
-  });
-}
-
-async function applyDemoProfile() {
-  const sel = document.getElementById("demoProfile");
-  if (!sel || !sel.value) return;
-  const p = DEMO_PROFILES.find((x) => x.id === sel.value);
-  if (!p) return;
-
-  const sess = getSession();
-  if (
-    sess &&
-    sess.mode === "member" &&
-    Number(p.customerID) !== Number(sess.customerID)
-  ) {
-    showResult(
-      {
-        info: `That quick example belongs to another loyalty account. You're signed in as ${sess.displayName || "this member"}.`,
-      },
-      "Different member"
-    );
-    return;
-  }
-
-  clearBundleSelectionState();
-
-  document.getElementById("customerID").value = String(p.customerID);
-  const tc = document.getElementById("travellerCustomerID");
-  if (tc) tc.value = String(p.customerID);
-  const pn = document.getElementById("passengerName");
-  const pe = document.getElementById("passengerEmail");
-  const pp = document.getElementById("passengerPhone");
-  const bookerCustom = document.getElementById("bookerCustomName");
-  if (pn) pn.value = p.passengerName ?? "";
-  if (bookerCustom) bookerCustom.value = p.passengerName ?? "";
-  if (pe) pe.value = p.passengerEmail ?? "";
-  if (pp) pp.value = p.passengerPhone ?? "";
-  refreshTripContactSummary();
-
-  const bo = document.getElementById("bundleOrigin");
-  const bd = document.getElementById("bundleDestination");
-  if (p.bundleOrigin && bo) bo.value = p.bundleOrigin;
-  if (p.bundleDestination && bd) bd.value = p.bundleDestination;
-
-  const hotelId = Number(p.hotelID);
-  document.getElementById("hotelID").value = hotelId;
-  document.getElementById("hotelRoomType").value = p.hotelRoomType;
-  document.getElementById("hotelIncludesBreakfast").checked = !!p.hotelIncludesBreakfast;
-  updateBreakfastAddonUI();
-
-  if (Number.isFinite(hotelId) && hotelId > 0) {
-    void initHotelSelectionById(hotelId).then(() => {
-      const rtSel = document.getElementById("hotelRoomType");
-      if (rtSel && p.hotelRoomType) {
-        const opt = rtSel.querySelector(`option[value="${p.hotelRoomType}"]`);
-        if (opt) rtSel.value = p.hotelRoomType;
-      }
-      updateBreakfastAddonUI();
-    });
-  }
-  document.getElementById("flightDepartureTime").value = p.departureTime;
-  document.getElementById("departureTime").value = p.departureTime;
-  document.getElementById("hotelCheckInTime").value = p.departureTime;
-  const pCheckOut = new Date(p.departureTime);
-  if (!Number.isNaN(pCheckOut.getTime())) {
-    pCheckOut.setDate(pCheckOut.getDate() + 4);
-    document.getElementById("hotelCheckOutTime").value = pCheckOut.toISOString().slice(0, 16);
-  }
-  document.getElementById("totalPrice").value = p.totalPrice;
-  document.getElementById("currency").value = "SGD";
-  document.getElementById("fareType").value = p.fareType;
-  document.getElementById("discountCode").value = p.discountCode || "";
-  document.getElementById("coinsToSpendCents").value = p.coinsToSpendCents ?? 0;
-  setTravellerProfileIdsInputFromDemo(p);
-  const adultsSel = document.getElementById("bundleAdults");
-  const childrenSel = document.getElementById("bundleChildren");
-  const infantsSel = document.getElementById("bundleInfants");
-  const inferredTravellers = 1 + Number(Array.isArray(p.rawTravellerProfileIds) ? p.rawTravellerProfileIds.length : 0);
-  if (adultsSel) adultsSel.value = String(Math.max(1, inferredTravellers));
-  if (childrenSel) childrenSel.value = "0";
-  if (infantsSel) infantsSel.value = "0";
-  syncBundleTravellerTotals();
-  updateCoinsOffsetUI();
-
-  await refreshFlightDropdownFromRoute();
-  const fsel = document.getElementById("flightID");
-  if (fsel && p.flightID) {
-    const fn = String(p.flightID).toUpperCase();
-    if (![...fsel.options].some((o) => o.value === fn)) {
-      const opt = document.createElement("option");
-      opt.value = fn;
-      opt.textContent = `${fn} · demo profile`;
-      fsel.appendChild(opt);
-    }
-    fsel.value = fn;
-  }
-  updateSeatSelectionUI();
-  void syncFlightScheduleUI();
-  // Refresh traveller profile list + selectors so the demo can pick by name.
-  if (document.getElementById("travellerProfilesList")) {
-    void loadTravellerProfiles();
-  }
-  if (p.preferredSeat && getSeatPolicy(p.flightID).onlineSeatSelection) {
-    selectSeatByCode(p.preferredSeat);
-  } else {
-    clearSeatSelection();
-  }
-
-  const cid = Number(p.customerID);
-  if (cid) updateLoyaltySummary(cid);
-  else {
-    latestLoyalty = null;
-    const lc0 = document.getElementById("loyaltyCoins");
-    if (lc0) {
-      lc0.textContent = "-";
-      lc0.removeAttribute("title");
-    }
-    document.getElementById("loyaltyTier").textContent = "-";
-    refreshPricePreview();
-  }
-  if (document.getElementById("packageSearchFrom")) {
-    populatePackageSearchSelects();
-    syncPackageSearchFromBundleFields();
-    updatePackageTripSummary();
-  }
-
-  const routePreset = BUNDLE_PRESETS.find(
-    (x) => x.origin === p.bundleOrigin && x.destination === p.bundleDestination
-  );
-  if (routePreset) selectBundlePreset(routePreset.id);
-  else {
-    renderBundleGallery();
-    scheduleBundleCardPriceRefresh();
-  }
-}
-
 async function setManualDefaults() {
   clearBundleSelectionState();
-  document.getElementById("demoProfile").value = "";
   const sess = getSession();
   const defCid =
     !sess || sess.mode === "guest" ? "0" : String(sess.customerID);
   document.getElementById("customerID").value = defCid;
   const tc = document.getElementById("travellerCustomerID");
   if (tc) tc.value = defCid;
-  pendingTravellerIdsFromDemo = null;
+  pendingTravellerProfileIds = null;
+  tripPartyOrderedIds = [];
   const pn0 = document.getElementById("passengerName");
   const pe0 = document.getElementById("passengerEmail");
   const pp0 = document.getElementById("passengerPhone");
-  const bookerCustom = document.getElementById("bookerCustomName");
   if (pn0) pn0.value = "";
   if (pe0) pe0.value = "";
   if (pp0) pp0.value = "";
-  if (bookerCustom) bookerCustom.value = "";
   refreshTripContactSummary();
   const adultsSel = document.getElementById("bundleAdults");
   const childrenSel = document.getElementById("bundleChildren");
@@ -2749,6 +2755,13 @@ async function setManualDefaults() {
     syncPackageSearchFromBundleFields();
     updatePackageTripSummary();
   }
+  void refreshHotelsForBundleDestination();
+  if (typeof window.__horizonRefreshBookingFlow === "function") {
+    window.__horizonRefreshBookingFlow();
+  } else {
+    bookingFlowCompletedLock = false;
+    syncBookingFlowCompletedLockUI();
+  }
 }
 
 function showResult(obj, meta = "") {
@@ -2762,7 +2775,7 @@ function showResult(obj, meta = "") {
   const bookingConfirmed =
     meta === "Trip confirmed" && obj && typeof obj === "object" && obj.data && obj.data.id != null;
   if (bookingConfirmed) {
-    el.textContent = `Booking #${obj.data.id} confirmed. Expand “Technical details” below for raw JSON.`;
+    el.textContent = `Booking #${obj.data.id} confirmed. Open My profile → Technical details for raw JSON.`;
     return;
   }
 
@@ -2783,7 +2796,7 @@ function showResult(obj, meta = "") {
 
 function tierProgressCopy(completedBookings) {
   const n = Number(completedBookings) || 0;
-  if (n >= 10) return "Top tier — enjoy the best member rates in this demo.";
+  if (n >= 10) return "Top tier — enjoy the best member rates.";
   const next = n < 2 ? 2 : n < 5 ? 5 : 10;
   const need = Math.max(0, next - n);
   const label = next === 2 ? "Silver" : next === 5 ? "Gold" : "Platinum";
@@ -2817,7 +2830,7 @@ function fillAccountLoyaltyFromData(data) {
       : "";
   }
   if (tierEl) tierEl.textContent = tier;
-  if (tierHint) tierHint.textContent = `Tier follows completed bookings: ${bc} in this demo wallet.`;
+    if (tierHint) tierHint.textContent = `Tier follows completed bookings: ${bc} recorded in loyalty.`;
   if (nextEl) nextEl.textContent = tierProgressCopy(bc);
 }
 
@@ -2837,7 +2850,9 @@ function openBookingConfirmModal(apiBody, loyaltySnapshot) {
   );
   set(
     "bookingConfirmTotal",
-    d.totalPrice != null && d.totalPrice !== "" ? `SGD ${Number(d.totalPrice).toFixed(2)}` : "-"
+    d.totalPrice != null && d.totalPrice !== ""
+      ? formatMoneyDisplayFromSgd(Number(d.totalPrice))
+      : "-"
   );
   set("bookingConfirmDep", d.departureTime ? String(d.departureTime).replace("T", " ") : "-");
   const who = String(d.passengerName || d.travellerDisplayName || "Traveller").trim();
@@ -2885,7 +2900,8 @@ async function updateLoyaltySummary(customerID) {
       lc.textContent = "-";
       lc.removeAttribute("title");
     }
-    document.getElementById("loyaltyTier").textContent = "-";
+    const ltFail = document.getElementById("loyaltyTier");
+    if (ltFail) ltFail.textContent = "-";
     const myCoins = document.getElementById("myAccountCoins");
     const myTier = document.getElementById("myAccountTier");
     if (myCoins) {
@@ -2913,7 +2929,8 @@ async function updateLoyaltySummary(customerID) {
     if (walletTitle) lc.title = walletTitle;
     else lc.removeAttribute("title");
   }
-  document.getElementById("loyaltyTier").textContent = data.data.tier;
+  const tierEl = document.getElementById("loyaltyTier");
+  if (tierEl) tierEl.textContent = data.data.tier ?? "-";
 
   const myCoins = document.getElementById("myAccountCoins");
   const myTier = document.getElementById("myAccountTier");
@@ -2929,16 +2946,14 @@ async function updateLoyaltySummary(customerID) {
 }
 
 async function refreshNotifications() {
+  const logEl = document.getElementById("notifications");
+  if (!logEl) return;
   const out = await fetchJson(`${NOTIFICATION_BASE}/notifications`);
   if (out.networkError) {
-    document.getElementById("notifications").textContent = JSON.stringify(
-      { error: out.errorMessage },
-      null,
-      2
-    );
+    logEl.textContent = JSON.stringify({ error: out.errorMessage }, null, 2);
     return;
   }
-  document.getElementById("notifications").textContent = JSON.stringify(
+  logEl.textContent = JSON.stringify(
     out.body ?? { error: `HTTP ${out.status}` },
     null,
     2
@@ -3009,17 +3024,22 @@ async function saveTwilioSettings() {
 
 async function copyLatestResult() {
   if (!latestResult) return;
+  const rs = document.getElementById("resultStatus");
   try {
     await navigator.clipboard.writeText(JSON.stringify(latestResult, null, 2));
-    document.getElementById("resultStatus").textContent = "Copied";
-    setTimeout(() => (document.getElementById("resultStatus").textContent = ""), 1200);
+    if (rs) rs.textContent = "Copied";
+    setTimeout(() => {
+      if (rs) rs.textContent = "";
+    }, 1200);
   } catch {
-    setError(document.getElementById("uiError"), "Copy failed (clipboard permission).");
+    const uiErr = document.getElementById("uiError");
+    if (uiErr) setError(uiErr, "Copy failed (clipboard permission).");
   }
 }
 
 async function onCreateBookingSubmit(e) {
   e.preventDefault();
+  if (bookingFlowCompletedLock) return;
 
   const createBtn = document.getElementById("createBtn");
   const createError = document.getElementById("createError");
@@ -3035,7 +3055,7 @@ async function onCreateBookingSubmit(e) {
     if (required < 1) {
       setError(
         createError,
-        "Pick your lead traveller before selecting seats."
+        "Select who is on this trip before choosing seats."
       );
       createBtn.disabled = false;
       return;
@@ -3053,7 +3073,10 @@ async function onCreateBookingSubmit(e) {
 
   const passengerName = document.getElementById("passengerName").value.trim();
   if (!passengerName) {
-    setError(createError, "Enter the lead traveller’s full name.");
+    setError(
+      createError,
+      "Add your full name in My profile before confirming."
+    );
     createBtn.disabled = false;
     return;
   }
@@ -3116,24 +3139,11 @@ async function onCreateBookingSubmit(e) {
       );
       payload.coinsToSpendCents = Math.min(coinsAvailableCents, coinsRequestedCents);
       refreshPricePreview();
-      const bundleBreakdown = computeFinalPriceBreakdown(Number(bTotal));
-      const cardCheckB = isCardDetailsValidForAmount(bundleBreakdown.finalPaid);
-      if (!cardCheckB.ok) {
-        setError(createError, cardCheckB.message || "Enter card details to continue payment.");
-        createBtn.disabled = false;
-        return;
-      }
     } else {
       const breakdown = computeFinalPriceBreakdown();
       refreshPricePreview();
       payload.totalPrice = breakdown.finalPaid;
       payload.coinsToSpendCents = breakdown.coinsToSpendCents;
-      const cardCheck = isCardDetailsValidForAmount(breakdown.finalPaid);
-      if (!cardCheck.ok) {
-        setError(createError, cardCheck.message || "Enter card details to continue payment.");
-        createBtn.disabled = false;
-        return;
-      }
     }
 
     const out = await fetchJson(`${API_BASE}/booking`, {
@@ -3201,12 +3211,16 @@ async function onCreateBookingSubmit(e) {
     await updateLoyaltySummary(payload.customerID);
     openBookingConfirmModal(data, latestLoyalty);
     showResult(data, "Trip confirmed");
+    bookingFlowCompletedLock = true;
+    syncBookingFlowCompletedLockUI();
   } catch (err) {
     const msg = formatNetworkError(err);
     setError(createError, msg);
     showResult({ error: msg }, "Couldn't confirm trip");
   } finally {
-    createBtn.disabled = false;
+    if (!bookingFlowCompletedLock) {
+      createBtn.disabled = false;
+    }
   }
 }
 
@@ -3286,7 +3300,11 @@ async function onCancelBookingSubmit(e) {
       return;
     }
 
-    showResult(data, "Cancellation processed");
+    const doneTitle =
+      data.data?.alreadyCancelled === true
+        ? "Already cancelled"
+        : "Cancellation processed";
+    showResult(data, doneTitle);
 
     await refreshNotifications();
     updateSeatSelectionUI();
@@ -3304,7 +3322,8 @@ async function onCancelBookingSubmit(e) {
   }
 }
 
-function setActiveSegment(segmentKey) {
+function setActiveSegment(segmentKey, opts = {}) {
+  const accountSubTab = opts.accountSubTab === "bookings" ? "bookings" : "profile";
   const panels = {
     book: "segment-book",
     manage: "segment-manage",
@@ -3322,6 +3341,7 @@ function setActiveSegment(segmentKey) {
   const bookBtn = document.getElementById("bookingNavBtn");
   const cancelBtn = document.getElementById("cancelNavBtn");
   const acctBtn = document.getElementById("myAccountNavBtn");
+  const bookingsNavBtn = document.getElementById("myBookingsNavBtn");
   if (bookBtn && cancelBtn) {
     const onBook = segmentKey === "book";
     bookBtn.classList.toggle("btn-primary", onBook);
@@ -3329,9 +3349,19 @@ function setActiveSegment(segmentKey) {
     cancelBtn.classList.toggle("btn-primary", segmentKey === "manage");
     cancelBtn.classList.toggle("btn-secondary", segmentKey !== "manage");
   }
-  if (acctBtn && isMemberSession()) {
-    acctBtn.classList.toggle("btn-primary", segmentKey === "account");
-    acctBtn.classList.toggle("btn-secondary", segmentKey !== "account");
+  if (acctBtn && bookingsNavBtn && isMemberSession()) {
+    if (segmentKey === "account") {
+      const profileActive = accountSubTab === "profile";
+      acctBtn.classList.toggle("btn-primary", profileActive);
+      acctBtn.classList.toggle("btn-secondary", !profileActive);
+      bookingsNavBtn.classList.toggle("btn-primary", !profileActive);
+      bookingsNavBtn.classList.toggle("btn-secondary", profileActive);
+    } else {
+      acctBtn.classList.remove("btn-primary");
+      acctBtn.classList.add("btn-secondary");
+      bookingsNavBtn.classList.remove("btn-primary");
+      bookingsNavBtn.classList.add("btn-secondary");
+    }
   }
 }
 
@@ -3345,22 +3375,6 @@ function setupSegmentTabs() {
     goToBookingFlow();
   });
 
-  // Keep the existing “stepper” links working with the new tab panels.
-  document.querySelectorAll("a.booking-flow__link").forEach((a) => {
-    const href = a.getAttribute("href");
-    if (href === "#step-book" || href === "#step-manage") {
-      a.addEventListener("click", (e) => {
-        e.preventDefault();
-        if (href === "#step-book") {
-          goToBookingFlow();
-        } else {
-          setActiveSegment("manage");
-          document.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth" });
-        }
-      });
-    }
-  });
-
   document.querySelector(".site-header .brand")?.addEventListener("click", (e) => {
     e.preventDefault();
     goToBookingFlow();
@@ -3368,8 +3382,10 @@ function setupSegmentTabs() {
 }
 
 function goToMyAccountPage(scrollToBookings = false) {
-  setActiveSegment("account");
-  document.getElementById("segment-account")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  setActiveSegment("account", {
+    accountSubTab: scrollToBookings ? "bookings" : "profile",
+  });
+  const accountPanel = document.getElementById("segment-account");
   const cid = Number(document.getElementById("customerID")?.value || 0);
   if (cid) {
     void loadMyAccount(cid);
@@ -3377,9 +3393,11 @@ function goToMyAccountPage(scrollToBookings = false) {
     void loadMyBookings(cid);
   }
   if (scrollToBookings) {
-    requestAnimationFrame(() =>
-      document.getElementById("accountBookingsSection")?.scrollIntoView({ behavior: "smooth", block: "start" })
-    );
+    requestAnimationFrame(() => {
+      document.getElementById("accountBookingsSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  } else {
+    accountPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -3407,6 +3425,37 @@ const BOOKING_FLOW_ALL_PANEL_IDS = [
   "bookingStep5Panel",
 ];
 
+function syncBookingFlowCompletedLockUI() {
+  const card = document.getElementById("step-book");
+  if (card) card.classList.toggle("booking-flow--completed", bookingFlowCompletedLock);
+  const note = document.getElementById("bookingFlowLockNote");
+  if (note) note.hidden = !bookingFlowCompletedLock;
+
+  const createBtn = document.getElementById("createBtn");
+  if (createBtn) createBtn.disabled = bookingFlowCompletedLock;
+
+  for (const id of BOOKING_FLOW_ALL_TAB_IDS) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = bookingFlowCompletedLock;
+  }
+
+  const form = document.getElementById("createForm");
+  if (form) {
+    for (const el of form.querySelectorAll("input, select, textarea, button")) {
+      if (el.id === "newManualBtn") continue;
+      el.disabled = bookingFlowCompletedLock;
+    }
+  }
+
+  document.querySelectorAll("#seatMap button.seat").forEach((b) => {
+    b.disabled = bookingFlowCompletedLock || b.classList.contains("taken");
+  });
+
+  if (typeof window.__horizonBookingStepNavSync === "function") {
+    window.__horizonBookingStepNavSync();
+  }
+}
+
 function setupBookingFlowTabs() {
   let activeBookingStepIndex = 0;
 
@@ -3426,10 +3475,11 @@ function setupBookingFlowTabs() {
     const steps = BOOKING_FLOW_STEPS;
     const idx = activeBookingStepIndex;
     const last = steps.length - 1;
-    if (backBtn) backBtn.disabled = idx <= 0;
+    if (backBtn) backBtn.disabled = bookingFlowCompletedLock || idx <= 0;
     if (nextBtn) {
       const onPayStep = idx >= last;
       nextBtn.hidden = onPayStep;
+      nextBtn.disabled = bookingFlowCompletedLock;
       nextBtn.textContent = "Next";
     }
     if (progressEl) {
@@ -3476,8 +3526,8 @@ function setupBookingFlowTabs() {
     }
 
     if (steps[idx]?.panelId === "bookingStep4Panel") {
-      // Always refresh when opening this step so the lead dropdown matches the
-      // current Member id (and recovers after API errors / empty OutSystems).
+      // Always refresh when opening this step so saved travellers match the
+      // current Member id (and recover after API errors / empty OutSystems).
       void loadTravellerProfiles();
     }
     if (steps[idx]?.panelId === "bookingStep3Panel") {
@@ -3487,8 +3537,12 @@ function setupBookingFlowTabs() {
     updateStepNav();
   };
 
-  backBtn?.addEventListener("click", () => setActiveStep(activeBookingStepIndex - 1));
+  backBtn?.addEventListener("click", () => {
+    if (bookingFlowCompletedLock) return;
+    setActiveStep(activeBookingStepIndex - 1);
+  });
   nextBtn?.addEventListener("click", async () => {
+    if (bookingFlowCompletedLock) return;
     const steps = BOOKING_FLOW_STEPS;
     const last = steps.length - 1;
     if (activeBookingStepIndex >= last) {
@@ -3518,6 +3572,7 @@ function setupBookingFlowTabs() {
 
   for (const id of BOOKING_FLOW_ALL_TAB_IDS) {
     document.getElementById(id)?.addEventListener("click", () => {
+      if (bookingFlowCompletedLock) return;
       const steps = BOOKING_FLOW_STEPS;
       const idx = steps.findIndex((s) => s.tabId === id);
       // Don't allow jumping ahead of the current step; only current/past.
@@ -3532,10 +3587,14 @@ function setupBookingFlowTabs() {
   }
 
   window.__horizonRefreshBookingFlow = () => {
+    bookingFlowCompletedLock = false;
+    syncBookingFlowCompletedLockUI();
     syncTabVisibility();
     activeBookingStepIndex = 0;
     setActiveStep(0);
   };
+
+  window.__horizonBookingStepNavSync = updateStepNav;
 
   syncTabVisibility();
   setActiveStep(0);
@@ -3714,6 +3773,7 @@ function runPackageSearch() {
   }
   document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth", block: "start" });
   void refreshFlightDropdownFromRoute();
+  void refreshHotelsForBundleDestination();
 }
 
 function syncPackageSearchFromBundleFields() {
@@ -3837,7 +3897,7 @@ function humanizeTravellerUserMessage(raw) {
   const s = String(raw).trim();
   const low = s.toLowerCase();
   if (low.includes("traveller profile service not configured") || low.includes("not configured")) {
-    return "Saved travellers aren’t available in this demo setup.";
+    return "Saved travellers aren’t available — check Traveller Profile service configuration.";
   }
   if (
     low.includes("not found for customer") ||
@@ -3876,7 +3936,114 @@ function travellerRowNumericId(row) {
   return Number(row?.Id ?? row?.id ?? row?.TravellerProfileId ?? 0) || 0;
 }
 
-function populateTravellerSelectorsFromRows(rows) {
+function normalizeTripPartyForRows(safeRows, opts = {}) {
+  const allowAutoFirst = Boolean(opts.allowAutoFirst);
+  const validIds = new Set();
+  for (const row of safeRows) {
+    const id = travellerRowNumericId(row);
+    if (id > 0) validIds.add(id);
+  }
+
+  if (Array.isArray(pendingTravellerProfileIds) && pendingTravellerProfileIds.length) {
+    tripPartyOrderedIds = pendingTravellerProfileIds
+      .map((x) => Number(x))
+      .filter((n) => n > 0 && validIds.has(n));
+    pendingTravellerProfileIds = null;
+  } else {
+    tripPartyOrderedIds = tripPartyOrderedIds.filter((id) => validIds.has(id));
+  }
+
+  if (!tripPartyOrderedIds.length && safeRows.length > 0 && allowAutoFirst) {
+    const first = travellerRowNumericId(safeRows[0]);
+    if (first) tripPartyOrderedIds = [first];
+  }
+}
+
+function onToggleTripTraveller(id, checked) {
+  const nid = Number(id);
+  if (!nid) return;
+  if (checked) {
+    if (!tripPartyOrderedIds.includes(nid)) tripPartyOrderedIds.push(nid);
+  } else {
+    tripPartyOrderedIds = tripPartyOrderedIds.filter((x) => x !== nid);
+  }
+  populateTravellerSelectorsFromRows(latestTravellerRows, { allowAutoFirst: false });
+  renderTravellerProfileList();
+  refreshTripContactSummary();
+  updateSeatGroupSummary();
+  if (Array.isArray(selectedSeatCodes) && selectedSeatCodes[0]) {
+    void selectSeat(selectedSeatCodes[0]);
+  }
+}
+
+function onSetTripLead(id) {
+  const nid = Number(id);
+  if (!nid || !tripPartyOrderedIds.includes(nid)) return;
+  tripPartyOrderedIds = [nid, ...tripPartyOrderedIds.filter((x) => x !== nid)];
+  populateTravellerSelectorsFromRows(latestTravellerRows, { allowAutoFirst: false });
+  renderTravellerProfileList();
+  refreshTripContactSummary();
+  updateSeatGroupSummary();
+}
+
+function renderTravellerProfileList() {
+  const listEl = document.getElementById("travellerProfilesList");
+  if (!listEl) return;
+
+  listEl.innerHTML = "";
+  const party = readTravellerProfileIdsFromInput();
+  const partySet = new Set(party);
+  const leadId = party[0] || 0;
+  const multi = party.length > 1;
+
+  latestTravellerRows.forEach((row) => {
+    const id = travellerRowNumericId(row);
+    const fullName = getOsField(row, ["FullName", "Name", "TravellerName", "fullName"]);
+    const passport = getOsField(row, ["PassportNumber", "PassportNo", "passportNumber"]);
+    const tail = maskPassport(passport);
+    const title = fullName || `Traveller #${id}`;
+    const sub = tail ? `Passport •••• ${tail}` : "Passport on file";
+
+    const selectedId = travellerRowNumericId(selectedTravellerRow);
+    const isSelected = selectedId > 0 && selectedId === id;
+    const isOnTrip = partySet.has(id);
+    const isLead = isOnTrip && leadId === id;
+
+    const leadBlock =
+      multi && isOnTrip
+        ? `<label class="traveller-item__lead">
+            <input type="radio" name="tripLeadTraveller" data-action="setTripLead" data-id="${id}" ${
+              isLead ? "checked" : ""
+            } />
+            <span>Lead</span>
+          </label>`
+        : "";
+
+    const item = document.createElement("div");
+    item.className = "traveller-item";
+    item.innerHTML = `
+      <div class="traveller-item__pick">
+        <label class="traveller-item__on-trip">
+          <input type="checkbox" data-action="toggleTripTraveller" data-id="${id}" ${
+            isOnTrip ? "checked" : ""
+          } />
+          <span>On this trip</span>
+        </label>
+        ${leadBlock}
+      </div>
+      <div class="traveller-item__meta">
+        <div class="traveller-item__title">${escapeHtml(title)}</div>
+        <div class="traveller-item__sub">${escapeHtml(sub)}</div>
+      </div>
+      <button type="button" class="${isSelected ? "btn-primary" : "btn-secondary"}" data-action="selectTraveller" data-id="${id}">
+        ${isSelected ? "Editing" : "Edit profile"}
+      </button>
+    `;
+    listEl.appendChild(item);
+  });
+}
+
+function populateTravellerSelectorsFromRows(rows, opts = {}) {
   const leadSel = document.getElementById("leadTravellerSelect");
   const compSel = document.getElementById("companionTravellerSelect");
   const passengerNameEl = document.getElementById("passengerName");
@@ -3885,6 +4052,7 @@ function populateTravellerSelectorsFromRows(rows) {
   if (!leadSel || !compSel) return;
 
   const safeRows = Array.isArray(rows) ? rows : [];
+  normalizeTripPartyForRows(safeRows, opts);
 
   const makeOptionText = (row) => {
     const id = travellerRowNumericId(row);
@@ -3895,10 +4063,9 @@ function populateTravellerSelectorsFromRows(rows) {
     return tail ? `${title} — passport ends in ${tail}` : title;
   };
 
-  // Build options.
   const leadPlaceholder = document.createElement("option");
   leadPlaceholder.value = "";
-  leadPlaceholder.textContent = "Choose who flies as the lead passenger";
+  leadPlaceholder.textContent = "—";
 
   leadSel.innerHTML = "";
   leadSel.appendChild(leadPlaceholder);
@@ -3912,26 +4079,13 @@ function populateTravellerSelectorsFromRows(rows) {
     compSel.appendChild(new Option(txt, String(id)));
   });
 
-  // Apply pending selection (from demo) or default to first row.
-  let desired = Array.isArray(pendingTravellerIdsFromDemo)
-    ? pendingTravellerIdsFromDemo
-    : null;
-
-  let leadId = 0;
-  let companionIds = [];
-  if (desired && desired.length) {
-    leadId = Number(desired[0]) || 0;
-    companionIds = desired.slice(1).map((x) => Number(x)).filter((n) => n > 0);
-  } else if (safeRows.length) {
-    leadId = travellerRowNumericId(safeRows[0]);
-  }
-
+  const leadId = tripPartyOrderedIds[0] || 0;
   leadSel.value = leadId ? String(leadId) : "";
+  const companionSet = new Set(tripPartyOrderedIds.slice(1));
   Array.from(compSel.options || []).forEach((opt) => {
-    opt.selected = companionIds.includes(Number(opt.value));
+    opt.selected = companionSet.has(Number(opt.value));
   });
 
-  // Update passengerName + passengerPhone from the selected lead.
   const leadRow = safeRows.find((r) => travellerRowNumericId(r) === leadId);
   const leadName = getOsField(leadRow, ["FullName", "Name", "TravellerName"]);
   if (leadName && passengerNameEl) passengerNameEl.value = leadName;
@@ -3944,8 +4098,6 @@ function populateTravellerSelectorsFromRows(rows) {
     ]);
     if (phone) passengerPhoneEl.value = phone;
   }
-
-  pendingTravellerIdsFromDemo = null;
 }
 
 async function loadTravellerProfiles() {
@@ -4004,7 +4156,7 @@ async function loadTravellerProfiles() {
     }
     latestTravellerRows = [];
     if (listEl) listEl.textContent = "";
-    populateTravellerSelectorsFromRows([]);
+    populateTravellerSelectorsFromRows([], { allowAutoFirst: false });
     resetTravellerEdit();
     return;
   }
@@ -4033,7 +4185,7 @@ async function loadTravellerProfiles() {
     }
     listEl.textContent = "No saved travellers yet for this member.";
     resetTravellerEdit();
-    populateTravellerSelectorsFromRows([]);
+    populateTravellerSelectorsFromRows([], { allowAutoFirst: false });
     if (emptyHint) {
       emptyHint.textContent =
         "Add passport and travel details with New profile below. They’re saved to your account for your next trip too.";
@@ -4042,32 +4194,8 @@ async function loadTravellerProfiles() {
     return;
   }
 
-  latestTravellerRows.forEach((row) => {
-    const id = travellerRowNumericId(row);
-    const fullName = getOsField(row, ["FullName", "Name", "TravellerName", "fullName"]);
-    const passport = getOsField(row, ["PassportNumber", "PassportNo", "passportNumber"]);
-    const tail = maskPassport(passport);
-    const title = fullName || `Traveller #${id}`;
-    const sub = tail ? `Passport •••• ${tail}` : "Passport on file";
-
-    const item = document.createElement("div");
-    item.className = "traveller-item";
-    const selectedId = travellerRowNumericId(selectedTravellerRow);
-    const isSelected = selectedId > 0 && selectedId === id;
-    item.innerHTML = `
-      <div class="traveller-item__meta">
-        <div class="traveller-item__title">${escapeHtml(title)}</div>
-        <div class="traveller-item__sub">${escapeHtml(sub)}</div>
-      </div>
-      <button type="button" class="${isSelected ? "btn-primary" : "btn-secondary"}" data-action="selectTraveller" data-id="${id}">
-        ${isSelected ? "Editing" : "Edit profile"}
-      </button>
-    `;
-    listEl.appendChild(item);
-  });
-
-  // Keep Trip tab selectors in sync (so users can pick by name).
-  populateTravellerSelectorsFromRows(latestTravellerRows);
+  populateTravellerSelectorsFromRows(latestTravellerRows, { allowAutoFirst: true });
+  renderTravellerProfileList();
 }
 
 function resetTravellerEdit() {
@@ -4349,7 +4477,7 @@ async function onTravellerDelete() {
     return;
   }
 
-  const ok = window.confirm("Delete this traveller profile? This cannot be undone in the demo UI.");
+  const ok = window.confirm("Delete this traveller profile? This removes it from the traveller profile service.");
   if (!ok) return;
 
   const payload = { CustomerID: customerID, Id: traveller_profile_id, TravellerProfileId: traveller_profile_id };
@@ -4413,42 +4541,17 @@ function setupTravellerProfilesUI() {
     });
   }
 
-  const leadSel = document.getElementById("leadTravellerSelect");
-  if (leadSel) {
-    leadSel.addEventListener("change", () => {
-      const leadId = Number(leadSel.value || 0);
-      const leadRow = latestTravellerRows.find((r) => travellerRowNumericId(r) === leadId);
-      const name = getOsField(leadRow, ["FullName", "Name", "TravellerName"]);
-      const passengerNameEl = document.getElementById("passengerName");
-      if (passengerNameEl && name) passengerNameEl.value = name;
-      const passengerPhoneEl = document.getElementById("passengerPhone");
-      const phone = getOsField(leadRow, [
-        "EmergencyContactPhone",
-        "EmergencyPhone",
-        "emergencyContactPhone",
-      ]);
-      if (passengerPhoneEl && passengerPhoneEl.value.trim() === "" && phone) {
-        passengerPhoneEl.value = phone;
-      }
-
-      refreshTripContactSummary();
-      updateSeatGroupSummary();
-    });
-  }
-
-  const compSel = document.getElementById("companionTravellerSelect");
-  if (compSel) {
-    compSel.addEventListener("change", () => {
-      if (Array.isArray(selectedSeatCodes) && selectedSeatCodes[0]) {
-        // Companion count changed => required seat count changed.
-        void selectSeat(selectedSeatCodes[0]);
-      } else {
-        updateSeatGroupSummary();
-      }
-    });
-  }
-
   if (listEl) {
+    listEl.addEventListener("change", (e) => {
+      const t = e.target;
+      if (t?.matches?.("[data-action='toggleTripTraveller']")) {
+        const id = Number(t.getAttribute("data-id"));
+        onToggleTripTraveller(id, t.checked);
+      } else if (t?.matches?.("[data-action='setTripLead']") && t.checked) {
+        const id = Number(t.getAttribute("data-id"));
+        onSetTripLead(id);
+      }
+    });
     listEl.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-action]");
       if (!btn) return;
@@ -4597,10 +4700,17 @@ async function onSignupSubmit(e) {
     }
     return;
   }
+  if (!phoneNumber) {
+    if (errEl) {
+      errEl.textContent = "Mobile number is required — we use it for booking SMS when Twilio is on.";
+      errEl.hidden = false;
+    }
+    return;
+  }
   const out = await fetchJson(`${ACCOUNT_BASE}/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    // Password is sent for completeness but the demo backend does not enforce it.
+    // Password is sent for completeness but the account service does not verify it locally.
     body: JSON.stringify({ email, password, firstName, lastName, phoneNumber, nationality, dateOfBirth }),
   });
   if (out.networkError) {
@@ -4675,7 +4785,6 @@ function applySessionToBookingUI() {
   }
   populateCustomerSelects();
   updateCustomerFieldHint();
-  updateDemoToolsForAuth();
   if (typeof window.__horizonRefreshBookingFlow === "function") {
     window.__horizonRefreshBookingFlow();
   }
@@ -4703,7 +4812,8 @@ function initAppShell() {
   if (appShellInitialized) return;
   appShellInitialized = true;
 
-  populateDemoProfileOptions();
+  void initDisplayCurrencyUI();
+
   buildSeatMapOnce();
   updateSeatSelectionUI();
   populateTravellerCountSelect();
@@ -4727,9 +4837,7 @@ function initAppShell() {
   updateSeatGroupSummary();
   void refreshFlightDropdownFromRoute();
 
-  document.getElementById("demoProfile").addEventListener("change", () => void applyDemoProfile());
-  document.getElementById("loadDemoBtn").addEventListener("click", () => void applyDemoProfile());
-  document.getElementById("newManualBtn").addEventListener("click", () => {
+  document.getElementById("newManualBtn")?.addEventListener("click", () => {
     void setManualDefaults().then(() =>
       showResult({ info: "Ready — edit the form, then confirm & pay when done." }, "Ready to edit")
     );
@@ -4761,17 +4869,16 @@ function initAppShell() {
   });
   document.getElementById("bundleDepartDateTime")?.addEventListener("change", () => {
     syncTripWindowFromDateInputs();
+    void refreshFlightDropdownFromRoute();
   });
   document.getElementById("bundleReturnDateTime")?.addEventListener("change", () => {
     syncTripWindowFromDateInputs();
+    void refreshFlightDropdownFromRoute();
   });
   document
     .getElementById("hotelRoomType")
     .addEventListener("change", updateBreakfastAddonUI);
 
-  ["passengerName", "passengerEmail", "passengerPhone"].forEach((id) => {
-    document.getElementById(id)?.addEventListener("input", refreshTripContactSummary);
-  });
 
   document.getElementById("hotelSearchBtn")?.addEventListener("click", () => {
     void searchHotels();
@@ -4796,6 +4903,7 @@ function initAppShell() {
   void syncFlightScheduleUI();
   const hotelId = Number(document.getElementById("hotelID")?.value || 0);
   void initHotelSelectionById(hotelId > 0 ? hotelId : 1);
+  void refreshHotelsForBundleDestination();
 
   document.getElementById("customerID").addEventListener("change", () => {
     const id = Number(document.getElementById("customerID").value || 0);
@@ -4823,9 +4931,11 @@ function initAppShell() {
         lc1.textContent = "-";
         lc1.removeAttribute("title");
       }
-      document.getElementById("loyaltyTier").textContent = "-";
+      const lt0 = document.getElementById("loyaltyTier");
+      if (lt0) lt0.textContent = "-";
       refreshPricePreview();
     }
+    if (id) void loadMyAccount(id);
     // Keep Trip-tab traveller selectors in sync with Who's booking?
     if (document.getElementById("leadTravellerSelect")) {
       void loadTravellerProfiles();
@@ -4836,26 +4946,10 @@ function initAppShell() {
     document.getElementById(id)?.addEventListener("change", () => {
       syncBundleTravellerTotals();
       scheduleBundleCardPriceRefresh();
+      void refreshFlightDropdownFromRoute();
       if (selectedBundlePresetId) void searchBundlePricing();
     });
   }
-
-  document.getElementById("bookerCustomName")?.addEventListener("input", () => {
-    const custom = document.getElementById("bookerCustomName")?.value?.trim() || "";
-    const nameEl = document.getElementById("passengerName");
-    if (nameEl && custom) nameEl.value = custom;
-    refreshTripContactSummary();
-  });
-
-  document.getElementById("paymentCardNumber")?.addEventListener("input", (e) => {
-    e.target.value = formatCardNumberInput(e.target.value);
-  });
-  document.getElementById("paymentCardExpiry")?.addEventListener("input", (e) => {
-    e.target.value = formatCardExpiryInput(e.target.value);
-  });
-  document.getElementById("paymentCardCvc")?.addEventListener("input", (e) => {
-    e.target.value = String(e.target.value || "").replace(/\D+/g, "").slice(0, 4);
-  });
 
   ["totalPrice", "discountCode"].forEach((id) => {
     document.getElementById(id)?.addEventListener("input", refreshPricePreview);
@@ -4895,13 +4989,15 @@ function initAppShell() {
     });
   }
 
-  document.getElementById("copyResultBtn").addEventListener("click", () => {
-    clearError(document.getElementById("uiError"));
+  document.getElementById("copyResultBtn")?.addEventListener("click", () => {
+    const uiErr = document.getElementById("uiError");
+    if (uiErr) clearError(uiErr);
     copyLatestResult();
   });
 
-  document.getElementById("refreshNotifBtn").addEventListener("click", () => {
-    clearError(document.getElementById("uiError"));
+  document.getElementById("refreshNotifBtn")?.addEventListener("click", () => {
+    const uiErr = document.getElementById("uiError");
+    if (uiErr) clearError(uiErr);
     refreshNotifications();
   });
 
@@ -4946,6 +5042,10 @@ function setupMyAccountBookingsUI() {
   accountBtn?.addEventListener("click", () => goToMyAccountPage(false));
   bookingsBtn?.addEventListener("click", () => goToMyAccountPage(true));
 
+  document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
+    void saveAccountProfile();
+  });
+
   refreshBtn?.addEventListener("click", () => {
     const cid = Number(document.getElementById("customerID")?.value || 0);
     if (cid) void loadMyBookings(cid);
@@ -4979,19 +5079,109 @@ function applyLeadContactFromAccount(accountPayload) {
   ).trim();
   if (nameEl && display) nameEl.value = display;
   if (emailEl && accountPayload.email) emailEl.value = String(accountPayload.email);
-  if (phoneEl && accountPayload.phoneNumber) {
+  if (phoneEl && accountPayload.phoneNumber != null && String(accountPayload.phoneNumber).trim() !== "") {
     phoneEl.value = String(accountPayload.phoneNumber);
   }
+}
+
+function populateAccountProfileForm(d) {
+  if (!d || typeof d !== "object") return;
+  const fn = document.getElementById("profileFirstName");
+  const ln = document.getElementById("profileLastName");
+  const ph = document.getElementById("profilePhoneNumber");
+  const nat = document.getElementById("profileNationality");
+  const dob = document.getElementById("profileDob");
+  if (fn) fn.value = d.firstName != null ? String(d.firstName) : "";
+  if (ln) ln.value = d.lastName != null ? String(d.lastName) : "";
+  if (ph) ph.value = d.phoneNumber != null ? String(d.phoneNumber) : "";
+  if (nat) nat.value = d.nationality != null ? String(d.nationality) : "";
+  if (dob) {
+    const raw = d.dateOfBirth != null ? String(d.dateOfBirth) : "";
+    dob.value = raw ? raw.slice(0, 10) : "";
+  }
+}
+
+async function saveAccountProfile() {
+  const sess = getSession();
+  const cid = sess && sess.mode === "member" ? Number(sess.customerID) : 0;
+  const statusEl = document.getElementById("profileSaveStatus");
+  const uiErr = document.getElementById("uiError");
+  if (uiErr) clearError(uiErr);
+  if (statusEl) {
+    statusEl.hidden = true;
+    statusEl.textContent = "";
+  }
+  if (cid < 1) return;
+
+  const body = {
+    firstName: document.getElementById("profileFirstName")?.value?.trim() ?? "",
+    lastName: document.getElementById("profileLastName")?.value?.trim() ?? "",
+    phoneNumber: document.getElementById("profilePhoneNumber")?.value?.trim() ?? "",
+    nationality: document.getElementById("profileNationality")?.value?.trim() ?? "",
+    dateOfBirth: document.getElementById("profileDob")?.value?.trim() ?? "",
+  };
+
+  const out = await fetchJson(`${ACCOUNT_BASE}/${cid}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!statusEl) return;
+  statusEl.hidden = false;
+  if (out.networkError || !out.ok || !out.body?.data) {
+    statusEl.textContent =
+      out.errorMessage || out.body?.message || `Save failed (HTTP ${out.status})`;
+    return;
+  }
+
+  const d = out.body.data;
+  statusEl.textContent = "Profile saved.";
+  populateAccountProfileForm(d);
+
+  const display = (
+    d.displayName ||
+    `${d.firstName || ""} ${d.lastName || ""}`.trim() ||
+    d.email ||
+    sess.displayName ||
+    ""
+  ).trim();
+
+  setSession({
+    ...sess,
+    email: d.email || sess.email,
+    displayName: display || sess.displayName,
+  });
+
+  const nameMain = document.getElementById("accountPageName");
+  const emailMain = document.getElementById("accountPageEmail");
+  if (nameMain) nameMain.textContent = display || "-";
+  if (emailMain) emailMain.textContent = d.email || "-";
+  const nameLegacy = document.getElementById("myAccountName");
+  const emailLegacy = document.getElementById("myAccountEmail");
+  if (nameLegacy) nameLegacy.textContent = display || "-";
+  if (emailLegacy) emailLegacy.textContent = d.email || "-";
+
+  const badge = document.getElementById("sessionBadge");
+  if (badge) badge.textContent = display || "Member";
+
+  applyLeadContactFromAccount({ ...d, displayName: display });
+
+  window.setTimeout(() => {
+    if (statusEl.textContent === "Profile saved.") {
+      statusEl.hidden = true;
+      statusEl.textContent = "";
+    }
+  }, 4000);
 }
 
 async function loadMyAccount(customerID) {
   const out = await fetchJson(`${ACCOUNT_BASE}/${customerID}`);
   if (out.networkError) return;
   if (!out.ok || !out.body?.data) {
-    // Demo accounts live in-memory inside the Docker container. If the
-    // container restarts, previously created IDs (e.g. 7, 8, …) disappear and
-    // this lookup will return 404. In that case, clear the stale session and
-    // ask the user to sign in again instead of leaving the UI in a broken state.
+    // Account store is in-memory in Docker unless persisted to a volume. If the
+    // container restarts, previously created IDs may disappear and this lookup
+    // returns 404 — clear the stale session and ask the user to sign in again.
     if (out.status === 404) {
       clearSession();
       const gate = document.getElementById("loginGate");
@@ -5002,13 +5192,14 @@ async function loadMyAccount(customerID) {
       if (errEl) {
         errEl.hidden = false;
         errEl.textContent =
-          "Your demo account was reset. Please sign in or sign up again to continue.";
+          "Your session no longer matches an account (e.g. after a container reset). Please sign in or sign up again.";
       }
     }
     return;
   }
 
   const d = out.body.data;
+  populateAccountProfileForm(d);
   applyLeadContactFromAccount(d);
 
   const display =
@@ -5027,6 +5218,7 @@ async function loadMyBookings(customerID) {
   const listEl = document.getElementById("myBookingsList");
   if (!listEl) return;
 
+  lastMyBookingsCustomerId = customerID;
   listEl.innerHTML = "Loading bookings...";
 
   const out = await fetchJson(`${API_BASE}/booking/bycustomer/${customerID}`);
@@ -5060,7 +5252,7 @@ async function loadMyBookings(customerID) {
         <div class="traveller-item__sub">
           ${flight ? `Flight ${flight}` : "Flight"} • ${dep ? String(dep).replace("T", " ") : ""}<br/>
           Hotel ${hotel} • Status ${status}<br/>
-          Seats: ${seats || "—"} • Total S$${Number(total || 0).toFixed(2)}
+          Seats: ${seats || "—"} • Total ${formatMoneyDisplayFromSgd(Number(total || 0))}
         </div>
       </div>
       <button type="button" class="btn-secondary" data-action="cancelFromMyBookings" data-booking-id="${id}">

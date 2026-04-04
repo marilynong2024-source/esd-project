@@ -5,6 +5,8 @@ import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+from aviationstack_client import aviationstack_health, live_enrichment_for_catalog_flight
+
 app = Flask(__name__)
 CORS(app)
 
@@ -395,6 +397,23 @@ def _merge_programmatic_catalog() -> None:
 _merge_programmatic_catalog()
 
 
+@app.route("/integrations/health", methods=["GET"])
+def integrations_health():
+    """Stack check: external flight data (Aviationstack) configuration."""
+    return (
+        jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "service": "flight",
+                    "aviationstack": aviationstack_health(),
+                },
+            }
+        ),
+        200,
+    )
+
+
 @app.route("/flight/<flight_num>", methods=["GET"])
 def get_flight(flight_num: str):
     flight = FLIGHTS.get(flight_num.upper())
@@ -402,7 +421,12 @@ def get_flight(flight_num: str):
         return jsonify({"code": 404, "message": "Flight not found"}), 404
     # Backward-compatible keys for current booking UI:
     flight.setdefault("flightNum", flight.get("flightNumber", flight_num.upper()))
-    return jsonify({"code": 200, "data": flight}), 200
+    flight_out = dict(flight)
+    if request.args.get("live") in ("1", "true", "yes", "on"):
+        ext = live_enrichment_for_catalog_flight(flight_out)
+        if ext is not None:
+            flight_out["aviationstackLive"] = ext
+    return jsonify({"code": 200, "data": flight_out}), 200
 
 
 @app.route("/flight/search", methods=["GET"])

@@ -355,6 +355,7 @@ INSERT INTO BundleCatalog (bundleCode, title, originCity, destinationCity, defau
     ('PKG_TYO_BKK', 'Tokyo to Bangkok', 'Tokyo', 'Bangkok', 6, 'Two-city foodie hop', 10),
     ('PKG_BKK_DPS', 'Bangkok to Bali', 'Bangkok', 'Bali', 7, 'Temples to surf', 11);
 
+-- Member demo bookings: flightID matches FlightDB.flightNumber; hotelID matches destination city in HotelDB.
 INSERT INTO bookings (
     customerID, flightID, hotelID, hotelRoomType, hotelIncludesBreakfast,
     departureTime, totalPrice, currency, fareType, loyaltyTier,
@@ -362,18 +363,74 @@ INSERT INTO bookings (
     seatNumber, travellerProfileId, travellerDisplayName, travellerProfileIdsJson,
     passengerName, passengerEmail, passengerPhone, noOfRooms
 ) VALUES
-    (1, 'SQ001', 1, 'STD', 0,
-     '2026-05-01T10:00:00', 1200.00, 'SGD', 'Flexi', 'Gold',
+    (1, 'SQ634', 1, 'DLX', 1,
+     '2026-05-01T08:00:00', 2680.00, 'SGD', 'Flexi', 'Gold',
+     'CONFIRMED', NULL, NULL, '12A', 1, 'Ava Chen', NULL,
+     'Ava Chen', 'ava.chen@example.com', '+6591110001', 1),
+    (1, 'SQ706', 4, 'STD', 0,
+     '2026-06-12T11:30:00', 1120.00, 'SGD', 'Saver', 'Gold',
+     'CONFIRMED', NULL, NULL, '18C', 1, 'Ava Chen', NULL,
+     'Ava Chen', 'ava.chen@example.com', '+6591110001', 1),
+    (1, 'TR862', 5, 'DLX', 0,
+     '2026-08-03T10:00:00', 890.00, 'SGD', 'Standard', 'Gold',
      'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
-     'Ava Chen', 'ava.chen@example.com', '+65 9123 4567', 1),
-    (2, 'SQ001', 1, 'DLX', 1,
-     '2026-06-15T09:30:00', 1500.00, 'SGD', 'Standard', 'Silver',
+     'Ava Chen', 'ava.chen@example.com', '+6591110001', 1),
+    (2, 'SQ322', 7, 'STD', 0,
+     '2026-05-18T09:00:00', 4850.00, 'SGD', 'Standard', 'Silver',
+     'CONFIRMED', NULL, NULL, '4K', NULL, NULL, NULL,
+     'Ben Kumar', 'ben.kumar@example.com', '+6591110002', 1),
+    (2, 'SQ221', 10, 'DLX', 1,
+     '2026-07-22T08:30:00', 3320.00, 'SGD', 'Flexi', 'Silver',
+     'CONFIRMED', NULL, NULL, NULL, 2, 'Ben Kumar', NULL,
+     'Ben Kumar', 'ben.kumar@example.com', '+6591110002', 1),
+    (2, 'SQ635', 16, 'STD', 0,
+     '2026-09-05T17:00:00', 2100.00, 'SGD', 'Saver', 'Silver',
      'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
-     'Ben Kumar', 'ben.kumar@example.com', '+65 8123 0000', 1),
-    (3, 'SQ001', 1, 'STD', 0,
-     '2026-04-20T18:45:00', 800.00, 'SGD', 'Saver', NULL,
+     'Ben Kumar', 'ben.kumar@example.com', '+6591110002', 1),
+    (3, 'SQ944', 13, 'STD', 0,
+     '2026-04-25T08:00:00', 920.00, 'SGD', 'Saver', NULL,
      'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
-     'Casey Tan', 'casey.tan@example.com', '+65 9000 1111', 1);
+     'Casey Tan', 'casey.tan@example.com', '+6591110003', 1),
+    (3, 'TR282', 15, 'STD', 0,
+     '2026-06-08T06:30:00', 710.00, 'SGD', 'Saver', NULL,
+     'CANCELLED', 50, 355.00, NULL, NULL, NULL, NULL,
+     'Casey Tan', 'casey.tan@example.com', '+6591110003', 1),
+    (3, 'SQ636', 2, 'DLX', 1,
+     '2026-10-01T22:00:00', 2550.00, 'SGD', 'Flexi', NULL,
+     'PENDING', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Casey Tan', 'casey.tan@example.com', '+6591110003', 1),
+    (4, 'SQ708', 6, 'STD', 0,
+     '2026-05-04T14:00:00', 1050.00, 'SGD', 'Standard', 'Silver',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Dana Ng', 'dana.ng@example.com', '+6591110004', 1),
+    (4, 'SQ707', 17, 'DLX', 0,
+     '2026-08-20T10:00:00', 1180.00, 'SGD', 'Saver', 'Silver',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Dana Ng', 'dana.ng@example.com', '+6591110004', 1),
+    (4, 'SQ306', 8, 'STD', 1,
+     '2026-11-12T09:00:00', 5100.00, 'SGD', 'Flexi', 'Silver',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Dana Ng', 'dana.ng@example.com', '+6591110004', 1),
+    (5, 'TR808', 3, 'STD', 0,
+     '2026-05-01T06:00:00', 1380.00, 'SGD', 'Saver', 'Bronze',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Evan Lee', 'evan.lee@example.com', '+6591110005', 1),
+    (5, '3K521', 1, 'DLX', 0,
+     '2026-09-18T09:30:00', 1620.00, 'SGD', 'Standard', 'Bronze',
+     'PENDING', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Evan Lee', 'evan.lee@example.com', '+6591110005', 1),
+    (6, 'SQ312', 7, 'SUITE', 1,
+     '2026-06-10T10:15:00', 6200.00, 'SGD', 'Flexi', 'Platinum',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Fiona Ong', 'fiona.ong@example.com', '+6591110006', 1),
+    (6, 'AF1681', 19, 'STD', 0,
+     '2026-07-08T12:00:00', 980.00, 'SGD', 'Standard', 'Platinum',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Fiona Ong', 'fiona.ong@example.com', '+6591110006', 1),
+    (6, 'TR8', 11, 'DLX', 0,
+     '2026-12-01T07:00:00', 1980.00, 'SGD', 'Saver', 'Platinum',
+     'CONFIRMED', NULL, NULL, NULL, NULL, NULL, NULL,
+     'Fiona Ong', 'fiona.ong@example.com', '+6591110006', 1);
 
 
 -- ============================================================
@@ -409,9 +466,9 @@ INSERT INTO LoyaltyAccounts (CustomerID, PointsBalance, TierLevel) VALUES
 
 INSERT INTO LoyaltyTransactions (CustomerID, BookingID, PointsChanged, Reason) VALUES
 (1, 1, 1200, 'Earn after completed booking'),
-(1, 4, -500, 'Redeem points for pre-payment discount'),
-(2, 2, 1500, 'Earn after completed booking'),
-(3, 3, -800, 'Refund reversal after cancellation');
+(1, 2, -500, 'Redeem points for pre-payment discount'),
+(2, 4, 1500, 'Earn after completed booking'),
+(3, 8, -800, 'Refund reversal after cancellation');
 
 
 -- ============================================================
