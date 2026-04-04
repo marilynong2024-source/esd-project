@@ -8,6 +8,10 @@ CORS(app)
 """
 Loyalty service (atomic MS).
 
+Wallet state is keyed by numeric customerID (same id as the account service), not by email.
+POST /loyalty/<id>/init-new-account is invoked when a brand-new account is created so that
+customer id does not accidentally reuse a demo row from this module's LOYALTY seed.
+
 Tiering rules (by completed booking count):
 - Bronze: < 2 bookings
 - Silver: 2-4 bookings
@@ -30,6 +34,13 @@ LOYALTY = {
     4: {"coins": 5200, "bookingCount": 2, "tier": "Silver"},
     5: {"coins": 800, "bookingCount": 0, "tier": "Bronze"},
     6: {"coins": 98200, "bookingCount": 13, "tier": "Platinum"},
+    # Extra demo personas (tiers from bookingCount rules in docstring)
+    7: {"coins": 4200, "bookingCount": 1, "tier": "Bronze"},
+    8: {"coins": 600, "bookingCount": 0, "tier": "Bronze"},
+    9: {"coins": 94500, "bookingCount": 12, "tier": "Platinum"},
+    10: {"coins": 26800, "bookingCount": 8, "tier": "Gold"},
+    11: {"coins": 13100, "bookingCount": 3, "tier": "Silver"},
+    12: {"coins": 5900, "bookingCount": 2, "tier": "Silver"},
 }
 
 LOYALTY_TRANSACTIONS: list[dict] = []
@@ -127,6 +138,36 @@ def get_points(customer_id: int):
                     "tier": record["tier"],
                     # legacy alias
                     "points": record.get("coins", 0),
+                },
+            }
+        ),
+        200,
+    )
+
+
+@app.route("/loyalty/<int:customer_id>/init-new-account", methods=["POST"])
+def init_new_account_wallet(customer_id: int):
+    """
+    Called by the account service when a customer is created via signup (or POST /account).
+    Forces Bronze / empty wallet for that numeric id so new members never inherit demo
+    loyalty rows that were keyed to the same id.
+    """
+    if customer_id < 1:
+        return jsonify({"code": 400, "message": "customer_id must be >= 1"}), 400
+    LOYALTY[customer_id] = {
+        "coins": 0,
+        "bookingCount": 0,
+        "tier": "Bronze",
+    }
+    return (
+        jsonify(
+            {
+                "code": 200,
+                "data": {
+                    "customerID": customer_id,
+                    "coins": 0,
+                    "bookingCount": 0,
+                    "tier": "Bronze",
                 },
             }
         ),

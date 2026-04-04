@@ -271,6 +271,44 @@ def _traveller_age_breakdown(
     return adult, child, infant
 
 
+def _hotel_service_base() -> str:
+    hotel_base = os.environ.get("HOTEL_URL", "http://hotel:5103/hotel").strip().rstrip("/")
+    if hotel_base.endswith("/hotel"):
+        return hotel_base[: -len("/hotel")]
+    return hotel_base
+
+
+def lookup_hotel_name(hotel_id: object) -> str | None:
+    """Resolve display name from hotel catalog (GET /hotel/{id})."""
+    try:
+        hid = int(hotel_id)
+    except (TypeError, ValueError):
+        return None
+    if hid < 1:
+        return None
+    try:
+        r = requests.get(f"{_hotel_service_base()}/hotel/{hid}", timeout=4)
+        if r.status_code != 200:
+            return None
+        body = r.json()
+        if not isinstance(body, dict) or int(body.get("code", 0) or 0) != 200:
+            return None
+        data = body.get("data")
+        if not isinstance(data, dict):
+            return None
+        name = data.get("name")
+        s = str(name).strip() if name is not None else ""
+        return s or None
+    except (requests.RequestException, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def booking_dict_with_hotel(booking: "Booking") -> dict:
+    d = booking.to_dict()
+    d["hotelName"] = lookup_hotel_name(d.get("hotelID"))
+    return d
+
+
 class Booking(db.Model):
     __tablename__ = "bookings"
 
@@ -1143,7 +1181,7 @@ def create_booking():
             "RABBIT_HOST/RABBIT_PORT, and that the notification worker is running."
         )
 
-    out: dict = {"code": 201, "data": booking.to_dict()}
+    out: dict = {"code": 201, "data": booking_dict_with_hotel(booking)}
     if warnings:
         out["warnings"] = warnings
     fx = optional_fx_snapshot(booking.currency or "SGD")
@@ -1157,7 +1195,7 @@ def get_booking(booking_id: int):
     booking = Booking.query.get(booking_id)
     if not booking:
         return jsonify({"code": 404, "message": "Booking not found"}), 404
-    return jsonify({"code": 200, "data": booking.to_dict()}), 200
+    return jsonify({"code": 200, "data": booking_dict_with_hotel(booking)}), 200
 
 
 @app.route("/booking/bycustomer/<int:customer_id>", methods=["GET"])
@@ -1183,11 +1221,13 @@ def get_bookings_by_customer(customer_id: int):
     bookings = []
     for b in rows:
         d = b.to_dict()
+        hid = d.get("hotelID")
         bookings.append(
             {
                 "id": d.get("id"),
                 "flightID": d.get("flightID"),
-                "hotelID": d.get("hotelID"),
+                "hotelID": hid,
+                "hotelName": lookup_hotel_name(hid),
                 "departureTime": d.get("departureTime"),
                 "status": d.get("status"),
                 "totalPrice": d.get("totalPrice"),

@@ -1,73 +1,86 @@
 ================================================================================
 ACCESSIBLE ACCOUNTS — Horizon / ESD stack (local + Docker)
 ================================================================================
-This file lists seeded loyalty accounts and what each is wired to in this repo.
+Seeded loyalty accounts, passwords, tiers, and local-demo traveller profiles.
 For database roles (MySQL vs OutSystems), see DATABASE_GUIDE.txt.
 
 --------------------------------------------------------------------------------
-SIGN-IN (Account service: POST /account/login via UI)
+SIGN-IN (POST /account/login)
 --------------------------------------------------------------------------------
-  • Email must match one of the seeded addresses below (case-insensitive).
-  • Password: any non-empty string (not verified — local / course setup only).
-  • New accounts: use Sign up in the UI (POST /account/signup); they get the next
-    customerID and an empty loyalty wallet until their first booking.
+  • Email: one of the addresses below (case-insensitive).
+  • Password: must match the password in the table (demoPass1 … demoPass12).
+  • Accounts loaded from account/app.py in-memory seed, unless
+    ACCOUNT_STORE_PATH JSON exists (then merged; add "password" per user there).
+  • New sign-ups (POST /account/signup): choose your own password (stored for login).
 
 --------------------------------------------------------------------------------
-SEEDED CUSTOMER ACCOUNTS (in-memory seed in account/app.py; optional JSON file)
+SEEDED ACCOUNTS + PASSWORDS (account/app.py)
 --------------------------------------------------------------------------------
-customerID  Email                         Name              Phone           Nationality
-----------  ----------------------------  ----------------  --------------  -----------
-1           ava.chen@example.com          Ava Chen          +6591110001     Singapore
-2           ben.kumar@example.com         Ben Kumar         +6591110002     India
-3           casey.tan@example.com         Casey Tan         +6591110003     Malaysia
-4           dana.ng@example.com           Dana Ng           +6591110004     Singapore
-5           evan.lee@example.com          Evan Lee          +6591110005     Singapore
-6           fiona.ong@example.com         Fiona Ong         +6591110006     Singapore
+ID   Email                         Password    Name              Phone          Nat.
+--   ----------------------------  ----------  ----------------  -------------  -----------
+1    ava.chen@example.com         demoPass1   Ava Chen          +6591110001    Singapore
+2    ben.kumar@example.com        demoPass2   Ben Kumar         +6591110002    India
+3    casey.tan@example.com        demoPass3   Casey Tan         +6591110003    Malaysia
+4    dana.ng@example.com          demoPass4   Dana Ng           +6591110004    Singapore
+5    evan.lee@example.com         demoPass5   Evan Lee          +6591110005    Singapore
+6    fiona.ong@example.com        demoPass6   Fiona Ong         +6591110006    Singapore
+7    grace.ho@example.com         demoPass7   Grace Ho          +6591110007    Singapore
+8    noah.wong@example.com        demoPass8   Noah Wong         +6591110008    Thailand
+9    ivy.ng@example.com           demoPass9   Ivy Ng            +6591110009    Singapore
+10   omar.ali@example.com         demoPass10  Omar Ali          +6591110010    Malaysia
+11   priya.devi@example.com       demoPass11  Priya Devi        +6591110011    India
+12   quinn.lim@example.com        demoPass12  Quinn Lim         +6591110012    Singapore
 
 All seeded accounts: accountStatus Active.
 
 --------------------------------------------------------------------------------
-LOYALTY WALLET (loyalty/app.py — in-memory; customerID must match account)
+LOYALTY (loyalty/app.py — in-memory; customerID must match account)
 --------------------------------------------------------------------------------
-customerID  Tier        Booking count   Coins (cents)   Notes
-----------  ----------  --------------  --------------  --------------------------------
-1           Silver      3               11_200          100¢ = S$1 off at checkout
-2           Silver      2               8_600
-3           Gold        6               18_400
-4           Silver      2               5_200
-5           Bronze      0               800
-6           Platinum    13              98_200
+Tier rules: Bronze 0–1 completed trips, Silver 2–4, Gold 5–9, Platinum 10+.
+Coins are cents (100¢ = S$1 off on Pay step).
 
-New sign-ups: default Bronze, 0 coins, 0 bookings until POST /booking completes.
+ID   Tier        Bookings   Coins (¢)   Notes
+--   ----------  ---------  ----------  --------------------------------
+1    Silver      3          11_200
+2    Silver      2          8_600
+3    Gold        6          18_400
+4    Silver      2          5_200
+5    Bronze      0          800         New-member feel
+6    Platinum    13         98_200
+7    Bronze      1          4_200
+8    Bronze      0          600         Minimal wallet
+9    Platinum    12         94_500      Family profile (2 travellers in LOCAL_DEMO)
+10   Gold        8          26_800
+11   Silver      3          13_100      Two traveller profiles in LOCAL_DEMO
+12   Silver      2          5_900
+
+New sign-ups (POST /account/signup or POST /account): the account service calls
+  POST /loyalty/{id}/init-new-account so that id starts Bronze / 0 / 0 (never inherits
+  demo rows for the same numeric id).
+
+Loyalty is keyed by customer ID, not email. If you change your email under My profile,
+  you keep the same ID and the same wallet. Demo IDs 1–12 have pre-set tiers in
+  loyalty/app.py for the seeded emails above — signing in as ivy.ng@example.com is ID 9
+  (Platinum in the demo table), not the same as a new signup unless your stored
+  accounts.json reused that id.
 
 --------------------------------------------------------------------------------
-TRAVELLER PROFILES (OutSystems REST, not in this repo’s MySQL)
+TRAVELLER PROFILES (OutSystems REST, or LOCAL_DEMO in booking/traveller_os.py)
 --------------------------------------------------------------------------------
-  • Base URL: env TRAVELLER_PROFILE_BASE_URL (see .env / docker-compose).
-  • List profiles for a member: GET {BASE}/byaccount/{customerID}
-  • Create / update / delete: booking service proxies under /travellerprofiles/*
-    (UI calls these via /api/booking/...).
+  • Live cloud: GET {BASE}/byaccount/{customerID}
+  • TRAVELLER_PROFILE_LOCAL_DEMO=true: in-memory rows in traveller_os.py (Ids 1–17
+    seeded; new profiles get Ids from 251+).
 
-  Traveller profile Ids are allocated in OutSystems. Use the byaccount response
-  when attaching profiles to a booking (step 2 — Travellers).
-
-  If TRAVELLER_PROFILE_LOCAL_DEMO=true, profiles are in-process only (no cloud).
-
---------------------------------------------------------------------------------
-UI BOOKING FLOW (no preset picker)
---------------------------------------------------------------------------------
-  • Use “Reset form” on step 1 to clear the wizard and restore default route/trip
-    window; then choose member/guest, bundle, hotel, flight, and pay.
-  • Curated bundle cards and trip windows are static catalog options in the UI,
-    not extra accounts.
+  Match booker lead: session displayName vs FullName (spacing/punctuation ignored)
+    — see UI behaviour for “booker as lead”.
 
 --------------------------------------------------------------------------------
 QUICK CHECKLIST
 --------------------------------------------------------------------------------
   [ ] UI at http://localhost:8080 (same-origin /api/* through nginx)
   [ ] Account + booking + loyalty containers running (docker compose)
-  [ ] OutSystems reachable from booking container if LOCAL_DEMO=false
+  [ ] OutSystems or LOCAL_DEMO per .env
 
 ================================================================================
-(End of file — update this list if you change account/app.py or loyalty/app.py seeds.)
+(End — update when changing account/app.py, loyalty/app.py, or traveller_os.py.)
 ================================================================================

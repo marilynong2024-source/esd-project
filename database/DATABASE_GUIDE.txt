@@ -81,7 +81,8 @@ In THIS repo you have THREE kinds of storage
                        Live UI traveller CRUD → OutSystems when
                        TRAVELLER_PROFILE_LOCAL_DEMO=false.
 
-                       Seeded account emails + loyalty snapshot:
+                       Seeded account emails, demo passwords (demoPass1…),
+                       loyalty + LOCAL_DEMO traveller snapshot:
                        ACCESSIBLE_ACCOUNTS.txt (this folder).
 
 

@@ -54,8 +54,11 @@ services:
     #   - "5100:5100"
     environment:
       ACCOUNT_STORE_PATH: /app/data/accounts.json
+      LOYALTY_URL: http://loyalty:5105/loyalty
     volumes:
       - account_data:/app/data
+    depends_on:
+      - loyalty
 
   flight:
     build: ./flight
@@ -133,11 +136,14 @@ services:
       EXCHANGE_NAME: travel_topic
       EXCHANGE_TYPE: topic
       QUEUE_NAME: notify.user
-      SMU_NOTIFICATION_ENABLED: "${SMU_NOTIFICATION_ENABLED:-false}"
-      SMU_NOTIFICATION_BASE_URL: ${SMU_NOTIFICATION_BASE_URL:-}
-      SMU_NOTIFICATION_AUTH_HEADER: ${SMU_NOTIFICATION_AUTH_HEADER:-Authorization}
-      SMU_NOTIFICATION_AUTH_VALUE: ${SMU_NOTIFICATION_AUTH_VALUE:-}
-      SMU_NOTIFY_EMAIL_TO: ${SMU_NOTIFY_EMAIL_TO:-}
+      # Pass through from project .env so the container always sees Twilio (Compose interpolates from .env).
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      TWILIO_TO_NUMBER: ${TWILIO_TO_NUMBER:-}
+      TWILIO_ENABLED: ${TWILIO_ENABLED:-false}
+      # When true, .env Twilio SID/token/From replace twilio_runtime.json on each start (see .env.example).
+      TWILIO_ENV_OVERRIDES_FILE: "${TWILIO_ENV_OVERRIDES_FILE:-false}"
     volumes:
       - notification_twilio_data:/app/data
     depends_on:

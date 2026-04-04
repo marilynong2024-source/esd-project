@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY app.py smu_integration.py twilio_integration.py .
+COPY app.py twilio_integration.py .
 
 RUN mkdir -p /app/data && pip install flask flask-cors pika requests twilio
 

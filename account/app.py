@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 
+import requests
+
 app = Flask(__name__)
 CORS(app)
 
@@ -55,6 +57,7 @@ def _save_accounts_to_disk() -> None:
 ACCOUNTS = {
     1: {
         "email": "ava.chen@example.com",
+        "password": "demoPass1",
         "firstName": "Ava",
         "lastName": "Chen",
         "phoneNumber": "+6591110001",
@@ -65,6 +68,7 @@ ACCOUNTS = {
     },
     2: {
         "email": "ben.kumar@example.com",
+        "password": "demoPass2",
         "firstName": "Ben",
         "lastName": "Kumar",
         "phoneNumber": "+6591110002",
@@ -75,6 +79,7 @@ ACCOUNTS = {
     },
     3: {
         "email": "casey.tan@example.com",
+        "password": "demoPass3",
         "firstName": "Casey",
         "lastName": "Tan",
         "phoneNumber": "+6591110003",
@@ -85,6 +90,7 @@ ACCOUNTS = {
     },
     4: {
         "email": "dana.ng@example.com",
+        "password": "demoPass4",
         "firstName": "Dana",
         "lastName": "Ng",
         "phoneNumber": "+6591110004",
@@ -95,6 +101,7 @@ ACCOUNTS = {
     },
     5: {
         "email": "evan.lee@example.com",
+        "password": "demoPass5",
         "firstName": "Evan",
         "lastName": "Lee",
         "phoneNumber": "+6591110005",
@@ -105,6 +112,7 @@ ACCOUNTS = {
     },
     6: {
         "email": "fiona.ong@example.com",
+        "password": "demoPass6",
         "firstName": "Fiona",
         "lastName": "Ong",
         "phoneNumber": "+6591110006",
@@ -113,10 +121,91 @@ ACCOUNTS = {
         "accountStatus": "Active",
         "createdAt": datetime.utcnow().isoformat(),
     },
+    7: {
+        "email": "grace.ho@example.com",
+        "password": "demoPass7",
+        "firstName": "Grace",
+        "lastName": "Ho",
+        "phoneNumber": "+6591110007",
+        "nationality": "Singapore",
+        "dateOfBirth": "1996-04-18",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    8: {
+        "email": "noah.wong@example.com",
+        "password": "demoPass8",
+        "firstName": "Noah",
+        "lastName": "Wong",
+        "phoneNumber": "+6591110008",
+        "nationality": "Thailand",
+        "dateOfBirth": "2001-07-22",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    9: {
+        "email": "ivy.ng@example.com",
+        "password": "demoPass9",
+        "firstName": "Ivy",
+        "lastName": "Ng",
+        "phoneNumber": "+6591110009",
+        "nationality": "Singapore",
+        "dateOfBirth": "1987-01-09",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    10: {
+        "email": "omar.ali@example.com",
+        "password": "demoPass10",
+        "firstName": "Omar",
+        "lastName": "Ali",
+        "phoneNumber": "+6591110010",
+        "nationality": "Malaysia",
+        "dateOfBirth": "1994-10-05",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    11: {
+        "email": "priya.devi@example.com",
+        "password": "demoPass11",
+        "firstName": "Priya",
+        "lastName": "Devi",
+        "phoneNumber": "+6591110011",
+        "nationality": "India",
+        "dateOfBirth": "1999-03-27",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
+    12: {
+        "email": "quinn.lim@example.com",
+        "password": "demoPass12",
+        "firstName": "Quinn",
+        "lastName": "Lim",
+        "phoneNumber": "+6591110012",
+        "nationality": "Singapore",
+        "dateOfBirth": "2000-11-14",
+        "accountStatus": "Active",
+        "createdAt": datetime.utcnow().isoformat(),
+    },
 }
-NEXT_ID = 7
+NEXT_ID = 13
 
 _load_accounts_from_disk()
+
+
+def _loyalty_init_new_account(customer_id: int) -> None:
+    """Tell loyalty MS to start this customer at Bronze (signup / new account row)."""
+    base = os.environ.get("LOYALTY_URL", "http://localhost:5105/loyalty").strip().rstrip("/")
+    url = f"{base}/{int(customer_id)}/init-new-account"
+    try:
+        resp = requests.post(url, json={}, timeout=5)
+        if resp.status_code >= 400:
+            print(
+                f"[account] loyalty init-new-account HTTP {resp.status_code} for id={customer_id}",
+                flush=True,
+            )
+    except requests.RequestException as e:
+        print(f"[account] loyalty init-new-account unreachable for id={customer_id}: {e}", flush=True)
 
 
 def to_dict(record_id: int, record: dict) -> dict:
@@ -136,8 +225,8 @@ def to_dict(record_id: int, record: dict) -> dict:
 @app.route("/account/login", methods=["POST"])
 def login():
     """
-    Match email to a seeded account. Password must be non-empty but is not verified
-    (local / simulated auth — see database/ACCESSIBLE_ACCOUNTS.txt for seeded emails).
+    Match email + password. Seeded accounts use passwords listed in database/ACCESSIBLE_ACCOUNTS.txt.
+    Records without a stored password (e.g. old JSON file) still accept any non-empty password.
     """
     data = request.get_json() or {}
     email = (data.get("email") or "").strip().lower()
@@ -152,6 +241,13 @@ def login():
             continue
         if rec.get("accountStatus") not in (None, "Active"):
             return jsonify({"code": 403, "message": "Account is not active"}), 403
+        stored = rec.get("password")
+        if stored is not None and str(stored).strip() != "":
+            if str(password).strip() != str(stored):
+                return (
+                    jsonify({"code": 401, "message": "Invalid email or password"}),
+                    401,
+                )
         fn = rec.get("firstName") or ""
         ln = rec.get("lastName") or ""
         display = f"{fn} {ln}".strip() or rec.get("email")
@@ -174,7 +270,7 @@ def login():
     return jsonify(
         {
             "code": 401,
-            "message": "Unknown email — use a seeded account from database/ACCESSIBLE_ACCOUNTS.txt or sign up",
+            "message": "Unknown email — see database/ACCESSIBLE_ACCOUNTS.txt or sign up",
         }
     ), 401
 
@@ -191,6 +287,9 @@ def signup():
     raw_email = (data.get("email") or "").strip().lower()
     if not raw_email:
         return jsonify({"code": 400, "message": "email is required"}), 400
+    signup_pw = (data.get("password") or "").strip()
+    if not signup_pw:
+        return jsonify({"code": 400, "message": "password is required"}), 400
 
     # Reject duplicates by email (case-insensitive).
     for rec in ACCOUNTS.values():
@@ -202,6 +301,7 @@ def signup():
 
     record = {
         "email": data.get("email"),
+        "password": signup_pw,
         "firstName": data.get("firstName") or "",
         "lastName": data.get("lastName") or "",
         "phoneNumber": data.get("phoneNumber"),
@@ -212,6 +312,10 @@ def signup():
     }
     ACCOUNTS[record_id] = record
     _save_accounts_to_disk()
+    try:
+        _loyalty_init_new_account(record_id)
+    except Exception as e:
+        print(f"[account] loyalty init skipped (non-fatal) for id={record_id}: {e}", flush=True)
 
     out = to_dict(record_id, record)
     out["displayName"] = f"{record.get('firstName') or ''} {record.get('lastName') or ''}".strip() or out["email"]
@@ -252,6 +356,10 @@ def create_account():
     }
     ACCOUNTS[record_id] = record
     _save_accounts_to_disk()
+    try:
+        _loyalty_init_new_account(record_id)
+    except Exception as e:
+        print(f"[account] loyalty init skipped (non-fatal) for id={record_id}: {e}", flush=True)
 
     return jsonify({"code": 201, "data": to_dict(record_id, record)}), 201
 

@@ -324,6 +324,20 @@ body {
   flex: 1 1 280px;
 }
 
+.package-search__route-error {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 0 2px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+.package-search__route.package-search__route--invalid .package-search__control {
+  outline: 2px solid rgba(185, 28, 28, 0.5);
+  outline-offset: 1px;
+}
+
 @media (max-width: 640px) {
   .package-search__route {
     grid-template-columns: 1fr;
@@ -437,6 +451,15 @@ body {
   flex: 0 0 auto;
   margin-left: auto;
   align-self: center;
+}
+
+.package-search__sync-hint {
+  flex: 0 0 100%;
+  width: 100%;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  margin: 12px 0 0;
+  max-width: 44rem;
 }
 
 @media (max-width: 900px) {
@@ -1395,6 +1418,13 @@ button {
   color: var(--ocean-dark);
 }
 
+.bundle-advanced__hint {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  margin: 10px 0 0;
+  max-width: 52rem;
+}
+
 .bundle-advanced .form-grid {
   margin-top: 12px;
 }
@@ -1869,6 +1899,29 @@ button.seat.picked:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.hotel-results.hotel-results--one-picked .hotel-card:not(.hotel-card--picked) {
+  display: none;
+}
+
+.hotel-card--picked {
+  border-color: rgba(13, 148, 136, 0.55);
+  box-shadow: 0 6px 24px rgba(13, 148, 136, 0.1);
+}
+
+.hotel-results-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 10px;
+}
+
+.hotel-results-toolbar__note {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  max-width: 36rem;
 }
 
 .hotel-card {

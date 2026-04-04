@@ -548,6 +548,28 @@ function isSameCityRoute(origin, destination) {
   return o.length > 0 && d.length > 0 && o === d;
 }
 
+/** Hero + bundle route must differ; block search buttons and show inline copy when they match. */
+function syncSameCityRouteUI() {
+  const bo = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const bd = document.getElementById("bundleDestination")?.value?.trim() || "";
+  const bad = isSameCityRoute(bo, bd);
+
+  const errEl = document.getElementById("packageSameCityError");
+  const searchBtn = document.getElementById("packageSearchBtn");
+  const bundleSearchBtn = document.getElementById("bundleSearchBtn");
+  const routeRow = document.querySelector(".package-search__route");
+
+  if (errEl) {
+    errEl.hidden = !bad;
+    errEl.textContent = bad
+      ? "Origin and destination must be different cities — you can’t book a package from a city to itself."
+      : "";
+  }
+  if (routeRow) routeRow.classList.toggle("package-search__route--invalid", bad);
+  if (searchBtn) searchBtn.disabled = bad;
+  if (bundleSearchBtn) bundleSearchBtn.disabled = bad;
+}
+
 /** Drop cached hotel cards that are not in the current Fine-tune destination city. */
 function filterHotelRowsToBundleDestination(rows) {
   const dest = document.getElementById("bundleDestination")?.value?.trim() || "";
@@ -648,11 +670,42 @@ function populateBundleFilterSelects() {
   // Intentionally empty.
 }
 
-function populateBundleRouteSelectsFromPresets() {
-  const origins = [...new Set(BUNDLE_PRESETS.map((p) => p.origin))].sort();
-  const dests = [...new Set(BUNDLE_PRESETS.map((p) => p.destination))].sort();
+/**
+ * Rebuild "Flying to" options from curated packages for the current "Flying from"
+ * so you never see impossible pairs (e.g. Singapore → Singapore from inbound-only routes).
+ */
+function syncBundleDestinationSelectToOrigin() {
   const oSel = document.getElementById("bundleOrigin");
   const dSel = document.getElementById("bundleDestination");
+  if (!oSel || !dSel || oSel.tagName !== "SELECT" || dSel.tagName !== "SELECT") return;
+
+  const origin = String(oSel.value || "").trim();
+  const prevDest = String(dSel.value || "").trim();
+  let dests = [
+    ...new Set(
+      BUNDLE_PRESETS.filter((p) => p.origin === origin).map((p) => p.destination)
+    ),
+  ].sort();
+  if (!dests.length && origin) {
+    dests = [...new Set(BUNDLE_PRESETS.map((p) => p.destination))]
+      .filter((c) => !isSameCityRoute(origin, c))
+      .sort();
+  }
+
+  dSel.replaceChildren();
+  for (const city of dests) {
+    dSel.appendChild(new Option(city, city));
+  }
+  if (dests.includes(prevDest)) dSel.value = prevDest;
+  else if (dests.includes("Tokyo")) dSel.value = "Tokyo";
+  else if (dests.length) dSel.value = dests[0];
+
+  syncSameCityRouteUI();
+}
+
+function populateBundleRouteSelectsFromPresets() {
+  const origins = [...new Set(BUNDLE_PRESETS.map((p) => p.origin))].sort();
+  const oSel = document.getElementById("bundleOrigin");
   if (oSel && oSel.tagName === "SELECT") {
     oSel.replaceChildren();
     for (const city of origins) {
@@ -664,17 +717,7 @@ function populateBundleRouteSelectsFromPresets() {
     if (origins.includes("Singapore")) oSel.value = "Singapore";
     else if (origins.length) oSel.value = origins[0];
   }
-  if (dSel && dSel.tagName === "SELECT") {
-    dSel.replaceChildren();
-    for (const city of dests) {
-      const opt = document.createElement("option");
-      opt.value = city;
-      opt.textContent = city;
-      dSel.appendChild(opt);
-    }
-    if (dests.includes("Tokyo")) dSel.value = "Tokyo";
-    else if (dests.length) dSel.value = dests[0];
-  }
+  syncBundleDestinationSelectToOrigin();
 }
 
 function storedDisplayCurrency() {
@@ -1217,8 +1260,8 @@ function onFineTuneDivergeFromPackage() {
   const hasRoutePackages = getRouteFilteredPresets().length > 0;
   if (st) {
     st.textContent = hasRoutePackages
-      ? "Trip details changed — pick a package again, or open Fine-tune and tap Update price."
-      : "Trip details changed — open Fine-tune and tap Update price to refresh your quote.";
+      ? "Trip details changed — pick a package again, or open Route & times for this quote and tap Recalculate price."
+      : "Trip details changed — open Route & times for this quote and tap Recalculate price.";
   }
   populateBundlePackageSelect();
   renderBundleGallery();
@@ -1232,6 +1275,7 @@ function setupBundleFineTuneListeners() {
     void refreshFlightDropdownFromRoute();
   });
   document.getElementById("bundleOrigin")?.addEventListener("change", () => {
+    syncBundleDestinationSelectToOrigin();
     onFineTuneDivergeFromPackage();
     void refreshFlightDropdownFromRoute();
     void refreshHotelsForBundleDestination();
@@ -1307,6 +1351,8 @@ let latestLoyalty = null; // { coins, bookingCount, tier, ... } from loyalty ser
 let latestTravellerRows = [];
 /** Ordered IDs for this trip: index 0 = lead (contact + primary seat). */
 let tripPartyOrderedIds = [];
+/** Bumps on each traveller list fetch so stale responses cannot shrink the trip party. */
+let travellerLoadSeq = 0;
 let selectedTravellerRow = null; // OutSystems traveller profile row object
 let pendingTravellerProfileIds = null;
 let selectedHotel = null; // Hotel row from hotel service (for UI only)
@@ -1524,9 +1570,13 @@ function refreshPricePreview() {
   const el = document.getElementById("computedTotalPrice");
   if (!el) return;
   const bTotal = latestBundlePricing?.finalTotal;
-  const { finalPaid } = Number.isFinite(Number(bTotal))
-    ? computeFinalPriceBreakdown(Number(bTotal))
-    : computeFinalPriceBreakdown();
+  // Bundle `finalTotal` already includes discount-service % and loyalty coins from
+  // `/bundle-price`. Do not run tier/promo/coins again on it (that double-counted).
+  if (Number.isFinite(Number(bTotal))) {
+    el.textContent = formatMoneyDisplayFromSgd(Number(bTotal));
+    return;
+  }
+  const { finalPaid } = computeFinalPriceBreakdown();
   el.textContent = Number.isFinite(finalPaid)
     ? formatMoneyDisplayFromSgd(finalPaid)
     : "-";
@@ -1849,6 +1899,7 @@ function selectBundlePreset(presetId) {
   suppressBundleRouteDiverge = true;
   try {
     if (o) o.value = preset.origin;
+    syncBundleDestinationSelectToOrigin();
     if (d) d.value = preset.destination;
   } finally {
     suppressBundleRouteDiverge = false;
@@ -2355,7 +2406,7 @@ async function refreshFlightDropdownFromRoute() {
     routeHasOutboundFlights = false;
     if (hint) {
       hint.textContent =
-        "Use the hero search, package filters, or Fine-tune route to set both cities.";
+        "Use the trip search at the top, or expand Route & times for this quote, to set both cities.";
     }
     updateSeatSelectionUI();
     syncRouteInventoryToPackageUI();
@@ -2559,7 +2610,43 @@ function updateSeatGroupSummary() {
   }
 }
 
-function readTravellerProfileIdsFromInput() {
+/** Reconcile in-memory party with visible “On this trip” checkboxes (fixes handler errors / stale loads). */
+function syncTripPartyOrderedIdsFromDomCheckboxes() {
+  const listEl = document.getElementById("travellerProfilesList");
+  if (!listEl) return;
+  const boxes = listEl.querySelectorAll('input[type="checkbox"][data-action="toggleTripTraveller"]');
+  if (!boxes.length) return;
+
+  const checkedIds = [];
+  const seen = new Set();
+  for (const cb of boxes) {
+    if (!cb.checked) continue;
+    const id = Number(cb.getAttribute("data-id"));
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    checkedIds.push(id);
+  }
+
+  const nextSet = new Set(checkedIds);
+  const ordered = [];
+  const used = new Set();
+  for (const id of tripPartyOrderedIds) {
+    const n = Number(id);
+    if (n > 0 && nextSet.has(n) && !used.has(n)) {
+      ordered.push(n);
+      used.add(n);
+    }
+  }
+  for (const id of checkedIds) {
+    if (!used.has(id)) {
+      ordered.push(id);
+      used.add(id);
+    }
+  }
+  tripPartyOrderedIds = ordered;
+}
+
+function dedupeTripPartyOrderedIds() {
   const seen = new Set();
   const out = [];
   for (const id of tripPartyOrderedIds) {
@@ -2570,6 +2657,11 @@ function readTravellerProfileIdsFromInput() {
     }
   }
   return out;
+}
+
+function readTravellerProfileIdsFromInput() {
+  syncTripPartyOrderedIdsFromDomCheckboxes();
+  return dedupeTripPartyOrderedIds();
 }
 
 function applyTravellerSelectionFromIds(preferredIds) {
@@ -2583,7 +2675,10 @@ function applyTravellerSelectionFromIds(preferredIds) {
   updateSeatGroupSummary();
 }
 
-/** Loyalty service returns `coins` as integer cents (100 = S$1.00 off at checkout). */
+/**
+ * Loyalty `coins` are integer reward credits: 100 credits = S$1.00 off at checkout.
+ * (Not a second currency — the S$ line is the same balance expressed as dollars off.)
+ */
 function formatLoyaltyWalletSgd(coinsCents) {
   const n = Number(coinsCents);
   if (!Number.isFinite(n)) return "-";
@@ -2615,14 +2710,13 @@ function updateCoinsOffsetUI() {
     const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
     if (availEl) {
       availEl.textContent = formatLoyaltyWalletSgd(coinsAvailableCents);
-      availEl.title = `${Math.floor(coinsAvailableCents)}¢ stored · 100¢ = S$1 off`;
+      availEl.title = `${Math.floor(coinsAvailableCents).toLocaleString()} reward credits · 100 = S$1 off`;
     }
     const sgdHint = document.getElementById("coinsAvailableSgd");
     if (sgdHint) {
-      // Wallet stays in reward cents / SGD-equivalent off — not converted by header FX.
       sgdHint.textContent =
         coinsAvailableCents > 0
-          ? `· ${coinsAvailableCents.toLocaleString()}¢ stored · use the field above (cents) to apply up to the full balance`
+          ? `· ${coinsAvailableCents.toLocaleString()} credits available · enter credits below (100 credits = S$1 off)`
           : "";
     }
     if (btnNone) btnNone.disabled = coinsAvailableCents <= 0;
@@ -2710,6 +2804,65 @@ function setHotelSelection(hotel) {
 
   updateBreakfastAddonUI();
   updateHotelRoomDetailsUI();
+  syncHotelResultsPickedVisibility();
+}
+
+function updateHotelCardSelectButtons() {
+  const resultsEl = document.getElementById("hotelResults");
+  const collapsed = resultsEl?.classList.contains("hotel-results--one-picked");
+  const hid = Number(document.getElementById("hotelID")?.value || 0);
+  document.querySelectorAll(".hotel-card[data-hotel-id]").forEach((card) => {
+    const id = Number(card.dataset.hotelId || 0);
+    const btn = card.querySelector("[data-action='selectHotel']");
+    if (!btn) return;
+    if (collapsed && id === hid && hid > 0) {
+      btn.textContent = "Selected";
+      btn.disabled = true;
+      btn.classList.add("btn-primary");
+      btn.classList.remove("btn-secondary");
+    } else {
+      btn.textContent = "Select";
+      btn.disabled = false;
+      btn.classList.add("btn-secondary");
+      btn.classList.remove("btn-primary");
+    }
+  });
+}
+
+/** After a choice, hide other hotel cards; use "Change hotel" to show the full list again. */
+function syncHotelResultsPickedVisibility() {
+  const resultsEl = document.getElementById("hotelResults");
+  const toolbar = document.getElementById("hotelResultsPickToolbar");
+  if (!resultsEl) return;
+
+  const hid = Number(document.getElementById("hotelID")?.value || 0);
+  const cards = resultsEl.querySelectorAll(".hotel-card[data-hotel-id]");
+  resultsEl.classList.remove("hotel-results--one-picked");
+  cards.forEach((c) => c.classList.remove("hotel-card--picked"));
+
+  if (hid < 1 || cards.length <= 1) {
+    if (toolbar) toolbar.hidden = true;
+    updateHotelCardSelectButtons();
+    return;
+  }
+  const pickedCard = resultsEl.querySelector(`.hotel-card[data-hotel-id="${Number(hid)}"]`);
+  if (!pickedCard) {
+    if (toolbar) toolbar.hidden = true;
+    updateHotelCardSelectButtons();
+    return;
+  }
+  resultsEl.classList.add("hotel-results--one-picked");
+  pickedCard.classList.add("hotel-card--picked");
+  if (toolbar) toolbar.hidden = false;
+  updateHotelCardSelectButtons();
+}
+
+function expandHotelResultsBrowseOthers() {
+  document.getElementById("hotelResults")?.classList.remove("hotel-results--one-picked");
+  document.querySelectorAll(".hotel-card--picked").forEach((el) => el.classList.remove("hotel-card--picked"));
+  const toolbar = document.getElementById("hotelResultsPickToolbar");
+  if (toolbar) toolbar.hidden = true;
+  updateHotelCardSelectButtons();
 }
 
 function updateHotelRoomDetailsUI() {
@@ -2758,6 +2911,7 @@ function renderHotelResults(hotels) {
     const id = h.hotelID || h.id;
     const card = document.createElement("div");
     card.className = "hotel-card";
+    card.dataset.hotelId = String(id || 0);
     const roomLines = (h.roomTypes || [])
       .map((rt) => {
         const code = rt.code || "";
@@ -2821,6 +2975,7 @@ function renderHotelResults(hotels) {
     `;
     resultsEl.appendChild(card);
   });
+  syncHotelResultsPickedVisibility();
 }
 
 async function searchHotels() {
@@ -2940,7 +3095,8 @@ async function setManualDefaults() {
   const bo = document.getElementById("bundleOrigin");
   const bd = document.getElementById("bundleDestination");
   if (bo) bo.value = "Singapore";
-  if (bd) bd.value = "Tokyo";
+  syncBundleDestinationSelectToOrigin();
+  if (bd && [...bd.options].some((o) => o.value === "Tokyo")) bd.value = "Tokyo";
   const tw = document.getElementById("bundleTripWindowSelect");
   if (tw && TRIP_WINDOW_OPTIONS[0]) {
     tw.value = TRIP_WINDOW_OPTIONS[0].value;
@@ -2995,6 +3151,7 @@ async function setManualDefaults() {
     populatePackageSearchSelects();
     syncPackageSearchFromBundleFields();
     updatePackageTripSummary();
+    syncSameCityRouteUI();
   }
   void refreshHotelsForBundleDestination();
   if (typeof window.__horizonRefreshBookingFlow === "function") {
@@ -3067,11 +3224,21 @@ function fillAccountLoyaltyFromData(data) {
   if (balEl) balEl.textContent = Number.isFinite(cents) ? formatLoyaltyWalletSgd(cents) : "-";
   if (balHint) {
     balHint.textContent = Number.isFinite(cents)
-      ? `${Math.floor(cents)}¢ in wallet · 100¢ = S$1 off on the Pay step`
+      ? `${Math.floor(cents).toLocaleString()} reward credits (100 = S$1 off on Pay) — same balance as the S$ line. Cancelling restores credits you spent on that trip and removes credits you earned on it, so the total can go up or down.`
       : "";
   }
   if (tierEl) tierEl.textContent = tier;
-    if (tierHint) tierHint.textContent = `Tier follows completed bookings: ${bc} recorded in loyalty.`;
+  const cid =
+    Number(getSession()?.customerID) ||
+    Number(document.getElementById("customerID")?.value || 0) ||
+    0;
+  if (tierHint) {
+    tierHint.textContent = `Tier follows completed bookings: ${bc} recorded in loyalty.${
+      cid > 0
+        ? ` Wallet is tied to member ID ${cid} (not your email). Editing your profile email does not create a new account — use Sign up for a separate wallet.`
+        : ""
+    }`;
+  }
   if (nextEl) nextEl.textContent = tierProgressCopy(bc);
 }
 
@@ -3085,10 +3252,13 @@ function openBookingConfirmModal(apiBody, loyaltySnapshot) {
   };
   set("bookingConfirmId", d.id != null ? String(d.id) : "-");
   set("bookingConfirmFlight", d.flightID ? String(d.flightID) : "-");
-  set(
-    "bookingConfirmHotel",
-    d.hotelID != null && d.hotelID !== "" ? `Hotel #${d.hotelID}` : "-"
-  );
+  const hotelLabel =
+    d.hotelName && String(d.hotelName).trim()
+      ? String(d.hotelName).trim()
+      : d.hotelID != null && d.hotelID !== ""
+        ? `Hotel #${d.hotelID}`
+        : "-";
+  set("bookingConfirmHotel", hotelLabel);
   set(
     "bookingConfirmTotal",
     d.totalPrice != null && d.totalPrice !== ""
@@ -3161,8 +3331,9 @@ async function updateLoyaltySummary(customerID) {
   const centsRaw = data.data.coins ?? data.data.points;
   const cents = Number(centsRaw);
   const walletLabel = Number.isFinite(cents) ? formatLoyaltyWalletSgd(cents) : "-";
-  const walletTitle =
-    Number.isFinite(cents) ? `${Math.floor(cents)}¢ stored · 100¢ = S$1 off` : "";
+  const walletTitle = Number.isFinite(cents)
+    ? `${Math.floor(cents).toLocaleString()} reward credits (100 = S$1 off at Pay)`
+    : "";
 
   const lc = document.getElementById("loyaltyCoins");
   if (lc) {
@@ -3221,10 +3392,12 @@ async function loadTwilioConfig() {
   if (sidEl) sidEl.value = "";
   if (tokenEl) tokenEl.value = "";
   if (hint) {
+    const smsDest =
+      "SMS is sent to the mobile on My profile (or booking contact); you do not set a Twilio “to” number.";
     if (d.hasAccountSid && d.accountSidMasked) {
-      hint.textContent = `Current Account SID: ${d.accountSidMasked}`;
+      hint.textContent = `Current Account SID: ${d.accountSidMasked}. ${smsDest}`;
     } else {
-      hint.textContent = "No Account SID saved yet — paste it on first setup.";
+      hint.textContent = `No Account SID saved yet — paste it on first setup. ${smsDest}`;
     }
   }
 }
@@ -3322,7 +3495,10 @@ async function onCreateBookingSubmit(e) {
     return;
   }
   const passengerEmailRaw = document.getElementById("passengerEmail").value.trim();
-  const passengerPhoneRaw = document.getElementById("passengerPhone").value.trim();
+  const tripPhoneRaw = document.getElementById("passengerPhone")?.value?.trim() || "";
+  const profilePhoneRaw =
+    document.getElementById("profilePhoneNumber")?.value?.trim() || "";
+  const passengerPhoneRaw = tripPhoneRaw || profilePhoneRaw;
 
   const hotelId = Number(document.getElementById("hotelID").value || 0);
   if (!Number.isFinite(hotelId) || hotelId < 1) {
@@ -3363,7 +3539,11 @@ async function onCreateBookingSubmit(e) {
     seatHoldToken: seatPol.onlineSeatSelection ? getSeatHoldToken() : undefined,
   };
   if (passengerEmailRaw) payload.passengerEmail = passengerEmailRaw;
-  if (passengerPhoneRaw) payload.passengerPhone = passengerPhoneRaw;
+  if (passengerPhoneRaw) {
+    payload.passengerPhone = passengerPhoneRaw;
+    const phEl = document.getElementById("passengerPhone");
+    if (phEl) phEl.value = passengerPhoneRaw;
+  }
   const tpIds = readTravellerProfileIdsFromInput();
   if (tpIds.length) {
     payload.travellerProfileIds = tpIds;
@@ -3465,9 +3645,16 @@ async function onCreateBookingSubmit(e) {
   }
 }
 
-async function onCancelBookingSubmit(e) {
-  e.preventDefault();
+function scrollCancelFeedbackIntoView() {
+  document.getElementById("cancelFeedback")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
 
+/**
+ * POST cancellation for a booking id (shared by Cancel form and My bookings).
+ * @param {string} idRaw digits only
+ * @param {string} cancelSource customer | airline | hotel
+ */
+async function executeBookingCancellation(idRaw, cancelSource) {
   const cancelBtn = document.getElementById("cancelBtn");
   const cancelFeedback = document.getElementById("cancelFeedback");
   const uiError = document.getElementById("uiError");
@@ -3479,6 +3666,7 @@ async function onCancelBookingSubmit(e) {
     } else if (uiError) {
       setError(uiError, msg);
     }
+    scrollCancelFeedbackIntoView();
   };
   const showCancelSuccess = (msg) => {
     if (cancelFeedback) {
@@ -3486,6 +3674,7 @@ async function onCancelBookingSubmit(e) {
       cancelFeedback.textContent = msg;
       cancelFeedback.style.display = "block";
     }
+    scrollCancelFeedbackIntoView();
   };
   const clearCancelPanel = () => {
     if (cancelFeedback) {
@@ -3496,17 +3685,9 @@ async function onCancelBookingSubmit(e) {
   };
 
   clearCancelPanel();
-  if (!cancelBtn) return;
-  cancelBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
 
-  const idRaw = document.getElementById("cancelBookingID").value.trim();
-  const cancelSource = document.getElementById("cancelSource").value;
-  if (!idRaw || !/^\d+$/.test(idRaw) || Number(idRaw) < 1) {
-    showCancelError("Enter a valid booking reference (whole number from your confirmation).");
-    cancelBtn.disabled = false;
-    return;
-  }
-  const id = idRaw;
+  const id = String(idRaw || "").trim();
   try {
     const out = await fetchJson(`${API_BASE}/booking/cancel/${id}`, {
       method: "POST",
@@ -3532,7 +3713,7 @@ async function onCancelBookingSubmit(e) {
 
     if (isBookingWelcomePayload(data)) {
       const msg =
-        "Couldn't complete cancellation — wrong service or URL. Check the booking app and proxy.";
+        "Couldn't complete cancellation — wrong service or URL. Open the app at http://localhost:8080 (not file://) so /api/booking proxies to Docker, or check Kong/nginx routes.";
       showCancelError(msg);
       showResult({ _help: msg, received: data }, "Unexpected response");
       return;
@@ -3550,20 +3731,14 @@ async function onCancelBookingSubmit(e) {
         msg = `${msg} — use the booking reference from your confirmation, not your name or email.`;
       }
       showCancelError(msg);
-      showResult(
-        data ?? { error: msg },
-        "Couldn't cancel"
-      );
+      showResult(data ?? { error: msg }, "Couldn't cancel");
       return;
     }
 
     if (!data?.data) {
       const msg = "Cancellation response was incomplete.";
       showCancelError(msg);
-      showResult(
-        { _help: msg, received: data },
-        "Incomplete response"
-      );
+      showResult({ _help: msg, received: data }, "Incomplete response");
       return;
     }
 
@@ -3572,7 +3747,7 @@ async function onCancelBookingSubmit(e) {
         ? "Already cancelled"
         : "Cancellation processed";
     showCancelSuccess(
-      `${doneTitle}. Full response is under My profile → Technical details (JSON).`
+      `${doneTitle}. If activity shows a Twilio SMS error, the trip is still cancelled — fix Twilio in .env for texts. Details: My profile → Technical details (JSON).`
     );
     showResult(data, doneTitle);
 
@@ -3583,13 +3758,43 @@ async function onCancelBookingSubmit(e) {
     if (!bookingOut.networkError && bookingOut.body?.data?.customerID) {
       await updateLoyaltySummary(bookingOut.body.data.customerID);
     }
+
+    const refreshCid =
+      lastMyBookingsCustomerId || Number(document.getElementById("customerID")?.value || 0);
+    if (refreshCid > 0) {
+      void loadMyBookings(refreshCid);
+    }
   } catch (err) {
     const msg = formatNetworkError(err);
     showCancelError(msg);
     showResult({ error: msg }, "Couldn't cancel");
   } finally {
-    cancelBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
   }
+}
+
+async function onCancelBookingSubmit(e) {
+  e.preventDefault();
+
+  const cancelBtn = document.getElementById("cancelBtn");
+  if (!cancelBtn) return;
+
+  const idRaw = document.getElementById("cancelBookingID").value.trim();
+  const cancelSource = document.getElementById("cancelSource").value;
+  if (!idRaw || !/^\d+$/.test(idRaw) || Number(idRaw) < 1) {
+    const cancelFeedback = document.getElementById("cancelFeedback");
+    const uiError = document.getElementById("uiError");
+    if (cancelFeedback) {
+      cancelFeedback.className = "alert";
+      setError(cancelFeedback, "Enter a valid booking reference (whole number from your confirmation).");
+      scrollCancelFeedbackIntoView();
+    } else if (uiError) {
+      setError(uiError, "Enter a valid booking reference (whole number from your confirmation).");
+    }
+    return;
+  }
+
+  await executeBookingCancellation(idRaw, cancelSource);
 }
 
 function setActiveSegment(segmentKey, opts = {}) {
@@ -3803,6 +4008,15 @@ function setupBookingFlowTabs() {
     if (steps[idx]?.panelId === "bookingStep3Panel") {
       void refreshFlightDropdownFromRoute();
     }
+    if (steps[idx]?.panelId === "bookingStep5Panel") {
+      const ph = document.getElementById("passengerPhone");
+      const prof = document.getElementById("profilePhoneNumber");
+      if (ph && !String(ph.value || "").trim() && prof && String(prof.value || "").trim()) {
+        ph.value = String(prof.value).trim();
+      }
+      refreshTripContactSummary();
+      refreshPricePreview();
+    }
 
     updateStepNav();
   };
@@ -3983,8 +4197,12 @@ function applyPackageSearchToBundle() {
   const toS = document.getElementById("packageSearchTo");
   const bo = document.getElementById("bundleOrigin");
   const bd = document.getElementById("bundleDestination");
+  const wantTo = toS?.value?.trim() || "";
   if (bo && fromS) bo.value = fromS.value;
-  if (bd && toS) bd.value = toS.value;
+  syncBundleDestinationSelectToOrigin();
+  if (bd && wantTo && [...bd.options].some((o) => o.value === wantTo)) {
+    bd.value = wantTo;
+  }
 
   const dep = document.getElementById("packageDepartDate")?.value;
   const ret = document.getElementById("packageReturnDate")?.value;
@@ -4048,7 +4266,8 @@ function runPackageSearch() {
   } else {
     const st = document.getElementById("bundleStatus");
     if (st) {
-      st.textContent = "Browse packages below, or open Fine-tune to change route and Update price.";
+      st.textContent =
+        "Browse packages below, or expand Route & times for this quote, change From/To or times, then Recalculate price.";
     }
     scheduleBundleCardPriceRefresh();
   }
@@ -4117,18 +4336,34 @@ function setupPackageSearchUI() {
     runPackageSearch();
   });
 
+  ["packageSearchFrom", "packageSearchTo"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", () => {
+      applyPackageSearchToBundle();
+      populatePackageSearchSelects();
+      syncPackageSearchFromBundleFields();
+      syncSameCityRouteUI();
+      onFineTuneDivergeFromPackage();
+      void refreshFlightDropdownFromRoute();
+      void refreshHotelsForBundleDestination();
+    });
+  });
+
   const bo = document.getElementById("bundleOrigin");
   const bd = document.getElementById("bundleDestination");
   bo?.addEventListener("change", () => {
     populatePackageSearchSelects();
     syncPackageSearchFromBundleFields();
     void refreshFlightDropdownFromRoute();
+    syncSameCityRouteUI();
   });
   bd?.addEventListener("change", () => {
     populatePackageSearchSelects();
     syncPackageSearchFromBundleFields();
     void refreshFlightDropdownFromRoute();
+    syncSameCityRouteUI();
   });
+
+  syncSameCityRouteUI();
 }
 
 function refreshTripContactSummary() {
@@ -4299,7 +4534,7 @@ function renderTravellerProfileList() {
   if (!listEl) return;
 
   listEl.innerHTML = "";
-  const party = readTravellerProfileIdsFromInput();
+  const party = dedupeTripPartyOrderedIds();
   const partySet = new Set(party);
 
   latestTravellerRows.forEach((row) => {
@@ -4425,7 +4660,9 @@ async function loadTravellerProfiles() {
 
   if (listEl) listEl.textContent = "Loading profiles...";
 
+  const mySeq = ++travellerLoadSeq;
   const out = await fetchJson(`${API_BASE}/travellerprofiles/byaccount/${customerID}`);
+  if (mySeq !== travellerLoadSeq) return;
   if (out.networkError) {
     if (errEl) {
       errEl.textContent =
@@ -4988,7 +5225,6 @@ async function onSignupSubmit(e) {
   const out = await fetchJson(`${ACCOUNT_BASE}/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    // Password is sent for completeness but the account service does not verify it locally.
     body: JSON.stringify({ email, password, firstName, lastName, phoneNumber, nationality, dateOfBirth }),
   });
   if (out.networkError) {
@@ -5096,6 +5332,10 @@ function initAppShell() {
   updateSeatGroupSummary();
   void refreshFlightDropdownFromRoute();
 
+  document.getElementById("passengerPhone")?.addEventListener("input", () => {
+    refreshTripContactSummary();
+  });
+
   document.getElementById("newManualBtn")?.addEventListener("click", () => {
     void setManualDefaults().then(() =>
       showResult({ info: "Ready — edit the form, then confirm & pay when done." }, "Ready to edit")
@@ -5139,6 +5379,10 @@ function initAppShell() {
     const id = Number(btn.getAttribute("data-id") || 0);
     if (!Number.isFinite(id) || id < 1) return;
     void initHotelSelectionById(id);
+  });
+
+  document.getElementById("hotelBrowseOtherBtn")?.addEventListener("click", () => {
+    expandHotelResultsBrowseOthers();
   });
 
   // Initial load
@@ -5265,9 +5509,14 @@ function setupMyAccountBookingsUI() {
 
   bookingsList?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-action='cancelFromMyBookings']");
-    if (!btn) return;
+    if (!btn || btn.disabled) return;
     const bid = Number(btn.getAttribute("data-booking-id") || 0);
     if (!bid) return;
+
+    const ok = window.confirm(
+      `Cancel booking #${bid}? Refunds follow your fare rules. You can’t undo this.`
+    );
+    if (!ok) return;
 
     const cancelInput = document.getElementById("cancelBookingID");
     if (cancelInput) cancelInput.value = String(bid);
@@ -5275,7 +5524,9 @@ function setupMyAccountBookingsUI() {
     if (cancelSourceSel) cancelSourceSel.value = "customer";
 
     if (typeof setActiveSegment === "function") setActiveSegment("manage");
-    document.getElementById("step-manage")?.scrollIntoView({ behavior: "smooth" });
+    document.getElementById("step-manage")?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    void executeBookingCancellation(String(bid), "customer");
   });
 }
 
@@ -5458,8 +5709,16 @@ async function loadMyBookings(customerID) {
     const id = b.id;
     const flight = b.flightID || "";
     const hotel = b.hotelID || "";
+    const hotelNameRaw = b.hotelName && String(b.hotelName).trim() ? String(b.hotelName).trim() : "";
+    const hotelLine = hotelNameRaw
+      ? `${escapeHtml(hotelNameRaw)}${hotel != null && hotel !== "" ? ` <span class="muted">(#${escapeHtml(String(hotel))})</span>` : ""}`
+      : hotel != null && hotel !== ""
+        ? `Hotel #${escapeHtml(String(hotel))}`
+        : "—";
     const dep = b.departureTime || "";
     const status = b.status || "";
+    const statusUp = String(status || "").toUpperCase();
+    const alreadyCancelled = statusUp === "CANCELLED";
     const total = b.totalPrice ?? "";
     const seats = Array.isArray(b.seatNumbers) ? b.seatNumbers.join(", ") : b.seatNumber || "";
 
@@ -5470,12 +5729,14 @@ async function loadMyBookings(customerID) {
         <div class="traveller-item__title">Booking #${id}</div>
         <div class="traveller-item__sub">
           ${flight ? `Flight ${flight}` : "Flight"} • ${dep ? String(dep).replace("T", " ") : ""}<br/>
-          Hotel ${hotel} • Status ${status}<br/>
+          ${hotelLine} • Status ${status}<br/>
           Seats: ${seats || "—"} • Total ${formatMoneyDisplayFromSgd(Number(total || 0))}
         </div>
       </div>
-      <button type="button" class="btn-secondary" data-action="cancelFromMyBookings" data-booking-id="${id}">
-        Change / cancel
+      <button type="button" class="btn-secondary" data-action="${
+        alreadyCancelled ? "" : "cancelFromMyBookings"
+      }" data-booking-id="${id}" ${alreadyCancelled ? "disabled" : ""}>
+        ${alreadyCancelled ? "Cancelled" : "Cancel this booking"}
       </button>
     `;
     listEl.appendChild(item);

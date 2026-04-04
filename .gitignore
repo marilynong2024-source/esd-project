@@ -1,4 +1,5 @@
 .env
+bulk_append.sql
 notification/data/
 *.pyc
 __pycache__/

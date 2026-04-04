@@ -40,7 +40,8 @@
               id="loginPassword"
               name="password"
               autocomplete="current-password"
-              placeholder="Any non-empty password"
+              placeholder="e.g. demoPass1"
+              title="Seeded passwords: database/ACCESSIBLE_ACCOUNTS.txt"
               required
             />
           </label>
@@ -237,6 +238,7 @@
             <select id="packageSearchTo" class="package-search__control" aria-label="Destination city"></select>
           </label>
         </div>
+        <p id="packageSameCityError" class="package-search__route-error" hidden role="alert"></p>
 
         <div class="package-search__dates">
           <label class="package-search__field package-search__field--date">
@@ -306,6 +308,10 @@
             Search flights + hotels
           </button>
         </div>
+        <p class="package-search__sync-hint muted">
+          After you scroll to <strong>Book</strong>, the same From / To and dates appear under
+          <strong>Route &amp; times for this quote</strong> — use that if you need exact flight times or a new price.
+        </p>
       </div>
     </div>
 
@@ -453,31 +459,43 @@
             </label>
           </div>
           <details class="bundle-advanced" id="bundleRouteDatesSection">
-            <summary class="bundle-advanced__summary">Change route or dates</summary>
+            <summary class="bundle-advanced__summary">Route &amp; times for this quote</summary>
+            <p class="bundle-advanced__hint muted">
+              The search bar at the top is the main place to choose <strong>From</strong>, <strong>To</strong>, and
+              calendar dates. This block is the same trip, shown here so you can tweak cities or set
+              <strong>exact departure/return times</strong> for flight + hotel pricing. Use a quick preset to fill
+              both times, edit the fields if you like, then tap <strong>Recalculate price</strong>.
+            </p>
             <div class="form-grid">
               <label>
-                Origin city
-                <select id="bundleOrigin" aria-label="Origin city"></select>
+                From (origin)
+                <select id="bundleOrigin" aria-label="Flying from (origin city)"></select>
               </label>
               <label>
-                Destination city
-                <select id="bundleDestination" aria-label="Destination city"></select>
+                To (destination)
+                <select id="bundleDestination" aria-label="Flying to (destination city)"></select>
               </label>
               <label>
-                Trip dates (out &amp; back)
-                <select id="bundleTripWindowSelect" aria-label="Departure and return window"></select>
+                Quick trip windows
+                <select
+                  id="bundleTripWindowSelect"
+                  aria-label="Sample outbound and return dates and times"
+                ></select>
+                <span class="muted field-hint">Sets outbound &amp; return date-time below (demo itineraries).</span>
               </label>
               <label>
                 Outbound date &amp; time
                 <input type="datetime-local" id="bundleDepartDateTime" value="2026-05-01T10:00" />
+                <span class="muted field-hint">Used for flights, hotels, and refund rules.</span>
               </label>
               <label>
                 Return date &amp; time
                 <input type="datetime-local" id="bundleReturnDateTime" value="2026-05-06T11:00" />
+                <span class="muted field-hint">Length of stay sets hotel nights.</span>
               </label>
             </div>
             <div class="actions-row form-grid-1col" id="bundleFineTunePriceRow">
-              <button type="button" class="btn-secondary" id="bundleSearchBtn">Update price</button>
+              <button type="button" class="btn-secondary" id="bundleSearchBtn">Recalculate price</button>
             </div>
           </details>
 
@@ -488,10 +506,9 @@
             No packages available.
           </p>
 
-          <!-- Filled from My profile / sign-in (no duplicate UI on this step) -->
+          <!-- Filled from My profile / sign-in; phone is edited on the payment step -->
           <input type="hidden" id="passengerName" name="passengerName" value="Ava Chen" />
           <input type="hidden" id="passengerEmail" name="passengerEmail" value="ava.chen@example.com" />
-          <input type="hidden" id="passengerPhone" name="passengerPhone" value="+65 9123 4567" />
           </div>
 
           <div id="bookingStep4Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep2Tab" hidden>
@@ -712,6 +729,12 @@
               </button>
             </div>
             <div class="section-hint" id="hotelSelectedHint"></div>
+            <div class="hotel-results-toolbar" id="hotelResultsPickToolbar" hidden>
+              <button type="button" class="btn-secondary" id="hotelBrowseOtherBtn">
+                Change hotel
+              </button>
+              <span class="muted hotel-results-toolbar__note">Showing your choice — pick another or search again to compare.</span>
+            </div>
             <div id="hotelResults" class="hotel-results" aria-label="Hotel results"></div>
             <div class="muted">
               Selected hotel: <strong id="hotelSelectedDisplay">—</strong>
@@ -770,8 +793,16 @@
             <div class="pay-step__rewards" id="coinsOffsetWrap">
               <div class="section-title section-title--flush">Use reward balance (optional)</div>
               <label class="pay-step__coins-field">
-                Cents to apply
-                <input type="number" id="coinsToSpendCents" value="0" min="0" step="1" />
+                Reward credits to apply
+                <input
+                  type="number"
+                  id="coinsToSpendCents"
+                  value="0"
+                  min="0"
+                  step="1"
+                  aria-describedby="coinsFieldHint"
+                />
+                <span class="muted field-hint" id="coinsFieldHint">100 credits = S$1 off your total</span>
               </label>
               <div class="coins-meta">
                 Available: <strong id="coinsAvailableCents">-</strong>
@@ -791,6 +822,21 @@
               </summary>
             </details>
             <p class="muted field-hint" id="payStepFxFootnote" hidden></p>
+
+            <label class="form-grid-1col">
+              Mobile (SMS) for this trip
+              <input
+                type="tel"
+                id="passengerPhone"
+                name="passengerPhone"
+                autocomplete="tel"
+                placeholder="+65 9123 4567 or 91234567"
+                inputmode="tel"
+              />
+              <span class="muted field-hint"
+                >Prefilled from My profile; change here anytime before you pay — SMS updates use this number.</span
+              >
+            </label>
 
             <label>
               Billing currency (server)
@@ -878,6 +924,9 @@
               <code>POST /booking/cancel/{id}</code>. Some hotel refunds only 7+ days before travel.
             </p>
           </details>
+          <p class="muted muted--compact-top">
+            Tip: under <strong>My bookings</strong>, use <strong>Cancel this booking</strong> — confirms once and submits for you.
+          </p>
         </form>
         <div id="cancelFeedback" class="alert" role="status" aria-live="polite"></div>
       </section>
@@ -1085,7 +1134,7 @@
 
   </div>
 
-  <script src="app.js" defer></script>
+  <script src="app.js?v=20260404-loyalty-id" defer></script>
 </body>
 </html>
 

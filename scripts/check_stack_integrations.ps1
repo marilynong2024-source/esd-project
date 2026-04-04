@@ -112,7 +112,7 @@ try {
         Write-Host "  Hint: set TWILIO_* in .env or use UI SMS settings (sidebar)." -ForegroundColor DarkYellow
     }
     if (-not $d.defaultToFromEnv) {
-        Write-Host "  Hint: optional TWILIO_TO_NUMBER when booking form has no mobile." -ForegroundColor DarkYellow
+        Write-Host "  Hint: add mobile under My profile for SMS; TWILIO_TO_NUMBER is optional demo fallback." -ForegroundColor DarkYellow
     }
 }
 catch { Write-Host "(skip Twilio JSON)" -ForegroundColor DarkGray }

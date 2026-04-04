@@ -1,10 +1,20 @@
 """
 SMS via Twilio when the notification service consumes AMQP events.
 
-Configure credentials in the UI (POST /twilio/config). They persist under
-`notification/data/twilio_runtime.json` (override with env `TWILIO_CONFIG_PATH`).
-In Docker, mount a volume on `/app/data` so that path stays writable and survives
-container restarts.
+Credentials (recommended): set in project `.env` and pass into the notification
+container (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`,
+`TWILIO_ENABLED=true`). Optional UI: POST /twilio/config persists under
+`data/twilio_runtime.json` (override with env `TWILIO_CONFIG_PATH`).
+
+SMS destination: each booking’s `passengerPhone` from the booking payload
+(normalized to E.164). Optional `TWILIO_TO_NUMBER` in `.env` is only a demo
+fallback when the booking has no phone.
+
+Credentials: values saved via the UI (`data/twilio_runtime.json` on the
+notification volume) take precedence over `.env` for SID, token, and From number
+when both are set, so a bad token in `.env` does not override a good UI save.
+Restart the notification container after changing `.env` if you rely on env-only
+setup and have no saved file (or delete the persisted JSON to force env).
 
 Twilio docs: https://www.twilio.com/docs/sms
 """
@@ -37,26 +47,64 @@ def load_persisted_config() -> None:
             raw = None
         if isinstance(raw, dict):
             for key in ("accountSid", "authToken", "fromNumber", "enabled"):
-                if key in raw:
-                    _RUNTIME[key] = raw[key]
+                if key not in raw:
+                    continue
+                val = raw[key]
+                if key == "enabled":
+                    _RUNTIME["enabled"] = bool(val)
+                elif isinstance(val, str) and not val.strip():
+                    # Do not load empty strings — avoids wiping env-backed creds after a blank UI save.
+                    continue
+                elif key == "fromNumber":
+                    _RUNTIME[key] = _normalize_twilio_from_number(val)
+                else:
+                    _RUNTIME[key] = val
     _apply_twilio_from_environment()
+
+
+def _normalize_twilio_from_number(raw: str) -> str:
+    """Twilio expects E.164; strip spaces so +1 318 552 2838 works from .env."""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    if s.startswith("+"):
+        digits = "".join(c for c in s[1:] if c.isdigit())
+        return f"+{digits}" if digits else ""
+    return re.sub(r"\s+", "", s)
 
 
 def _apply_twilio_from_environment() -> None:
     """
     Docker Compose can pass TWILIO_* from .env into the notification container.
-    Non-empty env values override the JSON file so the stack works without
-    opening the UI first.
+    By default env fills only missing SID / token / From after the persisted JSON load
+    (so a good UI save is not overwritten by stale .env).
+
+    Set TWILIO_ENV_OVERRIDES_FILE=true in .env when you update Twilio in .env and
+    want those values to replace whatever is in twilio_runtime.json after restart.
     """
     sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
     token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
-    from_num = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
-    if sid:
-        _RUNTIME["accountSid"] = sid
-    if token:
-        _RUNTIME["authToken"] = token
-    if from_num:
-        _RUNTIME["fromNumber"] = from_num
+    from_num = _normalize_twilio_from_number(os.environ.get("TWILIO_FROM_NUMBER", ""))
+    force_env = os.environ.get("TWILIO_ENV_OVERRIDES_FILE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if force_env:
+        if sid:
+            _RUNTIME["accountSid"] = sid
+        if token:
+            _RUNTIME["authToken"] = token
+        if from_num:
+            _RUNTIME["fromNumber"] = from_num
+    else:
+        if sid and not str(_RUNTIME.get("accountSid", "") or "").strip():
+            _RUNTIME["accountSid"] = sid
+        if token and not str(_RUNTIME.get("authToken", "") or "").strip():
+            _RUNTIME["authToken"] = token
+        if from_num and not str(_RUNTIME.get("fromNumber", "") or "").strip():
+            _RUNTIME["fromNumber"] = from_num
     en = os.environ.get("TWILIO_ENABLED", "").strip().lower()
     if en in ("1", "true", "yes", "on"):
         _RUNTIME["enabled"] = True
@@ -112,7 +160,7 @@ def apply_twilio_config(body: dict[str, Any] | None) -> dict[str, Any]:
         _RUNTIME["accountSid"] = sid
     if "authToken" in body and str(body.get("authToken") or "").strip():
         _RUNTIME["authToken"] = str(body["authToken"]).strip()
-    fn = str(body.get("fromNumber") or "").strip()
+    fn = _normalize_twilio_from_number(str(body.get("fromNumber") or ""))
     if fn:
         _RUNTIME["fromNumber"] = fn
     _persist_config()
@@ -127,7 +175,7 @@ def _twilio_credentials() -> tuple[str, str, str]:
     return (
         str(_RUNTIME.get("accountSid", "") or "").strip(),
         str(_RUNTIME.get("authToken", "") or "").strip(),
-        str(_RUNTIME.get("fromNumber", "") or "").strip(),
+        _normalize_twilio_from_number(str(_RUNTIME.get("fromNumber", "") or "")),
     )
 
 
@@ -144,11 +192,12 @@ def send_sms(to_number: str, body: str) -> dict[str, Any]:
     account_sid, auth_token, from_number = _twilio_credentials()
     if not account_sid or not auth_token:
         return {
-            "error": "Twilio Account SID and Auth Token required — save them in the UI (SMS settings)",
+            "error": "Twilio Account SID and Auth Token missing — set TWILIO_ACCOUNT_SID and "
+            "TWILIO_AUTH_TOKEN in project .env (notification service) or save under SMS settings.",
         }
     if not from_number:
         return {
-            "error": "Twilio From number required (E.164) — set it in the UI",
+            "error": "Twilio From number required (E.164) — set TWILIO_FROM_NUMBER in .env or SMS settings",
         }
 
     to_number = to_number.strip()
@@ -168,6 +217,18 @@ def send_sms(to_number: str, body: str) -> dict[str, Any]:
             "status": getattr(msg, "status", None),
         }
     except TwilioRestException as e:
+        code = getattr(e, "status", None) or getattr(e, "code", None)
+        if code == 401:
+            return {
+                "ok": False,
+                "error": (
+                    "Twilio HTTP 401 (Authenticate) — Account SID or Auth Token is wrong, revoked, or "
+                    "does not match. Copy the live Auth Token from https://console.twilio.com and save "
+                    "under SMS settings in the UI (or fix .env and remove the old twilio_runtime.json "
+                    "on the notification volume if env-only). Recreate the notification container after "
+                    ".env changes. Booking/cancel still succeed without SMS."
+                ),
+            }
         return {"ok": False, "error": str(e)}
 
 
@@ -187,7 +248,8 @@ def _normalize_phone_e164(raw: Any, default_cc: str = "65") -> str | None:
     digits_only = re.sub(r"\D", "", compact)
     if not digits_only:
         return None
-    if digits_only.startswith(default_cc) and len(digits_only) >= 2 + 8:
+    # e.g. 65891234567 (country code + mobile, no leading +)
+    if digits_only.startswith(default_cc) and len(digits_only) >= 10:
         return "+" + digits_only
     if len(digits_only) == 8 and digits_only[0] in "89":
         return "+" + default_cc + digits_only
@@ -212,8 +274,8 @@ def send_sms_for_amqp_event(
     if not to:
         return {
             "skipped": True,
-            "reason": "No SMS destination: enter a valid mobile on the booking form "
-            "(e.g. +65 9123 4567 or 91234567), or set TWILIO_TO_NUMBER in .env for demos",
+            "reason": "No SMS destination: add Mobile (SMS) under My profile (E.164 or local 8-digit), "
+            "then book again — or optional TWILIO_TO_NUMBER in .env for demos only",
         }
 
     bid = event_payload.get("bookingID", "?")

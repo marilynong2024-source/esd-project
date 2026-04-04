@@ -3,8 +3,8 @@
 -- Run this once to set up all tables and demo data.
 -- Includes a large generated appendix (flights, hotels, customers,
 -- bookings, loyalty ledger, reservations). Regenerate via:
---   python scripts/generate_init_db_bulk.py > scripts/_bulk_out.sql
--- then merge the tail after the first TravellerProfiles INSERT block.
+--   python scripts/generate_init_db_bulk.py > bulk_append.sql
+-- then merge the tail after the first TravellerProfiles INSERT block (then delete the temp file).
 -- ============================================================
 
 -- ============================================================

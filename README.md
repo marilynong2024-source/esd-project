@@ -14,6 +14,18 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
+### Repository layout
+
+| Path | Purpose |
+|------|---------|
+| `account/`, `booking/`, `bundle_pricing/`, `discount/`, `flight/`, `hotel/`, `loyalty/`, `notification/`, `payment/` | Flask microservices (each with its own `Dockerfile` where used) |
+| `graphql_gateway/` | GraphQL aggregation over REST |
+| `travellerprofile/` | OutSystems traveller client (imported by booking) |
+| `ui/` + `nginx/` | Static UI and reverse proxy (`ui.conf` → `/api/...`) |
+| `database/` | `DATABASE_GUIDE.txt`, `ACCESSIBLE_ACCOUNTS.txt`, `README.md` |
+| `scripts/` | `smoke_test.ps1`, `generate_init_db_bulk.py`, integration checks |
+| Root | `docker-compose.yml`, `kong.yml`, `init_db.sql`, `README.md` |
+
 ### 3) Open the app
 - Web UI (main): [http://localhost:8080](http://localhost:8080)
 - Do **not** open `ui/index.html` using `file://`
@@ -147,13 +159,6 @@ See **`database/DATABASE_GUIDE.txt`** (full data-store map and keys) and **`data
 - GraphQL is used as a BTL-friendly aggregation layer (REST remains primary architecture).
 
 ---
-
-## Full Technical Guide
-
-For comprehensive architecture, business rules, report/demo prep, troubleshooting, and team workflow, see:
-
-- `TEAM_GUIDE.txt` (full team reference — plain text)
-- `SCORE_BOOST_CHECKLIST.md` (quick grading/demo uplift checklist)
 
 ## Optional: One-command smoke test
 
