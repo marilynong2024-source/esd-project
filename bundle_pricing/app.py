@@ -205,6 +205,7 @@ def bundle_price():
         request.args.get("loyaltyCoinsToUseCents") or request.args.get("coinsToSpendCents"),
         0,
     )
+    promo_code = (request.args.get("promoCode") or request.args.get("discountCode") or "").strip()
 
     # --- Composite order aligned with diagram "Search & Price Bundle" ---
     # 2–3 Account, 4–5 Loyalty, 6–7 Flight, 8–9 Hotel, 10–11 Discount, then coin offset.
@@ -342,16 +343,19 @@ def bundle_price():
     hotel_total = round(hotel_price_per_night * nights * travellers, 2)
 
     # 10–11) Discount service (may call Loyalty again internally for tier — idempotent GET)
+    disc_params = {
+        "customerId": cid,
+        "flightNum": flight_num,
+        "hotelId": hotel_id,
+        "roomType": chosen_room_type,
+        "numberOfTravellers": travellers,
+        "nights": nights,
+    }
+    if promo_code:
+        disc_params["promoCode"] = promo_code
     discount_out, disc_terr = _http_get_json(
         f"{DISCOUNT_BASE}/discounts/bundle-rule",
-        params={
-            "customerId": cid,
-            "flightNum": flight_num,
-            "hotelId": hotel_id,
-            "roomType": chosen_room_type,
-            "numberOfTravellers": travellers,
-            "nights": nights,
-        },
+        params=disc_params,
     )
     if disc_terr:
         return (
@@ -399,6 +403,9 @@ def bundle_price():
         "flightNum": flight_num,
         "hotelID": hotel_id,
     }
+    for k in ("promoRejected", "promoAccepted", "promoCode", "promoMessage"):
+        if k in discount_data:
+            out_data[k] = discount_data[k]
     if loyalty_preview:
         out_data["tier"] = loyalty_preview.get("tier")
         out_data["bookingCount"] = loyalty_preview.get("bookingCount")

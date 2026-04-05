@@ -309,9 +309,8 @@
           </button>
         </div>
         <p class="package-search__sync-hint muted">
-          Under <strong>Book</strong> → <strong>Route &amp; times for this quote</strong>, dates mirror this search
-          (read-only there). Change Depart / Return here, then <strong>Search flights + hotels</strong> or tap
-          <strong>Recalculate price</strong> in that section; use From / To there only to fine-tune cities.
+          <strong>From</strong>, <strong>To</strong>, <strong>Depart</strong>, and <strong>Return</strong> all live
+          here — then tap <strong>Search flights + hotels</strong> to load packages, flights, and hotels for that trip.
         </p>
       </div>
     </div>
@@ -459,61 +458,14 @@
               <input type="number" id="bundleNumberOfTravellers" aria-label="Total travellers" readonly />
             </label>
           </div>
-          <details class="bundle-advanced" id="bundleRouteDatesSection">
-            <summary class="bundle-advanced__summary">Route &amp; times for this quote</summary>
-            <p class="bundle-advanced__hint muted">
-              <strong>Depart</strong> and <strong>Return</strong> dates (and default flight times) come from the
-              package search at the top — change them there, then use <strong>Search flights + hotels</strong> or
-              <strong>Recalculate price</strong> here. This section is for fine-tuning <strong>From</strong> /
-              <strong>To</strong> if you need a different city pair for the quote.
-            </p>
-            <div class="form-grid">
-              <label>
-                From (origin)
-                <select id="bundleOrigin" aria-label="Flying from (origin city)"></select>
-              </label>
-              <label>
-                To (destination)
-                <select id="bundleDestination" aria-label="Flying to (destination city)"></select>
-              </label>
-              <label>
-                Trip window (from banner search)
-                <select
-                  id="bundleTripWindowSelect"
-                  aria-label="Outbound and return date-times (synced from package search)"
-                  disabled
-                ></select>
-                <span class="muted field-hint">Read-only — matches Depart / Return from the top search.</span>
-              </label>
-              <label>
-                Outbound date &amp; time
-                <input
-                  type="datetime-local"
-                  id="bundleDepartDateTime"
-                  value="2026-05-01T10:00"
-                  readonly
-                  aria-readonly="true"
-                  title="Change dates in the package search at the top"
-                />
-                <span class="muted field-hint">Synced from the top search; used for flights, hotels, and refund rules.</span>
-              </label>
-              <label>
-                Return date &amp; time
-                <input
-                  type="datetime-local"
-                  id="bundleReturnDateTime"
-                  value="2026-05-06T11:00"
-                  readonly
-                  aria-readonly="true"
-                  title="Change dates in the package search at the top"
-                />
-                <span class="muted field-hint">Synced from the top search; length of stay sets hotel nights.</span>
-              </label>
-            </div>
-            <div class="actions-row form-grid-1col" id="bundleFineTunePriceRow">
-              <button type="button" class="btn-secondary" id="bundleSearchBtn">Recalculate price</button>
-            </div>
-          </details>
+          <!-- Synced from hero search; kept off-screen so bundle / flight / hotel logic stays unchanged -->
+          <div class="visually-hidden" aria-hidden="true">
+            <select id="bundleOrigin" tabindex="-1"></select>
+            <select id="bundleDestination" tabindex="-1"></select>
+            <select id="bundleTripWindowSelect" tabindex="-1" aria-hidden="true"></select>
+            <input type="datetime-local" id="bundleDepartDateTime" value="2026-05-01T10:00" tabindex="-1" />
+            <input type="datetime-local" id="bundleReturnDateTime" value="2026-05-06T11:00" tabindex="-1" />
+          </div>
 
           <div id="bundlePricingActions">
             <div id="bundleStatus" class="muted" aria-live="polite"></div>
@@ -523,8 +475,8 @@
           </p>
 
           <!-- Filled from My profile / sign-in; phone is edited on the payment step -->
-          <input type="hidden" id="passengerName" name="passengerName" value="Ava Chen" />
-          <input type="hidden" id="passengerEmail" name="passengerEmail" value="ava.chen@example.com" />
+          <input type="hidden" id="passengerName" name="passengerName" value="" />
+          <input type="hidden" id="passengerEmail" name="passengerEmail" value="" />
           </div>
 
           <div id="bookingStep4Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep2Tab" hidden>
@@ -720,23 +672,16 @@
               </label>
               <label>
                 Hotel country
-                <input
-                  type="text"
-                  id="hotelSearchCountry"
-                  value=""
-                  placeholder="e.g. Japan"
-                  autocomplete="off"
-                />
+                <select id="hotelSearchCountry" class="hotel-search__select" aria-label="Hotel country">
+                  <option value="">— Country —</option>
+                </select>
+                <span class="muted field-hint">Filled from your <strong>To</strong> city in the search above.</span>
               </label>
               <label>
                 City
-                <input
-                  type="text"
-                  id="hotelSearchCity"
-                  value=""
-                  placeholder="e.g. Tokyo"
-                  autocomplete="off"
-                />
+                <select id="hotelSearchCity" class="hotel-search__select" aria-label="Hotel city">
+                  <option value="">— City —</option>
+                </select>
               </label>
             </div>
             <div class="actions-row form-grid-1col">
@@ -800,10 +745,28 @@
           </div>
 
           <div id="bookingStep5Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep5Tab" hidden>
-            <label>
-              Discount code (optional)
-              <input type="text" id="discountCode" placeholder="SILVER10 / GOLD15 / PLAT20" />
-            </label>
+            <div class="pay-step__voucher">
+              <label class="pay-step__voucher-label">
+                Discount code (optional)
+                <span class="pay-step__voucher-row">
+                  <input
+                    type="text"
+                    id="discountCode"
+                    class="pay-step__voucher-input"
+                    placeholder="SILVER10 / GOLD15 / PLAT20"
+                    autocomplete="off"
+                  />
+                  <button type="button" class="btn-secondary pay-step__voucher-apply" id="voucherApplyBtn">
+                    Apply
+                  </button>
+                </span>
+              </label>
+              <p class="muted field-hint" id="voucherApplyHint">
+                Tap <strong>Apply</strong> to validate the code and refresh <strong>Amount due today</strong> (needs a
+                bundle quote: 2+ travellers, 3+ nights, Deluxe room for tier codes).
+              </p>
+              <p class="field-hint pay-step__voucher-status" id="voucherApplyStatus" role="status" hidden></p>
+            </div>
 
           <div id="panelPayment" class="segment-panel pay-step" role="region" aria-label="Discounts, rewards, and payment">
             <div class="pay-step__rewards" id="coinsOffsetWrap">

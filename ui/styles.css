@@ -1898,6 +1898,10 @@ button.seat.picked:not(:disabled) {
   margin-top: 6px;
 }
 
+.hotel-search .hotel-search__select {
+  width: 100%;
+}
+
 .hotel-search .hotel-results {
   margin-top: 10px;
 }
@@ -2284,6 +2288,43 @@ button.seat.picked:not(:disabled) {
 }
 
 /* ——— Pay step: single column (rewards + payment, no tab switch) ——— */
+.pay-step__voucher {
+  margin-bottom: 16px;
+}
+
+.pay-step__voucher-label {
+  display: block;
+}
+
+.pay-step__voucher-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.pay-step__voucher-input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.pay-step__voucher-apply {
+  flex: 0 0 auto;
+}
+
+.pay-step__voucher-status {
+  margin: 8px 0 0;
+}
+
+.pay-step__voucher-status--ok {
+  color: #0f766e;
+}
+
+.pay-step__voucher-status--bad {
+  color: #b91c1c;
+}
+
 .pay-step__rewards {
   padding: 14px 16px;
   margin-bottom: 18px;
