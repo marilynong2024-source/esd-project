@@ -11,6 +11,7 @@ from twilio_integration import (
     get_twilio_public_config,
     load_persisted_config,
     send_sms_for_amqp_event,
+    send_sms_for_manual_confirmation,
     send_sms_for_manual_payload,
 )
 
@@ -32,12 +33,22 @@ def notify_manual():
     data = request.get_json() or {}
     _store_manual_notification(data)
     manual_twilio: dict = {}
-    if str(data.get("status") or "").upper() == "CANCELLED" or data.get("source") == "cancellation_sync":
+    st = str(data.get("status") or "").strip().upper()
+    if st == "CANCELLED" or data.get("source") == "cancellation_sync":
         manual_twilio = send_sms_for_manual_payload(data) or {}
         NOTIFICATIONS.append(
             {
                 "source": "twilio_sms",
                 "routing_key": "notify.manual.cancel",
+                "result": manual_twilio,
+            }
+        )
+    elif st == "CONFIRMED" and data.get("source") == "confirmation_sync":
+        manual_twilio = send_sms_for_manual_confirmation(data) or {}
+        NOTIFICATIONS.append(
+            {
+                "source": "twilio_sms",
+                "routing_key": "notify.manual.confirm",
                 "result": manual_twilio,
             }
         )

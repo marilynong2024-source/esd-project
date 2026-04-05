@@ -1131,55 +1131,69 @@ def create_booking():
             warnings.append(f"Loyalty postpay unreachable: {e}")
 
     t_ids_publish = traveller_profile_ids_for_event(booking)
-    manual_note = _post_notify_manual(
-        {
-            "source": "book_package",
-            "bookingID": booking.id,
-            "customerID": booking.customerID,
-            "email": booking.passengerEmail,
-            "userEmail": booking.passengerEmail,
-            "passengerPhone": booking.passengerPhone,
-            "status": "CONFIRMED",
-            "confirmationPdfNote": "Demo: PDF booking confirmation would be generated here.",
-        }
-    )
+    if not (booking.passengerPhone or "").strip():
+        warnings.append(
+            "No mobile on this booking — confirmation SMS cannot be sent. Add Mobile (SMS) under My profile "
+            "before paying, or set TWILIO_TO_NUMBER in .env for demo-only delivery."
+        )
+
+    confirmed_at = datetime.utcnow().isoformat()
+    notify_user_payload = {
+        "bookingID": booking.id,
+        "customerID": booking.customerID,
+        "travellerProfileId": booking.travellerProfileId,
+        "travellerProfileIds": t_ids_publish,
+        "travellerDisplayName": booking.travellerDisplayName,
+        "adultCount": int(booking.adultCount or 0),
+        "childCount": int(booking.childCount or 0),
+        "infantCount": int(booking.infantCount or 0),
+        "passengerName": booking.passengerName,
+        "passengerEmail": booking.passengerEmail,
+        "passengerPhone": booking.passengerPhone,
+        "flightID": booking.flightID,
+        "hotelID": booking.hotelID,
+        "hotelRoomType": booking.hotelRoomType,
+        "hotelIncludesBreakfast": booking.hotelIncludesBreakfast,
+        "departureTime": booking.departureTime,
+        "totalPrice": float(booking.totalPrice or 0),
+        "currency": booking.currency or "SGD",
+        "fareType": booking.fareType,
+        "loyaltyTier": booking.loyaltyTier,
+        "seatNumber": booking.seatNumber,
+        "seatNumbers": booking.to_dict().get("seatNumbers", []),
+        "status": booking.status,
+        "confirmedAt": confirmed_at,
+    }
+    # Publish first so the notification worker can send Twilio SMS; HTTP notify stays log-only on success.
+    confirmed_ok = publish_event("notify.user", notify_user_payload)
+    if confirmed_ok:
+        manual_note = _post_notify_manual(
+            {
+                "source": "book_package",
+                "bookingID": booking.id,
+                "customerID": booking.customerID,
+                "email": booking.passengerEmail,
+                "userEmail": booking.passengerEmail,
+                "passengerPhone": booking.passengerPhone,
+                "status": "CONFIRMED",
+                "confirmationPdfNote": "Demo: PDF booking confirmation would be generated here.",
+            }
+        )
+    else:
+        warnings.append(
+            "Could not publish notify.user to RabbitMQ — confirmation SMS is sent via HTTP fallback if Twilio is on. "
+            "Otherwise fix RABBIT_HOST/RABBIT_PORT and restart booking + notification."
+        )
+        manual_note = _post_notify_manual(
+            {
+                "source": "confirmation_sync",
+                "status": "CONFIRMED",
+                "note": "RabbitMQ unreachable — booking service sent this payload for SMS + activity log.",
+                **notify_user_payload,
+            }
+        )
     if manual_note:
         warnings.append(manual_note)
-
-    confirmed_ok = publish_event(
-        "notify.user",
-        {
-            "bookingID": booking.id,
-            "customerID": booking.customerID,
-            "travellerProfileId": booking.travellerProfileId,
-            "travellerProfileIds": t_ids_publish,
-            "travellerDisplayName": booking.travellerDisplayName,
-            "adultCount": int(booking.adultCount or 0),
-            "childCount": int(booking.childCount or 0),
-            "infantCount": int(booking.infantCount or 0),
-            "passengerName": booking.passengerName,
-            "passengerEmail": booking.passengerEmail,
-            "passengerPhone": booking.passengerPhone,
-            "flightID": booking.flightID,
-            "hotelID": booking.hotelID,
-            "hotelRoomType": booking.hotelRoomType,
-            "hotelIncludesBreakfast": booking.hotelIncludesBreakfast,
-            "departureTime": booking.departureTime,
-            "totalPrice": float(booking.totalPrice or 0),
-            "currency": booking.currency or "SGD",
-            "fareType": booking.fareType,
-            "loyaltyTier": booking.loyaltyTier,
-            "seatNumber": booking.seatNumber,
-            "seatNumbers": booking.to_dict().get("seatNumbers", []),
-            "status": booking.status,
-            "confirmedAt": datetime.utcnow().isoformat(),
-        },
-    )
-    if not confirmed_ok:
-        warnings.append(
-            "Could not publish notify.user to RabbitMQ — check booking logs, "
-            "RABBIT_HOST/RABBIT_PORT, and that the notification worker is running."
-        )
 
     out: dict = {"code": 201, "data": booking_dict_with_hotel(booking)}
     if warnings:

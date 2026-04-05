@@ -239,6 +239,9 @@ def _normalize_phone_e164(raw: Any, default_cc: str = "65") -> str | None:
     s = str(raw).strip()
     if not s:
         return None
+    # Unicode dashes / narrow no-break space (common paste from contacts)
+    s = s.replace("\u2011", "").replace("\u2010", "").replace("\u2013", "-")
+    s = s.replace("\u00a0", " ").strip()
     compact = re.sub(r"[\s\-().]", "", s)
     if compact.startswith("+"):
         digits = re.sub(r"\D", "", compact[1:])
@@ -369,4 +372,20 @@ def send_sms_for_manual_payload(data: dict[str, Any]) -> dict[str, Any]:
             "reason": "No passengerPhone on manual notify — add mobile on profile or TWILIO_TO_NUMBER",
         }
     body = format_cancellation_sms_body(data)
+    return send_sms(to, body)
+
+
+def send_sms_for_manual_confirmation(data: dict[str, Any]) -> dict[str, Any]:
+    """HTTP /notify/manual — confirmation SMS when RabbitMQ publish failed (same body as AMQP path)."""
+    if not isinstance(data, dict):
+        return {"skipped": True, "reason": "invalid manual payload"}
+    to = _normalize_phone_e164(data.get("passengerPhone"))
+    if not to:
+        to = _normalize_phone_e164(os.environ.get("TWILIO_TO_NUMBER"))
+    if not to:
+        return {
+            "skipped": True,
+            "reason": "No SMS destination: save Mobile (SMS) on My profile before booking, or set TWILIO_TO_NUMBER in .env",
+        }
+    body = format_confirmation_sms_body(data)
     return send_sms(to, body)
