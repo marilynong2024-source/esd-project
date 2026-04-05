@@ -769,19 +769,27 @@ def create_booking():
         adult_count, child_count, infant_count = _traveller_age_breakdown(
             traveller_docs, departure_time
         )
-        # Align with UI: party may be child/infant-only in saved profiles while an adult still
-        # travels (account holder / lead). Count that adult even if customerID is missing or 0
-        # in the payload (stale UI) as long as at least one traveller profile row was resolved.
-        if (
-            (child_count > 0 or infant_count > 0)
-            and adult_count < 1
-            and traveller_docs
-        ):
+        # Optional hero-search party (UI): matches package adults/children/infants; avoids failed
+        # checkout when profile DOB shapes differ from booking age math or Docker runs an old image.
+        party_applied = False
+        try:
+            if all(
+                k in data
+                for k in ("partyAdultCount", "partyChildCount", "partyInfantCount")
+            ):
+                pa = max(0, int(data["partyAdultCount"]))
+                pc = max(0, int(data["partyChildCount"]))
+                pi = max(0, int(data["partyInfantCount"]))
+                # Only override profile DOB math when the hero includes minors (matches UI sync).
+                if pa + pc + pi >= 1 and (pc > 0 or pi > 0):
+                    if pa < 1:
+                        pa = 1
+                    adult_count, child_count, infant_count = pa, pc, pi
+                    party_applied = True
+        except (TypeError, ValueError):
+            pass
+        if not party_applied and (child_count > 0 or infant_count > 0) and adult_count < 1:
             adult_count = 1
-        if (child_count > 0 or infant_count > 0) and adult_count < 1:
-            return _bad_request(
-                "At least one adult traveller is required when children/infants are included"
-            )
         passenger_name = _optional_trimmed_str(data, "passengerName", 200)
         passenger_email = _optional_trimmed_str(data, "passengerEmail", 255)
         passenger_phone = _optional_trimmed_str(data, "passengerPhone", 40)

@@ -4481,6 +4481,18 @@ async function onCreateBookingSubmit(e) {
   if (tpIds.length) {
     payload.travellerProfileIds = tpIds;
   }
+  payload.partyAdultCount = Math.max(
+    0,
+    Math.min(12, Number(document.getElementById("packageAdults")?.value ?? 0))
+  );
+  payload.partyChildCount = Math.max(
+    0,
+    Math.min(8, Number(document.getElementById("packageChildren")?.value ?? 0))
+  );
+  payload.partyInfantCount = Math.max(
+    0,
+    Math.min(4, Number(document.getElementById("packageInfants")?.value ?? 0))
+  );
 
   try {
     const bTotal = latestBundlePricing?.finalTotal;
