@@ -1,6 +1,8 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+from extra_hotels_data import hotels_dict_for_app
+
 app = Flask(__name__)
 CORS(app)
 
@@ -449,6 +451,8 @@ HOTELS = {
         "availableRooms": 5,
     },
 }
+
+HOTELS.update(hotels_dict_for_app())
 
 
 @app.route("/hotel/<int:hotel_id>", methods=["GET"])

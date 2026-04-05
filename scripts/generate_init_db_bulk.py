@@ -209,7 +209,7 @@ def main():
     for i in range(4, 68):
         cid = 1 + (i % 48)
         fid = flights[i % len(flights)]
-        hid = 1 + (i % 33)
+        hid = 1 + (i % 133)
         rt = roomt[i % len(roomt)]
         brk = 1 if i % 4 == 0 else 0
         dep = f"2026-{(i % 12) + 1:02d}-{(i % 27) + 1:02d}T{(8 + i % 12):02d}:00:00"
@@ -321,7 +321,7 @@ def main():
     hbs = []
     for i in range(1, 38):
         bid = 2 + (i % 63)
-        hid = 1 + (i % 33)
+        hid = 1 + (i % 133)
         rt = random.choice(["Standard", "Deluxe", "Suite"])
         cin = f"2026-{(i % 10) + 1:02d}-{(i % 20) + 1:02d} 15:00:00"
         cout = f"2026-{(i % 10) + 1:02d}-{(i % 20) + 4:02d} 11:00:00"

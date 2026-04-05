@@ -1260,8 +1260,8 @@ function onFineTuneDivergeFromPackage() {
   const hasRoutePackages = getRouteFilteredPresets().length > 0;
   if (st) {
     st.textContent = hasRoutePackages
-      ? "Trip details changed — pick a package again, or open Route & times for this quote and tap Recalculate price."
-      : "Trip details changed — open Route & times for this quote and tap Recalculate price.";
+      ? "Trip details changed — pick a package again, or adjust From/To below and tap Recalculate price. Dates follow the banner search."
+      : "Trip details changed — adjust From/To below and tap Recalculate price. Dates follow the banner search.";
   }
   populateBundlePackageSelect();
   renderBundleGallery();
@@ -4267,7 +4267,7 @@ function runPackageSearch() {
     const st = document.getElementById("bundleStatus");
     if (st) {
       st.textContent =
-        "Browse packages below, or expand Route & times for this quote, change From/To or times, then Recalculate price.";
+        "Browse packages below, or fine-tune From/To under Route & times, then Recalculate price. Change dates in the banner search.";
     }
     scheduleBundleCardPriceRefresh();
   }
@@ -4322,11 +4322,21 @@ function setupPackageSearchUI() {
         document.querySelector('input[name="packageTripType"]:checked')?.value === "return";
       if (retWrap) retWrap.hidden = !isReturn;
       updatePackageNightsHint();
+      applyPackageSearchToBundle();
+      syncTripWindowFromDateInputs();
+      scheduleBundleCardPriceRefresh();
+      onFineTuneDivergeFromPackage();
     })
   );
 
   ["packageDepartDate", "packageReturnDate"].forEach((id) => {
-    document.getElementById(id)?.addEventListener("change", updatePackageNightsHint);
+    document.getElementById(id)?.addEventListener("change", () => {
+      updatePackageNightsHint();
+      applyPackageSearchToBundle();
+      syncTripWindowFromDateInputs();
+      scheduleBundleCardPriceRefresh();
+      onFineTuneDivergeFromPackage();
+    });
   });
   ["packageRooms", "packageAdults", "packageChildren", "packageInfants", "packageCabin"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", updatePackageTripSummary);
@@ -4364,6 +4374,9 @@ function setupPackageSearchUI() {
   });
 
   syncSameCityRouteUI();
+
+  applyPackageSearchToBundle();
+  syncTripWindowFromDateInputs();
 }
 
 function refreshTripContactSummary() {

@@ -1433,6 +1433,13 @@ button {
   margin-top: 10px;
 }
 
+.bundle-advanced input[readonly],
+.bundle-advanced select:disabled {
+  cursor: not-allowed;
+  opacity: 0.92;
+  background-color: rgba(248, 248, 247, 0.95);
+}
+
 @media (max-width: 640px) {
   .bundle-gallery__nav {
     display: none;

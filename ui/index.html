@@ -309,8 +309,9 @@
           </button>
         </div>
         <p class="package-search__sync-hint muted">
-          After you scroll to <strong>Book</strong>, the same From / To and dates appear under
-          <strong>Route &amp; times for this quote</strong> — use that if you need exact flight times or a new price.
+          Under <strong>Book</strong> → <strong>Route &amp; times for this quote</strong>, dates mirror this search
+          (read-only there). Change Depart / Return here, then <strong>Search flights + hotels</strong> or tap
+          <strong>Recalculate price</strong> in that section; use From / To there only to fine-tune cities.
         </p>
       </div>
     </div>
@@ -461,10 +462,10 @@
           <details class="bundle-advanced" id="bundleRouteDatesSection">
             <summary class="bundle-advanced__summary">Route &amp; times for this quote</summary>
             <p class="bundle-advanced__hint muted">
-              The search bar at the top is the main place to choose <strong>From</strong>, <strong>To</strong>, and
-              calendar dates. This block is the same trip, shown here so you can tweak cities or set
-              <strong>exact departure/return times</strong> for flight + hotel pricing. Use a quick preset to fill
-              both times, edit the fields if you like, then tap <strong>Recalculate price</strong>.
+              <strong>Depart</strong> and <strong>Return</strong> dates (and default flight times) come from the
+              package search at the top — change them there, then use <strong>Search flights + hotels</strong> or
+              <strong>Recalculate price</strong> here. This section is for fine-tuning <strong>From</strong> /
+              <strong>To</strong> if you need a different city pair for the quote.
             </p>
             <div class="form-grid">
               <label>
@@ -476,22 +477,37 @@
                 <select id="bundleDestination" aria-label="Flying to (destination city)"></select>
               </label>
               <label>
-                Quick trip windows
+                Trip window (from banner search)
                 <select
                   id="bundleTripWindowSelect"
-                  aria-label="Sample outbound and return dates and times"
+                  aria-label="Outbound and return date-times (synced from package search)"
+                  disabled
                 ></select>
-                <span class="muted field-hint">Sets outbound &amp; return date-time below (demo itineraries).</span>
+                <span class="muted field-hint">Read-only — matches Depart / Return from the top search.</span>
               </label>
               <label>
                 Outbound date &amp; time
-                <input type="datetime-local" id="bundleDepartDateTime" value="2026-05-01T10:00" />
-                <span class="muted field-hint">Used for flights, hotels, and refund rules.</span>
+                <input
+                  type="datetime-local"
+                  id="bundleDepartDateTime"
+                  value="2026-05-01T10:00"
+                  readonly
+                  aria-readonly="true"
+                  title="Change dates in the package search at the top"
+                />
+                <span class="muted field-hint">Synced from the top search; used for flights, hotels, and refund rules.</span>
               </label>
               <label>
                 Return date &amp; time
-                <input type="datetime-local" id="bundleReturnDateTime" value="2026-05-06T11:00" />
-                <span class="muted field-hint">Length of stay sets hotel nights.</span>
+                <input
+                  type="datetime-local"
+                  id="bundleReturnDateTime"
+                  value="2026-05-06T11:00"
+                  readonly
+                  aria-readonly="true"
+                  title="Change dates in the package search at the top"
+                />
+                <span class="muted field-hint">Synced from the top search; length of stay sets hotel nights.</span>
               </label>
             </div>
             <div class="actions-row form-grid-1col" id="bundleFineTunePriceRow">
