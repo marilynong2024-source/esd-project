@@ -1,3 +1,7 @@
+import os
+import threading
+from datetime import datetime, timedelta, timezone
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -12,6 +16,153 @@ CORS(app)
 # - PUT /confirm-room
 # - PUT /release-room
 HOTEL_ROOM_HOLDS: dict[int, dict] = {}
+
+# Browsing / pre-checkout holds (same idea as flight seat-holds): keyed by client session token.
+HOTEL_SESSION_HOLDS: dict[str, dict] = {}
+HOLD_MINUTES = int(os.environ.get("HOTEL_HOLD_MINUTES", "15") or "15")
+# Single-process lock so two checkouts cannot pass inventory checks at the same instant (demo).
+_HOTEL_HOLD_LOCK = threading.Lock()
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_iso_dt(value: object) -> datetime | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _session_mix_key(mix: dict) -> tuple[tuple[str, int], ...]:
+    out: list[tuple[str, int]] = []
+    if isinstance(mix, dict):
+        for k, v in mix.items():
+            code = str(k).strip().upper()
+            if code not in ("STD", "DLX"):
+                continue
+            n = max(0, _parse_int(v, 0))
+            if n:
+                out.append((code, n))
+    return tuple(sorted(out))
+
+
+def _purge_expired_session_holds() -> None:
+    now = _utc_now()
+    for tok, rec in list(HOTEL_SESSION_HOLDS.items()):
+        if str(rec.get("status", "")).upper() != "HELD":
+            HOTEL_SESSION_HOLDS.pop(tok, None)
+            continue
+        exp = _parse_iso_dt(rec.get("holdExpiresAt"))
+        if exp and exp <= now:
+            HOTEL_SESSION_HOLDS.pop(tok, None)
+
+
+def _merge_hold_counts_into(by_hotel: dict[str, dict[str, int]], rec: dict) -> None:
+    if str(rec.get("status", "")).upper() != "HELD":
+        return
+    hid = _parse_int(rec.get("hotelID"), 0)
+    if hid < 1:
+        return
+    key = str(hid)
+    by_hotel.setdefault(key, {"STD": 0, "DLX": 0})
+    mix = rec.get("roomMix")
+    if not isinstance(mix, dict):
+        return
+    for rk, rv in mix.items():
+        code = str(rk).strip().upper()
+        if code not in ("STD", "DLX"):
+            continue
+        n = max(0, _parse_int(rv, 0))
+        if n:
+            by_hotel[key][code] = by_hotel[key].get(code, 0) + n
+
+
+def _room_capacity_for_code(hotel: dict, code: str) -> int:
+    code = str(code).strip().upper()
+    for rt in hotel.get("roomTypes") or []:
+        if str(rt.get("code") or "").strip().upper() == code:
+            return max(0, _parse_int(rt.get("availableRooms"), 0))
+    return 0
+
+
+def _aggregated_held_room_mix(
+    hotel_id: int,
+    *,
+    exclude_session_token: str | None = None,
+    exclude_booking_id: int | None = None,
+) -> dict[str, int]:
+    acc: dict[str, int] = {"STD": 0, "DLX": 0}
+    for bid, rec in HOTEL_ROOM_HOLDS.items():
+        if exclude_booking_id is not None and bid == exclude_booking_id:
+            continue
+        if str(rec.get("status", "")).upper() != "HELD":
+            continue
+        if _parse_int(rec.get("hotelID"), 0) != hotel_id:
+            continue
+        mix = rec.get("roomMix")
+        if not isinstance(mix, dict):
+            continue
+        for rk, rv in mix.items():
+            c = str(rk).strip().upper()
+            if c not in acc:
+                continue
+            acc[c] = acc.get(c, 0) + max(0, _parse_int(rv, 0))
+    for tok, rec in HOTEL_SESSION_HOLDS.items():
+        if exclude_session_token and tok == exclude_session_token:
+            continue
+        if str(rec.get("status", "")).upper() != "HELD":
+            continue
+        if _parse_int(rec.get("hotelID"), 0) != hotel_id:
+            continue
+        mix = rec.get("roomMix")
+        if not isinstance(mix, dict):
+            continue
+        for rk, rv in mix.items():
+            c = str(rk).strip().upper()
+            if c not in acc:
+                continue
+            acc[c] = acc.get(c, 0) + max(0, _parse_int(rv, 0))
+    return acc
+
+
+def _validate_hotel_mix_inventory(
+    hotel_id: int,
+    mix: dict[str, int],
+    *,
+    exclude_session_token: str | None = None,
+    exclude_booking_id: int | None = None,
+) -> tuple[bool, str]:
+    hotel = HOTELS.get(hotel_id)
+    if not hotel:
+        return False, "Hotel not found."
+    held = _aggregated_held_room_mix(
+        hotel_id,
+        exclude_session_token=exclude_session_token,
+        exclude_booking_id=exclude_booking_id,
+    )
+    label = {"STD": "Standard", "DLX": "Deluxe"}
+    for code in ("STD", "DLX"):
+        need = max(0, _parse_int(mix.get(code), 0))
+        if need <= 0:
+            continue
+        cap = _room_capacity_for_code(hotel, code)
+        free = max(0, cap - held.get(code, 0))
+        if need > free:
+            return (
+                False,
+                f"Only {free} {label.get(code, code)} room(s) available now — another guest may have "
+                f"held or booked them at the same time. Try fewer rooms, another type, or another hotel.",
+            )
+    return True, ""
 
 
 def _parse_int(value: object, default: int = 0) -> int:
@@ -454,6 +605,12 @@ HOTELS = {
 
 HOTELS.update(hotels_dict_for_app())
 
+for _hid, _hotel in HOTELS.items():
+    for _rt in _hotel.get("roomTypes") or []:
+        _code = str(_rt.get("code") or "r").strip().upper()
+        if not _rt.get("imageUrl"):
+            _rt["imageUrl"] = f"https://picsum.photos/seed/hotel{_hid}room{_code}/400/260"
+
 
 @app.route("/hotel/<int:hotel_id>", methods=["GET"])
 def get_hotel(hotel_id: int):
@@ -461,6 +618,115 @@ def get_hotel(hotel_id: int):
     if not hotel:
         return jsonify({"code": 404, "message": "Hotel not found"}), 404
     return jsonify({"code": 200, "data": hotel}), 200
+
+
+@app.route("/hotel/holds-summary", methods=["GET"])
+def hotel_holds_summary():
+    """
+    For UI: count rooms temporarily on hold (browsing checkout + unpaid booking) per hotel and room code.
+    Keys are hotelID strings; values are { "STD": n, "DLX": m }.
+    """
+    _purge_expired_session_holds()
+    by_hotel: dict[str, dict[str, int]] = {}
+    for rec in HOTEL_ROOM_HOLDS.values():
+        _merge_hold_counts_into(by_hotel, rec)
+    for rec in HOTEL_SESSION_HOLDS.values():
+        _merge_hold_counts_into(by_hotel, rec)
+    return jsonify({"code": 200, "data": by_hotel}), 200
+
+
+@app.route("/hotel/session-hold", methods=["POST"])
+def hotel_session_hold():
+    """
+    Short hold while the guest finishes traveller details / payment (aligned with flight seat-holds).
+    Body: sessionHoldToken, hotelID, roomMix {STD, DLX}, checkIn, checkOut, numberOfKeys (optional).
+    """
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+
+    token = str(data.get("sessionHoldToken") or "").strip()
+    if not token:
+        return jsonify({"code": 400, "message": "sessionHoldToken is required"}), 400
+
+    hotel_id = _parse_int(data.get("hotelID"), 0)
+    if hotel_id < 1:
+        return jsonify({"code": 400, "message": "hotelID is required"}), 400
+    if hotel_id not in HOTELS:
+        return jsonify({"code": 404, "message": "Hotel not found"}), 404
+
+    check_in = data.get("checkIn") or data.get("checkInDate") or ""
+    check_out = data.get("checkOut") or data.get("checkOutDate") or ""
+    if not check_in or not check_out:
+        return jsonify({"code": 400, "message": "checkIn and checkOut are required"}), 400
+
+    mix = _normalize_room_mix(data.get("roomMix"))
+    if not mix:
+        rt = str(data.get("roomType") or "STD").strip().upper()
+        if rt not in ("STD", "DLX"):
+            rt = "STD"
+        n_rooms = max(1, _parse_int(data.get("numberOfRooms") or data.get("noOfRooms"), 1))
+        mix = {rt: n_rooms}
+
+    number_of_keys = max(1, _parse_int(data.get("numberOfKeys"), 1))
+    primary = "MIX" if len(mix) > 1 else next(iter(mix.keys()))
+    room_id = f"{hotel_id}:{primary}"
+    new_key = _session_mix_key(mix)
+
+    with _HOTEL_HOLD_LOCK:
+        _purge_expired_session_holds()
+        ok_inv, inv_err = _validate_hotel_mix_inventory(
+            hotel_id, mix, exclude_session_token=token
+        )
+        if not ok_inv:
+            return jsonify({"code": 409, "message": inv_err}), 409
+
+        now = _utc_now()
+        prev = HOTEL_SESSION_HOLDS.get(token)
+        preserved_expires = None
+        hold_started = now
+        if prev and _parse_int(prev.get("hotelID"), 0) == hotel_id:
+            prev_mix = prev.get("roomMix") if isinstance(prev.get("roomMix"), dict) else {}
+            if _session_mix_key(prev_mix) == new_key:
+                old_exp = _parse_iso_dt(prev.get("holdExpiresAt"))
+                if old_exp and old_exp > now:
+                    preserved_expires = old_exp
+                st = _parse_iso_dt(prev.get("holdStartedAt"))
+                if st:
+                    hold_started = st
+
+        expires = preserved_expires if preserved_expires else now + timedelta(minutes=HOLD_MINUTES)
+        rec = {
+            "sessionHoldToken": token,
+            "hotelID": hotel_id,
+            "roomID": room_id,
+            "roomType": primary,
+            "roomMix": mix,
+            "checkIn": str(check_in),
+            "checkOut": str(check_out),
+            "numberOfKeys": number_of_keys,
+            "numberOfRooms": int(sum(mix.values())),
+            "holdStartedAt": hold_started.isoformat(),
+            "holdExpiresAt": expires.isoformat(),
+            "status": "HELD",
+        }
+        HOTEL_SESSION_HOLDS[token] = rec
+        return jsonify({"code": 200, "data": rec}), 200
+
+
+@app.route("/hotel/release-session-hold", methods=["PUT"])
+def hotel_release_session_hold():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
+    token = str(data.get("sessionHoldToken") or "").strip()
+    if not token:
+        return jsonify({"code": 400, "message": "sessionHoldToken is required"}), 400
+    if token in HOTEL_SESSION_HOLDS:
+        HOTEL_SESSION_HOLDS.pop(token, None)
+        return jsonify({"code": 200, "data": {"sessionHoldToken": token, "released": True}}), 200
+    # Idempotent: no hold for this token (expired, never created, or new browser session).
+    return jsonify({"code": 200, "data": {"sessionHoldToken": token, "released": False}}), 200
 
 
 @app.route("/hotel/search", methods=["GET"])
@@ -648,6 +914,7 @@ def update_room_availability(hotel_id: int, status: str):
     room_type = (data.get("roomType") or "STD").strip().upper()
     if room_type not in ("STD", "DLX"):
         room_type = "STD"
+    count = max(1, _parse_int(data.get("count") or data.get("rooms") or data.get("numberOfRooms"), 1))
     st = str(status or "").strip().upper()
     hotel = HOTELS.get(int(hotel_id))
     if not hotel:
@@ -661,9 +928,9 @@ def update_room_availability(hotel_id: int, status: str):
     except Exception:
         cur = 0
     if st in ("CONFIRMED", "BOOKED", "OCCUPIED"):
-        selected["availableRooms"] = max(0, cur - 1)
+        selected["availableRooms"] = max(0, cur - count)
     elif st in ("RELEASED", "AVAILABLE", "CANCELLED"):
-        selected["availableRooms"] = cur + 1
+        selected["availableRooms"] = cur + count
     else:
         return jsonify({"code": 400, "message": f"Unsupported status {st!r}"}), 400
     return (
@@ -682,16 +949,29 @@ def update_room_availability(hotel_id: int, status: str):
     )
 
 
+def _normalize_room_mix(raw: object) -> dict[str, int]:
+    out: dict[str, int] = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            code = str(k).strip().upper()
+            if code not in ("STD", "DLX"):
+                continue
+            n = _parse_int(v, 0)
+            if n > 0:
+                out[code] = out.get(code, 0) + n
+    return out
+
+
 @app.route("/hold-room", methods=["POST"])
 def hold_room():
     """
-    Hold a hotel room for a pending booking.
+    Hold hotel room(s) for a pending booking.
     Body:
       - bookingID (int)
       - hotelID (int)
-      - roomType (STD/DLX)
-      - checkIn (string datetime)
-      - checkOut (string datetime)
+      - roomType (STD/DLX) — legacy single-type
+      - roomMix (optional) { "STD": 1, "DLX": 2 }
+      - checkIn, checkOut
       - numberOfKeys (int)
     """
     data = request.get_json(silent=True) or {}
@@ -711,24 +991,39 @@ def hold_room():
 
     if not hotel_id:
         return jsonify({"code": 400, "message": "hotelID is required (int)"}), 400
-    if room_type not in ("STD", "DLX"):
+    if room_type not in ("STD", "DLX", "MIX"):
         room_type = "STD"
     if not check_in or not check_out:
         return jsonify({"code": 400, "message": "checkIn and checkOut are required"}), 400
 
-    # For demo: allow one hold per booking_id; no concurrency logic.
-    room_id = f"{hotel_id}:{room_type}"
-    HOTEL_ROOM_HOLDS[booking_id] = {
-        "bookingID": booking_id,
-        "hotelID": hotel_id,
-        "roomID": room_id,
-        "roomType": room_type,
-        "checkIn": str(check_in),
-        "checkOut": str(check_out),
-        "numberOfKeys": number_of_keys,
-        "status": "HELD",
-    }
-    return jsonify({"code": 200, "data": HOTEL_ROOM_HOLDS[booking_id]}), 200
+    mix = _normalize_room_mix(data.get("roomMix"))
+    if not mix:
+        rt = room_type if room_type in ("STD", "DLX") else "STD"
+        n_rooms = max(1, _parse_int(data.get("numberOfRooms") or data.get("noOfRooms"), 1))
+        mix = {rt: n_rooms}
+
+    primary = "MIX" if len(mix) > 1 else next(iter(mix.keys()))
+    room_id = f"{hotel_id}:{primary}"
+    with _HOTEL_HOLD_LOCK:
+        _purge_expired_session_holds()
+        ok_inv, inv_err = _validate_hotel_mix_inventory(
+            hotel_id, mix, exclude_booking_id=booking_id
+        )
+        if not ok_inv:
+            return jsonify({"code": 409, "message": inv_err}), 409
+        HOTEL_ROOM_HOLDS[booking_id] = {
+            "bookingID": booking_id,
+            "hotelID": hotel_id,
+            "roomID": room_id,
+            "roomType": primary,
+            "roomMix": mix,
+            "checkIn": str(check_in),
+            "checkOut": str(check_out),
+            "numberOfKeys": number_of_keys,
+            "numberOfRooms": int(sum(mix.values())),
+            "status": "HELD",
+        }
+        return jsonify({"code": 200, "data": HOTEL_ROOM_HOLDS[booking_id]}), 200
 
 
 @app.route("/confirm-room", methods=["PUT"])

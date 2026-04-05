@@ -40,8 +40,7 @@
               id="loginPassword"
               name="password"
               autocomplete="current-password"
-              placeholder="e.g. demoPass1"
-              title="Seeded passwords: database/ACCESSIBLE_ACCOUNTS.txt"
+              placeholder="Your password"
               required
             />
           </label>
@@ -56,9 +55,8 @@
             type="submit"
             class="btn-primary login-gate__submit"
             id="loginSubmitBtn"
-            title="Seeded test accounts: database/ACCESSIBLE_ACCOUNTS.txt"
           >
-            Sign in as loyalty member
+            Sign in
           </button>
 
           <button
@@ -78,7 +76,7 @@
           <button type="button" class="btn-secondary login-gate__submit" id="backToSigninBtn">
             Back to sign in
           </button>
-          <form id="signupForm" class="login-gate__form" novalidate>
+          <form id="signupForm" class="login-gate__form">
             <label class="login-gate__field">
               <span>Email</span>
               <input
@@ -97,9 +95,14 @@
                 id="signupPassword"
                 name="password"
                 autocomplete="new-password"
-                placeholder="Any non-empty password"
+                placeholder="Strong password"
+                minlength="10"
                 required
+                aria-describedby="signupPasswordHint"
               />
+              <span id="signupPasswordHint" class="login-gate__hint muted">
+                At least 10 characters, with upper &amp; lower case, a number, and a symbol (e.g. ! @ # $ %).
+              </span>
             </label>
             <label class="login-gate__field">
               <span>Mobile (SMS)</span>
@@ -109,16 +112,33 @@
                 name="phoneNumber"
                 autocomplete="tel"
                 placeholder="+65 9123 4567 or 91234567"
+                inputmode="tel"
                 required
               />
             </label>
             <label class="login-gate__field login-gate__field--inline">
               <span>First name</span>
-              <input type="text" id="signupFirstName" name="firstName" autocomplete="given-name" />
+              <input
+                type="text"
+                id="signupFirstName"
+                name="firstName"
+                autocomplete="given-name"
+                required
+                minlength="1"
+                maxlength="80"
+              />
             </label>
             <label class="login-gate__field login-gate__field--inline">
               <span>Last name</span>
-              <input type="text" id="signupLastName" name="lastName" autocomplete="family-name" />
+              <input
+                type="text"
+                id="signupLastName"
+                name="lastName"
+                autocomplete="family-name"
+                required
+                minlength="1"
+                maxlength="80"
+              />
             </label>
             <label class="login-gate__field">
               <span>Nationality (optional)</span>
@@ -160,7 +180,7 @@
         <span id="sessionBadge" class="session-badge" aria-live="polite"></span>
         <label class="site-header__fx muted">
           <span class="site-header__fx-label">Prices in</span>
-          <select id="displayCurrencySelect" class="site-header__fx-select" aria-label="Display currency" title="Display only — booking uses SGD">
+          <select id="displayCurrencySelect" class="site-header__fx-select" aria-label="Display currency" title="Prices shown in this currency; you are charged in SGD">
             <option value="SGD">SGD</option>
             <option value="USD">USD</option>
             <option value="EUR">EUR</option>
@@ -275,6 +295,13 @@
               <option value="1" selected>1 room</option>
               <option value="2">2 rooms</option>
               <option value="3">3 rooms</option>
+              <option value="4">4 rooms</option>
+              <option value="5">5 rooms</option>
+              <option value="6">6 rooms</option>
+              <option value="7">7 rooms</option>
+              <option value="8">8 rooms</option>
+              <option value="9">9 rooms</option>
+              <option value="10">10 rooms</option>
             </select>
           </label>
           <label>
@@ -320,10 +347,6 @@
             Search flights + hotels
           </button>
         </div>
-        <p class="package-search__sync-hint muted">
-          <strong>From</strong>, <strong>To</strong>, <strong>Depart</strong>, and <strong>Return</strong> all live
-          here — then tap <strong>Search flights + hotels</strong> to load packages, flights, and hotels for that trip.
-        </p>
       </div>
     </div>
 
@@ -340,7 +363,7 @@
         </div>
 
         <p id="bookingFlowLockNote" class="booking-flow-lock-note" hidden role="status">
-          Trip confirmed — step navigation, seats, and payment are locked. Use <strong>Reset form</strong> to start a new booking.
+          This trip is confirmed. Use <strong>Reset form</strong> to plan another trip.
         </p>
 
         <nav class="segment-tabs" aria-label="Booking steps">
@@ -423,6 +446,15 @@
 
           <div id="bundlePackageSection">
           <div class="section-title section-title--spaced">Package</div>
+          <p class="muted bundle-package-intro">
+            Browse all trips, or pick a destination country above. After Search flights + hotels, the gallery matches your “To” country (Tokyo → Japan). Choose All countries anytime to see every package again.
+          </p>
+          <label class="form-grid-1col">
+            Destination country
+            <select id="bundleGalleryCountryFilter" aria-label="Filter packages by destination country">
+              <option value="all">All countries</option>
+            </select>
+          </label>
           <label class="form-grid-1col">
             Package
             <select id="bundlePackageSelect" aria-label="Choose travel package">
@@ -553,7 +585,7 @@
                   Nationality
                   <input type="text" id="travellerEditNationality" />
                 </label>
-              </div>
+    </div>
 
               <div class="form-grid">
                 <label>
@@ -579,23 +611,23 @@
                     <option value="Child meal">Child meal</option>
                   </select>
                 </label>
-              </div>
+        </div>
 
               <div class="form-grid">
-                <label>
+          <label>
                   Emergency contact name
                   <input type="text" id="travellerEditEmergencyContactName" />
-                </label>
+          </label>
                 <label>
                   Emergency contact phone
                   <input type="text" id="travellerEditEmergencyContactPhone" />
                 </label>
               </div>
 
-              <label>
+          <label>
                 Relationship
                 <input type="text" id="travellerEditRelationship" />
-              </label>
+          </label>
 
               <div class="actions-row form-grid-1col">
                 <button type="button" class="btn-primary" id="travellerSaveBtn">
@@ -615,13 +647,12 @@
           </div>
 
           <div id="bookingStep3Panel" class="segment-panel" role="tabpanel" aria-labelledby="bookingStep4Tab" hidden>
-            <label>
+          <label>
               Flight
               <select id="flightID" required aria-label="Choose flight for this route">
                 <option value="">— Loading flights for your route… —</option>
               </select>
-              <span class="muted field-hint" id="flightSelectHint"></span>
-            </label>
+          </label>
             <div class="form-grid">
               <label>
                 Flight departure
@@ -638,15 +669,19 @@
               <div class="section-title section-title--flush">Seat selection</div>
               <p id="seatPolicyText" class="muted seat-policy-line"></p>
               <div class="seat-group-summary" id="seatGroupSummary">
-                <span class="seat-pill" id="seatLeadPill">Lead traveller seat: —</span>
-                <span class="seat-pill seat-pill--muted" id="seatCompanionPill">Group seats: 0/0</span>
+                <span class="seat-pill" id="seatLeadPill">Selected seats: none yet</span>
+                <span class="seat-pill seat-pill--muted" id="seatCompanionPill">Progress: 0/0 travellers</span>
                 <span class="seat-pill seat-pill--hint" id="seatGroupHint"></span>
+              </div>
+              <div id="seatHoldTimerWrap" class="hold-banner hold-banner--seat" role="status" hidden>
+                <div class="hold-banner__title" id="seatHoldTimerTitle"></div>
               </div>
               <div id="seatMapWrap" class="seat-map-wrap" hidden>
                 <div class="seat-map-legend">
-                  <span><span class="swatch free"></span> Open · solid outline</span>
-                  <span><span class="swatch taken"></span> Taken · grey · dashed</span>
-                  <span><span class="swatch picked"></span> Yours</span>
+                  <span><span class="swatch free"></span> Available</span>
+                  <span><span class="swatch held"></span> On hold</span>
+                  <span><span class="swatch taken"></span> Taken</span>
+                  <span><span class="swatch picked"></span> Your seats</span>
                 </div>
                 <div class="seat-map-legend seat-map-legend--types">
                   <span><span class="swatch stripe stripe--std"></span> Standard</span>
@@ -657,7 +692,6 @@
                 <p class="muted">Selected seat: <strong id="seatSelectedDisplay">—</strong></p>
                 <p class="muted seat-selected-detail" id="seatSelectedDetail"></p>
               </div>
-              <p class="muted seat-hold-timer" id="seatHoldTimer" hidden></p>
               <div id="seatBlockedNote" class="seat-blocked-note" hidden></div>
               <input type="hidden" id="seatNumber" value="" />
             </div>
@@ -672,7 +706,7 @@
             </div>
           <div class="hotel-search form-grid-1col">
             <div class="form-grid">
-              <label>
+          <label>
                 Hotel name
                 <input
                   type="text"
@@ -687,7 +721,6 @@
                 <select id="hotelSearchCountry" class="hotel-search__select" aria-label="Hotel country">
                   <option value="">— Country —</option>
                 </select>
-                <span class="muted field-hint">Filled from your <strong>To</strong> city in the search above.</span>
               </label>
               <label>
                 City
@@ -706,7 +739,6 @@
               <button type="button" class="btn-secondary" id="hotelBrowseOtherBtn">
                 Change hotel
               </button>
-              <span class="muted hotel-results-toolbar__note">Showing your choice — pick another or search again to compare.</span>
             </div>
             <div id="hotelResults" class="hotel-results" aria-label="Hotel results"></div>
             <div class="muted">
@@ -719,23 +751,46 @@
             <input type="number" id="hotelID" value="0" hidden />
           </div>
 
-          <label>
-            Room type
-            <select id="hotelRoomType">
-              <option value="STD">Standard (Room only)</option>
-              <option value="DLX">Deluxe (with breakfast)</option>
-            </select>
-          </label>
+          <div class="hotel-room-mix" id="hotelRoomMixWrap">
+            <div class="section-title section-title--flush">Rooms at this hotel</div>
+            <div class="hotel-room-mix__grid">
+              <label>
+                Standard rooms
+                <input
+                  type="number"
+                  id="hotelRoomQtySTD"
+                  min="0"
+                  max="20"
+                  value="1"
+                  inputmode="numeric"
+                  aria-label="Number of standard rooms"
+                />
+              </label>
+              <label>
+                Deluxe rooms (breakfast included)
+                <input
+                  type="number"
+                  id="hotelRoomQtyDLX"
+                  min="0"
+                  max="20"
+                  value="0"
+                  inputmode="numeric"
+                  aria-label="Number of deluxe rooms"
+                />
+              </label>
+            </div>
+            <input type="hidden" id="hotelRoomType" value="STD" />
+          </div>
 
           <div class="form-grid">
-            <label>
+          <label>
               Hotel check-in
               <input type="datetime-local" id="hotelCheckInTime" value="2026-05-01T15:00" required />
-            </label>
-            <label>
+          </label>
+          <label>
               Hotel check-out
               <input type="datetime-local" id="hotelCheckOutTime" value="2026-05-05T11:00" required />
-            </label>
+          </label>
           </div>
 
           <label>
@@ -751,7 +806,6 @@
               inputmode="decimal"
               readonly
               aria-readonly="true"
-              title="From bundle quote and hotel step"
             />
           </label>
           </div>
@@ -765,38 +819,32 @@
                     type="text"
                     id="discountCode"
                     class="pay-step__voucher-input"
-                    placeholder="SILVER10 / GOLD15 / PLAT20"
+                    placeholder="Promo or member code"
                     autocomplete="off"
                   />
                   <button type="button" class="btn-secondary pay-step__voucher-apply" id="voucherApplyBtn">
                     Apply
                   </button>
                 </span>
-              </label>
-              <p class="muted field-hint" id="voucherApplyHint">
-                Tap <strong>Apply</strong> to validate the code and refresh <strong>Amount due today</strong> (needs a
-                bundle quote: 2+ travellers, 3+ nights, Deluxe room for tier codes).
-              </p>
+          </label>
               <p class="field-hint pay-step__voucher-status" id="voucherApplyStatus" role="status" hidden></p>
             </div>
 
           <div id="panelPayment" class="segment-panel pay-step" role="region" aria-label="Discounts, rewards, and payment">
             <div class="pay-step__rewards" id="coinsOffsetWrap">
-              <div class="section-title section-title--flush">Use reward balance (optional)</div>
+              <div class="section-title section-title--flush">Use points (optional)</div>
               <label class="pay-step__coins-field">
-                Reward credits to apply
+                Points to apply
                 <input
                   type="number"
                   id="coinsToSpendCents"
                   value="0"
                   min="0"
                   step="1"
-                  aria-describedby="coinsFieldHint"
                 />
-                <span class="muted field-hint" id="coinsFieldHint">100 credits = S$1 off your total</span>
               </label>
               <div class="coins-meta">
-                Available: <strong id="coinsAvailableCents">-</strong>
+                You have: <strong id="coinsAvailableCents">-</strong>
                 <span class="muted coins-meta__sgd" id="coinsAvailableSgd"></span>
               </div>
               <div class="coins-quick-actions">
@@ -813,6 +861,9 @@
               </summary>
             </details>
             <p class="muted field-hint" id="payStepFxFootnote" hidden></p>
+            <div id="seatHoldTimerPayWrap" class="hold-banner hold-banner--pay pay-step__hold-timer" role="status" hidden>
+              <div class="hold-banner__title" id="seatHoldTimerPayTitle"></div>
+            </div>
 
             <label class="form-grid-1col">
               Mobile (SMS) for this trip
@@ -824,43 +875,28 @@
                 placeholder="+65 9123 4567 or 91234567"
                 inputmode="tel"
               />
-              <span class="muted field-hint"
-                >Prefilled from My profile; change here anytime before you pay — SMS updates use this number.</span
-              >
-            </label>
+          </label>
 
-            <label>
-              Billing currency (server)
-              <input type="text" id="currency" value="SGD" required readonly />
-            </label>
-
-            <input type="hidden" id="fareType" value="Flexi" />
-
-            <div class="pay-step__simulated-payment muted" role="note">
-              <p class="pay-step__simulated-payment__title">Test checkout — no real card charge.</p>
-            </div>
+          <label>
+              Currency
+              <input type="text" id="currency" value="SGD" required readonly aria-label="Charged in Singapore dollars" />
+          </label>
 
             <label class="form-grid-1col" id="breakfastAddonWrap">
               Extras
-              <span class="inline-checkbox">
-                <input type="checkbox" id="hotelIncludesBreakfast" />
+            <span class="inline-checkbox">
+              <input type="checkbox" id="hotelIncludesBreakfast" />
                 <span>Add breakfast (Standard rooms only)</span>
-              </span>
-            </label>
+            </span>
+          </label>
 
             <div class="form-grid-1col form-submit-wrap">
               <button type="submit" class="btn-primary" id="createBtn">
                 <span aria-hidden="true">✓</span>
                 <span>Confirm &amp; pay</span>
-              </button>
-              <details class="advanced-details">
-                <summary>API note (instructors)</summary>
-                <p class="muted advanced-details__body">
-                  <code>POST /booking</code> (alias <code>POST /book-package</code>).
-                </p>
-              </details>
+            </button>
             </div>
-          </div>
+            </div>
           </div>
         </form>
 
@@ -897,40 +933,26 @@
               aria-label="Booking reference number from confirmation"
             />
           </label>
-          <label>
-            Who is cancelling? (refund rules differ)
+            <label>
+            Who is cancelling?
             <select id="cancelSource" aria-describedby="cancelRefundEstimate">
-              <option value="customer" selected>
-                Customer (you) — fare + loyalty day brackets
-              </option>
-              <option value="airline">Airline-initiated — full package refund</option>
-              <option value="hotel">Hotel-initiated — partial refund (~40% of package)</option>
+              <option value="customer" selected>You</option>
+              <option value="airline">Airline</option>
+              <option value="hotel">Hotel</option>
             </select>
           </label>
           <p id="cancelRefundEstimate" class="muted muted--compact-top" role="status">
-            Enter a booking reference to see estimated refund for this cancellation type.
+            Enter your booking reference to see an estimated refund.
           </p>
           <button type="submit" class="btn-secondary" id="cancelBtn">
             <span aria-hidden="true">↩</span>
             <span>Submit cancellation</span>
           </button>
-          <details class="advanced-details">
-            <summary>Refund rules</summary>
-            <p class="muted advanced-details__body">
-              <code>POST /booking/cancel/{id}</code> with <code>cancelSource</code>: <strong>customer</strong> uses fare type
-              (Saver / Standard / Flexi) and days before departure; <strong>airline</strong> = full refund;
-              <strong>hotel</strong> = demo partial refund on the package.
-            </p>
-          </details>
-          <p class="muted muted--compact-top">
-            Tip: under <strong>My bookings</strong>, <strong>Cancel this booking</strong> fills the reference here — choose who is
-            cancelling above, review the estimate, then submit.
-          </p>
         </form>
         <div id="cancelFeedback" class="alert" role="status" aria-live="polite"></div>
       </section>
 
-      </div>
+    </div>
 
       <div id="segment-account" class="segment-panel account-page" hidden>
         <div class="account-page__toolbar">
@@ -950,8 +972,8 @@
           <div class="card-header">
             <div class="card-header__titles">
               <h3 id="accountProfileTitle" class="account-page__section-title">Your profile</h3>
-            </div>
-          </div>
+        </div>
+        </div>
           <div class="form-grid account-page__profile-grid">
             <label>
               First name
@@ -979,11 +1001,11 @@
               Date of birth (optional)
               <input type="date" id="profileDob" name="profileDob" />
             </label>
-          </div>
+        </div>
           <p class="muted field-hint" id="profileSaveStatus" role="status" hidden></p>
-          <div class="actions-row">
+        <div class="actions-row">
             <button type="button" class="btn-primary" id="profileSaveBtn">Save profile</button>
-          </div>
+        </div>
         </section>
 
         <div class="account-page__stats">
@@ -1007,7 +1029,7 @@
           <div class="card-header">
             <div class="card-header__titles">
               <h2 class="account-page__section-title">Notifications &amp; activity</h2>
-            </div>
+    </div>
           </div>
 
         <span id="myAccountName" hidden></span>
@@ -1021,12 +1043,12 @@
         <p id="resultStatus" class="result-status-line muted" aria-live="polite"></p>
 
         <details class="advanced-details sidebar-json-details">
-          <summary>Technical details (JSON)</summary>
+          <summary>Confirmation details</summary>
           <div class="actions-row actions-row--tight-top">
-            <button type="button" id="copyResultBtn" class="btn-secondary">Copy JSON</button>
+            <button type="button" id="copyResultBtn" class="btn-secondary">Copy details</button>
             <button type="button" id="refreshNotifBtn" class="btn-secondary">Refresh activity</button>
           </div>
-          <pre id="result" class="code-block code-block--compact" aria-label="Latest API response">{ }</pre>
+          <pre id="result" class="code-block code-block--compact" aria-label="Latest booking response">{ }</pre>
         </details>
 
         <div class="section-title section-title--spaced">SMS (optional)</div>
@@ -1035,37 +1057,37 @@
           <span>Text me booking updates</span>
         </label>
         <details class="advanced-details advanced-details--after-sms">
-          <summary>Twilio setup</summary>
-          <div class="form-grid form-grid--twilio" role="group" aria-label="SMS provider settings">
+          <summary>SMS delivery settings</summary>
+          <div class="form-grid form-grid--twilio" role="group" aria-label="SMS delivery settings">
             <p class="muted section-hint" id="twilioSidHint"></p>
             <label>
-              Twilio account ID
+              Account ID
               <input
                 type="text"
                 id="twilioAccountSid"
                 name="twilioAccountSid"
                 autocomplete="off"
-                placeholder="Copy from your Twilio console"
+                placeholder="From your SMS provider"
               />
             </label>
             <label>
-              Twilio auth token
+              Auth token
               <input
                 type="password"
                 id="twilioAuthToken"
                 name="twilioAuthToken"
                 autocomplete="off"
-                placeholder="Paste once, leave blank next time"
+                placeholder="Leave blank to keep existing token"
               />
             </label>
             <label>
-              Sender phone number
+              Sender number
               <input
                 type="tel"
                 id="twilioFromNumber"
                 name="twilioFromNumber"
                 autocomplete="off"
-                placeholder="+65 or +1 … (your Twilio SMS number)"
+                placeholder="+65 …"
               />
             </label>
             <button type="button" id="twilioSaveBtn" class="btn-secondary">Save SMS settings</button>
@@ -1074,7 +1096,7 @@
         </details>
 
         <div class="section-title section-title--spaced">Activity</div>
-        <pre id="notifications" class="code-block code-block--compact" aria-label="Notification log">{ }</pre>
+        <pre id="notifications" class="code-block code-block--compact" aria-label="Activity log">{ }</pre>
 
         <div id="uiError" class="alert" role="alert"></div>
         </section>
@@ -1123,12 +1145,6 @@
 
   <footer class="site-footer">
     <p>Horizon Packages</p>
-    <details class="advanced-details advanced-details--footer">
-      <summary>Stack info</summary>
-      <p class="muted advanced-details__body">
-        UI → <code>/api/</code> via nginx. Use Docker for live services.
-      </p>
-    </details>
   </footer>
 
   </div>

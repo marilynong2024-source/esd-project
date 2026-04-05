@@ -55,7 +55,6 @@ $createPayload = @{
   departureTime = "2026-06-01T10:00"
   totalPrice = 1200
   currency = "SGD"
-  fareType = "Flexi"
   seatNumber = "11A"
 } | ConvertTo-Json -Depth 6
 

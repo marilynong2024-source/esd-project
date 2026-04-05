@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+from typing import Optional
 
 import requests
 
@@ -193,6 +194,26 @@ NEXT_ID = 13
 _load_accounts_from_disk()
 
 
+def _validate_password(pw: str) -> Optional[str]:
+    """Strong signup rules (aligned with UI): length, mixed case, digit, special."""
+    if len(pw) < 10:
+        return "Password must be at least 10 characters"
+    if not any(c.islower() for c in pw):
+        return "Password must include at least one lowercase letter"
+    if not any(c.isupper() for c in pw):
+        return "Password must include at least one uppercase letter"
+    if not any(c.isdigit() for c in pw):
+        return "Password must include at least one digit"
+    special = set("!@#$%^&*()_+-=[]{}|;:,.<>?/`~")
+    if not any(c in special for c in pw):
+        return "Password must include at least one special character (e.g. ! @ # $ % & *)"
+    return None
+
+
+def _digits_only(s: str) -> str:
+    return "".join(ch for ch in s if ch.isdigit())
+
+
 def _loyalty_init_new_account(customer_id: int) -> None:
     """Tell loyalty MS to start this customer at Bronze (signup / new account row)."""
     base = os.environ.get("LOYALTY_URL", "http://localhost:5105/loyalty").strip().rstrip("/")
@@ -287,9 +308,33 @@ def signup():
     raw_email = (data.get("email") or "").strip().lower()
     if not raw_email:
         return jsonify({"code": 400, "message": "email is required"}), 400
-    signup_pw = (data.get("password") or "").strip()
-    if not signup_pw:
+    signup_pw_raw = data.get("password")
+    if signup_pw_raw is None or str(signup_pw_raw) == "":
         return jsonify({"code": 400, "message": "password is required"}), 400
+    signup_pw = str(signup_pw_raw)
+    pw_err = _validate_password(signup_pw)
+    if pw_err:
+        return jsonify({"code": 400, "message": pw_err}), 400
+
+    first_name = str(data.get("firstName") or "").strip()
+    last_name = str(data.get("lastName") or "").strip()
+    if not first_name:
+        return jsonify({"code": 400, "message": "firstName is required"}), 400
+    if not last_name:
+        return jsonify({"code": 400, "message": "lastName is required"}), 400
+    phone_raw = str(data.get("phoneNumber") or "").strip()
+    if not phone_raw:
+        return jsonify({"code": 400, "message": "phoneNumber is required"}), 400
+    if len(_digits_only(phone_raw)) < 8:
+        return (
+            jsonify(
+                {
+                    "code": 400,
+                    "message": "Enter a valid mobile number (at least 8 digits)",
+                }
+            ),
+            400,
+        )
 
     # Reject duplicates by email (case-insensitive).
     for rec in ACCOUNTS.values():
@@ -302,9 +347,9 @@ def signup():
     record = {
         "email": data.get("email"),
         "password": signup_pw,
-        "firstName": data.get("firstName") or "",
-        "lastName": data.get("lastName") or "",
-        "phoneNumber": data.get("phoneNumber"),
+        "firstName": first_name,
+        "lastName": last_name,
+        "phoneNumber": phone_raw,
         "nationality": data.get("nationality"),
         "dateOfBirth": data.get("dateOfBirth"),
         "accountStatus": "Active",

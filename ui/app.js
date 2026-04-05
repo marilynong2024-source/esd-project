@@ -9,6 +9,9 @@ const GRAPHQL_BASE = "/api/graphql/graphql";
 const FLIGHT_BASE = "/api/flight";
 const BUNDLE_PRICE_BASE = "/api/bundle-price";
 
+/** Points redeemed toward checkout; same divisor as bundle_pricing `loyalty_used_dollars = coins_spent / 100`. */
+const LOYALTY_POINTS_PER_SGD = 100;
+
 const SESSION_STORAGE_KEY = "horizonPackagesSession";
 const DISPLAY_CURRENCY_STORAGE_KEY = "horizonDisplayCurrency";
 
@@ -860,12 +863,14 @@ async function refreshHotelsForBundleDestination() {
     const selectedHintEl = document.getElementById("hotelSelectedHint");
     const resultsEl = document.getElementById("hotelResults");
     if (selectedHintEl) {
+      selectedHintEl.classList.remove("section-hint--warn");
       selectedHintEl.textContent =
         "Choose different origin and destination cities to search hotels.";
     }
     if (resultsEl) resultsEl.textContent = "";
     latestHotelRows = [];
     destinationHasHotels = false;
+    latestHotelHoldsSummary = {};
     renderHotelResults([]);
     return;
   }
@@ -906,20 +911,45 @@ function getPackageDropdownSelectionId() {
   return String(sel.value || "").trim();
 }
 
-/** Presets matching the hero search route (same origin + destination). */
-function getRouteFilteredPresets() {
-  const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
-  const d = document.getElementById("bundleDestination")?.value?.trim() || "";
-  if (!o || !d) return BUNDLE_PRESETS;
-  return BUNDLE_PRESETS.filter((p) => p.origin === o && p.destination === d);
+function getBundleGalleryCountrySlug() {
+  return String(document.getElementById("bundleGalleryCountryFilter")?.value || "all").trim() || "all";
+}
+
+/**
+ * Packages shown in the gallery and package dropdown: all curated trips by default, optionally
+ * narrowed by destination country and hero trip nights — not by fine-tune From/To until a card is chosen.
+ */
+function getBundleGalleryPresets() {
+  let list = [...BUNDLE_PRESETS];
+  const country = getBundleGalleryCountrySlug();
+  if (country !== "all") {
+    list = list.filter((p) => CITY_COUNTRY_SLUG[p.destination] === country);
+  }
+  const wantNights = getHeroSearchTripNights();
+  if (wantNights != null) {
+    list = list.filter((p) => presetNights(p) === wantNights);
+  }
+  return list;
 }
 
 function getFilteredPresets() {
-  const routeList = getRouteFilteredPresets();
+  const baseList = getBundleGalleryPresets();
   const only = getPackageDropdownSelectionId();
-  if (!only) return routeList;
-  const hit = routeList.find((x) => x.id === only);
-  return hit ? [hit] : routeList;
+  if (!only) return baseList;
+  const hit = baseList.find((x) => x.id === only);
+  return hit ? [hit] : baseList;
+}
+
+/**
+ * 0-based index for bundle-pricing cardIndex. Uses the visible gallery list — not getFilteredPresets(),
+ * because choosing a package sets the dropdown and getFilteredPresets() collapses to one item (index always 0),
+ * which would remap the quote to the wrong flight/hotel vs the price shown on the card.
+ */
+function bundlePresetIndexInCurrentGallery(presetId) {
+  if (!presetId) return 0;
+  const list = getBundleGalleryPresets();
+  const i = list.findIndex((x) => x.id === presetId);
+  return i >= 0 ? i : 0;
 }
 
 /**
@@ -929,6 +959,43 @@ function getFilteredPresets() {
  */
 function populateBundleFilterSelects() {
   // Intentionally empty.
+}
+
+function populateBundleGalleryCountryFilter() {
+  const sel = document.getElementById("bundleGalleryCountryFilter");
+  if (!sel || sel.tagName !== "SELECT") return;
+  const keep = String(sel.value || "").trim() || "all";
+  const slugs = new Set();
+  for (const p of BUNDLE_PRESETS) {
+    const s = CITY_COUNTRY_SLUG[p.destination];
+    if (s) slugs.add(s);
+  }
+  const ordered = [...slugs].sort((a, b) =>
+    String(BUNDLE_COUNTRY_LABEL[a] || a).localeCompare(String(BUNDLE_COUNTRY_LABEL[b] || b))
+  );
+  sel.replaceChildren();
+  const allOpt = document.createElement("option");
+  allOpt.value = "all";
+  allOpt.textContent = "All countries";
+  sel.appendChild(allOpt);
+  for (const slug of ordered) {
+    const o = document.createElement("option");
+    o.value = slug;
+    o.textContent = BUNDLE_COUNTRY_LABEL[slug] || slug;
+    sel.appendChild(o);
+  }
+  const valid = keep === "all" || ordered.includes(keep);
+  sel.value = valid ? keep : "all";
+}
+
+function onBundleGalleryCountryFilterChanged() {
+  const visible = new Set(getBundleGalleryPresets().map((p) => p.id));
+  if (selectedBundlePresetId && !visible.has(selectedBundlePresetId)) {
+    clearBundleSelectionState();
+  }
+  populateBundlePackageSelect();
+  renderBundleGallery();
+  scheduleBundleCardPriceRefresh();
 }
 
 /**
@@ -1001,12 +1068,14 @@ function setStoredDisplayCurrency(code) {
 
 /**
  * @param {number} sgdAmount
- * @param {{ maxFrac?: number, forceSgd?: boolean }} [opts]
+ * @param {{ maxFrac?: number, minFrac?: number, forceSgd?: boolean }} [opts]
  */
 function formatMoneyDisplayFromSgd(sgdAmount, opts) {
   const n = Number(sgdAmount);
   if (!Number.isFinite(n)) return "—";
   const maxFrac = opts?.maxFrac !== undefined ? opts.maxFrac : 2;
+  const minFrac = opts?.minFrac !== undefined ? opts.minFrac : 0;
+  const minF = Math.min(minFrac, maxFrac);
   const forceSgd = !!opts?.forceSgd;
   const code = forceSgd ? "SGD" : displayFx.code;
   const rate = forceSgd ? 1 : displayFx.rate;
@@ -1015,11 +1084,29 @@ function formatMoneyDisplayFromSgd(sgdAmount, opts) {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: code,
-      minimumFractionDigits: 0,
+      minimumFractionDigits: minF,
       maximumFractionDigits: maxFrac,
     }).format(converted);
   } catch {
     return `${code} ${converted.toFixed(maxFrac)}`;
+  }
+}
+
+/** Readable departure line for flight dropdowns (demo / local timezone). */
+function formatDemoFlightDeparture(iso) {
+  if (!iso || typeof iso !== "string") return "";
+  const normalized = iso.trim().replace(" ", "T");
+  const d = new Date(normalized.length >= 16 ? normalized.slice(0, 16) : normalized);
+  if (Number.isNaN(d.getTime())) return iso.replace("T", " ").slice(0, 16);
+  try {
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso.replace("T", " ").slice(0, 16);
   }
 }
 
@@ -1062,8 +1149,7 @@ function updatePayStepCurrencyLabels() {
       foot.textContent = "";
     } else {
       foot.hidden = false;
-      foot.textContent =
-        "Converted for display using daily rates. Booking and payment amounts are still processed in SGD.";
+      foot.textContent = "Converted for display only. You are charged in SGD.";
     }
   }
 }
@@ -1072,20 +1158,21 @@ function refreshAllDisplayedPrices() {
   updatePayStepCurrencyLabels();
   updateBundleCardPriceLabels();
   refreshPricePreview();
+  scheduleCancelRefundEstimate();
   void refreshFlightDropdownFromRoute();
   if (Array.isArray(latestHotelRows) && latestHotelRows.length) {
     const filtered = filterHotelRowsToBundleDestination(latestHotelRows);
     if (filtered.length !== latestHotelRows.length) {
       latestHotelRows = filtered;
     }
-    renderHotelResults(filtered);
+    void refreshHotelHoldsSummary().then(() => renderHotelResults(filtered));
   }
   updateHotelRoomDetailsUI();
   updateCoinsOffsetUI();
   const statusEl = document.getElementById("bundleStatus");
   if (statusEl && latestBundlePricing && Number.isFinite(Number(latestBundlePricing.finalTotal))) {
     const t = Number(latestBundlePricing.finalTotal);
-    statusEl.textContent = `Selected — total ${formatMoneyDisplayFromSgd(t)}. Continue with traveller, hotel & flight steps.`;
+    statusEl.textContent = `Total ${formatMoneyDisplayFromSgd(t, { minFrac: 2, maxFrac: 2 })}`;
   }
   if (lastMyBookingsCustomerId) {
     void loadMyBookings(lastMyBookingsCustomerId);
@@ -1176,6 +1263,8 @@ async function refreshBundleCardPrices() {
       qs.set("numberOfTravellers", travellers);
       qs.set("customerId", customerId);
       qs.set("loyaltyCoinsToUseCents", String(coins));
+      qs.set("packageId", p.id);
+      qs.set("cardIndex", String(bundlePresetIndexInCurrentGallery(p.id)));
       const out = await fetchJson(`${BUNDLE_PRICE_BASE}?${qs.toString()}`);
       if (out.networkError || !out.ok) {
         bundleCardPriceCache.set(p.id, {
@@ -1391,7 +1480,7 @@ let suppressBundleRouteDiverge = false;
  * for the current Fine-tune route (after searches complete).
  */
 function curatedPackagesAllowedForCurrentRoute() {
-  const presets = getRouteFilteredPresets();
+  const presets = getBundleGalleryPresets();
   if (!presets.length) return false;
 
   const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
@@ -1399,6 +1488,11 @@ function curatedPackagesAllowedForCurrentRoute() {
   if (!o || !d) return true;
 
   if (!routeFlightsInventoryChecked || !routeHotelsInventoryChecked) return true;
+
+  if (getBundleGalleryCountrySlug() === "all") return true;
+
+  const galleryMatchesFineTune = presets.some((p) => p.origin === o && p.destination === d);
+  if (!galleryMatchesFineTune) return true;
 
   return routeHasOutboundFlights && destinationHasHotels;
 }
@@ -1417,7 +1511,7 @@ function populateBundlePackageSelect() {
   ph.value = "";
   ph.textContent = "— Select a package —";
   sel.appendChild(ph);
-  const source = curatedPackagesAllowedForCurrentRoute() ? getRouteFilteredPresets() : [];
+  const source = curatedPackagesAllowedForCurrentRoute() ? getBundleGalleryPresets() : [];
   for (const p of source) {
     const o = document.createElement("option");
     o.value = p.id;
@@ -1432,17 +1526,22 @@ function populateBundlePackageSelect() {
 /** Hide curated packages when there are none for the route, or when flight/hotel inventory is missing. */
 function updateBundlePackageSectionVisibility() {
   const section = document.getElementById("bundlePackageSection");
-  const presetRoutes = getRouteFilteredPresets();
+  const presetRoutes = getBundleGalleryPresets();
   const hasPresetRoutes = presetRoutes.length > 0;
   const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
   const d = document.getElementById("bundleDestination")?.value?.trim() || "";
+  const browseAllCountries = getBundleGalleryCountrySlug() === "all";
+  const galleryMatchesFineTune =
+    Boolean(o && d) && presetRoutes.some((p) => p.origin === o && p.destination === d);
 
   let inventoryBlocked = false;
   let inventoryMsg = "";
   if (
+    !browseAllCountries &&
     hasPresetRoutes &&
     o &&
     d &&
+    galleryMatchesFineTune &&
     routeFlightsInventoryChecked &&
     routeHotelsInventoryChecked
   ) {
@@ -1470,8 +1569,13 @@ function updateBundlePackageSectionVisibility() {
     if (pricingActions) pricingActions.hidden = true;
     if (noPkgMsg) {
       noPkgMsg.hidden = false;
+      const want = getHeroSearchTripNights();
+      const nightsMsg =
+        want != null && isNightsFilterBlockingPackages()
+          ? `No packages for ${formatNightsLabel(want)} on this route. Change your return date or pick another destination.`
+          : "";
       noPkgMsg.textContent = !hasPresetRoutes
-        ? "No packages available."
+        ? nightsMsg || "No packages available."
         : inventoryMsg || "No packages available.";
     }
     if (st && inventoryBlocked) st.textContent = "";
@@ -1513,7 +1617,7 @@ function onFineTuneDivergeFromPackage() {
   lastBundleParams = null;
   setBundleResultVisible(false);
   const st = document.getElementById("bundleStatus");
-  const hasRoutePackages = getRouteFilteredPresets().length > 0;
+  const hasRoutePackages = getBundleGalleryPresets().length > 0;
   if (st) {
     st.textContent = hasRoutePackages
       ? "Trip details changed — pick a package again, or adjust From / To and dates in the search above, then Search flights + hotels."
@@ -1541,6 +1645,9 @@ function setupBundleFineTuneListeners() {
     void refreshFlightDropdownFromRoute();
     void refreshHotelsForBundleDestination();
   });
+  document.getElementById("bundleGalleryCountryFilter")?.addEventListener("change", () => {
+    onBundleGalleryCountryFilterChanged();
+  });
   document.getElementById("bundlePackageSelect")?.addEventListener("change", (e) => {
     const v = e.target.value;
     if (!v) {
@@ -1556,6 +1663,10 @@ function setupBundleFineTuneListeners() {
 /** Seats treated as already taken until the flight API refreshes (merged with API on refresh). */
 const DEFAULT_TAKEN_SEATS = new Set(["8A", "9D", "9E", "10F", "12C"]);
 let currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
+/** Temporarily held by another session (short hold); shown in a different color from booked/taken. */
+let currentHeldSeats = new Set();
+/** Flight id for which `currentHeldSeats` was last computed (cleared when the dropdown flight changes). */
+let seatMapAvailabilityFlightId = "";
 let seatRefreshToken = 0;
 /** Serializes taken-seat fetches so a click never uses a stale `currentTakenSeats` from an in-flight refresh. */
 let seatRefreshQueue = Promise.resolve();
@@ -1566,13 +1677,28 @@ function refreshTakenSeatsQueued(flightId) {
   seatRefreshQueue = job.catch(() => {});
   return job;
 }
-// Seat selection state for the current booking:
-// - codes[0] is the lead traveller seat
-// - the rest are companion seats (auto-assigned for the group)
+
+function stopSeatMapAvailabilityPolling() {
+  if (seatMapPollTimerId) {
+    clearInterval(seatMapPollTimerId);
+    seatMapPollTimerId = null;
+  }
+}
+
+function startSeatMapAvailabilityPolling(flightId) {
+  stopSeatMapAvailabilityPolling();
+  const fid = String(flightId || "").trim().toUpperCase();
+  if (!fid || !getSeatPolicy(fid).onlineSeatSelection) return;
+  seatMapPollTimerId = setInterval(() => {
+    void refreshTakenSeatsQueued(fid);
+  }, 5000);
+}
+// Seat selection: each traveller picks a seat on the map (order = selection order; first is primary for legacy seatNumber).
 let selectedSeatCodes = [];
 const SEAT_HOLD_TOKEN_KEY = "horizonSeatHoldToken";
 let seatHoldExpiresAtIso = "";
 let seatHoldTimerId = null;
+let seatMapPollTimerId = null;
 
 /**
  * Typical narrow-body 3–3 layout: A/F window, C/D aisle, B/E middle.
@@ -1612,7 +1738,180 @@ let travellerLoadSeq = 0;
 let selectedTravellerRow = null; // OutSystems traveller profile row object
 let pendingTravellerProfileIds = null;
 let selectedHotel = null; // Hotel row from hotel service (for UI only)
+
+function parseHotelRoomQtyInput(id) {
+  const el = document.getElementById(id);
+  const n = Number(el?.value ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.min(20, Math.floor(n)) : 0;
+}
+
+/** Active room mix for booking: { STD?: n, DLX?: m } — omits zero counts. */
+function getHotelRoomMixFromUI() {
+  const std = parseHotelRoomQtyInput("hotelRoomQtySTD");
+  const dlx = parseHotelRoomQtyInput("hotelRoomQtyDLX");
+  const mix = {};
+  if (std > 0) mix.STD = std;
+  if (dlx > 0) mix.DLX = dlx;
+  return mix;
+}
+
+function syncHotelRoomTypeHiddenFromMix() {
+  const hidden = document.getElementById("hotelRoomType");
+  if (!hidden) return;
+  const mix = getHotelRoomMixFromUI();
+  const keys = Object.keys(mix);
+  if (keys.length === 0) hidden.value = "";
+  else if (keys.length === 1) hidden.value = keys[0];
+  else hidden.value = "MIX";
+}
+
+function setHotelRoomQtyMaxFromHotel(hotel) {
+  const stdEl = document.getElementById("hotelRoomQtySTD");
+  const dlxEl = document.getElementById("hotelRoomQtyDLX");
+  if (!stdEl || !dlxEl) return;
+  const rts = hotel?.roomTypes || [];
+  const stdRt = rts.find((r) => String(r.code || "").toUpperCase() === "STD");
+  const dlxRt = rts.find((r) => String(r.code || "").toUpperCase() === "DLX");
+  const stdMax = Number.isFinite(Number(stdRt?.availableRooms))
+    ? Math.min(20, Math.max(0, Number(stdRt.availableRooms)))
+    : 20;
+  const dlxMax = Number.isFinite(Number(dlxRt?.availableRooms))
+    ? Math.min(20, Math.max(0, Number(dlxRt.availableRooms)))
+    : 20;
+  stdEl.max = String(stdMax);
+  dlxEl.max = String(dlxMax);
+  if (parseHotelRoomQtyInput("hotelRoomQtySTD") > stdMax) stdEl.value = String(stdMax);
+  if (parseHotelRoomQtyInput("hotelRoomQtyDLX") > dlxMax) dlxEl.value = String(dlxMax);
+}
+
+function defaultHotelRoomQuantitiesForSelection(chosenRoomType) {
+  const stdEl = document.getElementById("hotelRoomQtySTD");
+  const dlxEl = document.getElementById("hotelRoomQtyDLX");
+  if (!stdEl || !dlxEl) return;
+  const roomsWanted = Math.max(1, Math.min(20, Number(document.getElementById("packageRooms")?.value || 1)));
+  const rt = String(chosenRoomType || "STD").toUpperCase();
+  const stdMax = Math.min(roomsWanted, Number(stdEl.max || 20));
+  const dlxMax = Math.min(roomsWanted, Number(dlxEl.max || 20));
+  if (rt === "DLX") {
+    dlxEl.value = String(dlxMax);
+    stdEl.value = "0";
+  } else {
+    stdEl.value = String(stdMax);
+    dlxEl.value = "0";
+  }
+  syncHotelRoomTypeHiddenFromMix();
+}
+
+function getHotelStayNightsForPricing() {
+  if (latestBundlePricing && Number.isFinite(Number(latestBundlePricing.nights))) {
+    return Math.max(1, Number(latestBundlePricing.nights));
+  }
+  const inEl = document.getElementById("hotelCheckInTime");
+  const outEl = document.getElementById("hotelCheckOutTime");
+  if (!inEl?.value || !outEl?.value) return 1;
+  const d0 = new Date(inEl.value);
+  const d1 = new Date(outEl.value);
+  if (!(d1 > d0)) return 1;
+  return Math.max(1, Math.round((d1 - d0) / 86400000));
+}
+
+function applyRoomMixToBundlePricing() {
+  if (!latestBundlePricing || typeof latestBundlePricing !== "object" || !selectedHotel) return;
+  const nights = getHotelStayNightsForPricing();
+  const mix = getHotelRoomMixFromUI();
+  const totalRooms = Object.values(mix).reduce((a, b) => a + b, 0);
+  if (totalRooms < 1) return;
+
+  let newHotel = 0;
+  for (const code of ["STD", "DLX"]) {
+    const qty = mix[code] || 0;
+    if (!qty) continue;
+    const rt = (selectedHotel.roomTypes || []).find((r) => String(r.code || "").toUpperCase() === code);
+    if (rt && Number.isFinite(Number(rt.pricePerNight))) {
+      newHotel += qty * Number(rt.pricePerNight) * nights;
+    }
+  }
+  newHotel = Math.round(newHotel * 100) / 100;
+
+  const flight = Number(latestBundlePricing.flightPrice || 0);
+  const discountPct = Number(latestBundlePricing.discountPercent || 0);
+  const coins = Number(latestBundlePricing.loyaltyUsed || 0);
+
+  const newList = Math.round((flight + newHotel) * 100) / 100;
+  const newDiscount = Math.round(newList * (discountPct / 100) * 100) / 100;
+  const newFinal = Math.round(Math.max(0, newList - newDiscount - coins) * 100) / 100;
+
+  latestBundlePricing.hotelPrice = newHotel;
+  latestBundlePricing.listPriceTotal = newList;
+  latestBundlePricing.discount = newDiscount;
+  latestBundlePricing.finalTotal = newFinal;
+
+  const totalEl = document.getElementById("totalPrice");
+  if (totalEl) totalEl.value = String(newFinal);
+  refreshPricePreview();
+}
+
+function getHotelRoomMixTotalCount() {
+  return Object.values(getHotelRoomMixFromUI()).reduce((a, b) => a + b, 0);
+}
+
+function syncPackageRoomsFromHotelMix() {
+  const total = getHotelRoomMixTotalCount();
+  if (total < 1) return;
+  const sel = document.getElementById("packageRooms");
+  if (!sel) return;
+  const maxFromSelect = Math.max(
+    1,
+    ...[...sel.options].map((o) => Number(o.value)).filter((n) => Number.isFinite(n))
+  );
+  const capped = Math.min(Math.max(total, 1), maxFromSelect);
+  const v = String(capped);
+  if (![...sel.options].some((o) => o.value === v)) {
+    sel.appendChild(new Option(`${capped} rooms`, v));
+  }
+  if (sel.value === v) {
+    updatePackageTripSummary();
+    return;
+  }
+  syncingPackageRoomsProgrammatically = true;
+  try {
+    sel.value = v;
+    updatePackageTripSummary();
+    applyPackageSearchToBundle();
+  } finally {
+    syncingPackageRoomsProgrammatically = false;
+  }
+}
+
+async function refreshHotelHoldsSummary() {
+  const out = await fetchJson(`${HOTEL_BASE}/hotel/holds-summary`);
+  const d = out.body?.data;
+  latestHotelHoldsSummary =
+    out.ok && d && typeof d === "object" && !Array.isArray(d) ? d : {};
+}
+
+function getHeldRoomsForHotelType(hotelId, code) {
+  const hid = Number(hotelId);
+  if (!Number.isFinite(hid) || hid < 1) return 0;
+  const row = latestHotelHoldsSummary[hid] ?? latestHotelHoldsSummary[String(hid)];
+  if (!row || typeof row !== "object") return 0;
+  const c = String(code || "").toUpperCase();
+  const n = Number(row[c]);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function onHotelRoomMixInputsChanged() {
+  syncHotelRoomTypeHiddenFromMix();
+  updateBreakfastAddonUI();
+  applyRoomMixToBundlePricing();
+  syncPackageRoomsFromHotelMix();
+  void trySyncHotelSessionHold();
+}
+
 let latestHotelRows = [];
+/** From GET /hotel/holds-summary — { [hotelId]: { STD, DLX } } for browsing session holds + unpaid booking holds. */
+let latestHotelHoldsSummary = {};
+let syncingPackageRoomsProgrammatically = false;
 /** Last outbound flight search for Fine-tune origin/destination (gates curated packages). */
 let routeHasOutboundFlights = false;
 let destinationHasHotels = false;
@@ -1649,16 +1948,7 @@ function isBookingWelcomePayload(body) {
 function formatNetworkError(err) {
   const s = String(err?.message || err || "Unknown error");
   if (s.includes("Failed to fetch") || s.includes("NetworkError")) {
-    return [
-      "Could not reach the API (network error).",
-      "",
-      "Check:",
-      "• Docker is running: docker compose up --build",
-      "• Open the UI at http://localhost:8080 (not file://) — API is proxied under /api/",
-      "• Booking container is Up: docker compose ps",
-      "• If booking keeps failing: docker compose logs booking --tail 80",
-      "• Direct API (optional): http://localhost:5101/",
-    ].join("\n");
+    return "We couldn’t reach our servers. Check your connection and try again. If it keeps happening, contact support.";
   }
   return s;
 }
@@ -1667,9 +1957,10 @@ function formatNetworkError(err) {
  * fetch + safe JSON parse. Returns { ok, status, body, networkError?, parseError? }.
  */
 async function fetchJson(url, options = {}) {
+  const fetchOpts = { cache: "no-store", ...options };
   let res;
   try {
-    res = await fetch(url, options);
+    res = await fetch(url, fetchOpts);
   } catch (e) {
     return {
       ok: false,
@@ -1689,13 +1980,13 @@ async function fetchJson(url, options = {}) {
       parseError = true;
       const gatewayHint =
         res.status === 502 || res.status === 503
-          ? " If this is HTML (not JSON), nginx could not reach the booking container: run `docker compose ps` and `docker compose up -d --build booking ui`. The UI must use http://localhost:8080 so `/api/booking` proxies to Docker. If the body is JSON with a message, the booking service could not reach OutSystems from inside Docker (check TRAVELLER_PROFILE_BASE_URL, outbound HTTPS, `docker compose logs booking`)."
+          ? " The service may be busy — please try again shortly."
           : "";
       body = {
         _raw: text.slice(0, 500),
         _parseError: true,
         code: res.status,
-        message: `Non-JSON response (HTTP ${res.status}).${gatewayHint}`,
+        message: `Something went wrong (HTTP ${res.status}).${gatewayHint}`,
       };
     }
   } else {
@@ -1704,8 +1995,8 @@ async function fetchJson(url, options = {}) {
       _emptyBody: true,
       code: 500,
       message: res.ok
-        ? `HTTP ${res.status} but response body was empty — check booking container (docker compose logs booking) and nginx /api/booking/ proxy.`
-        : `HTTP ${res.status} with empty response body (check nginx/proxy and booking logs).`,
+        ? `We got an empty response (HTTP ${res.status}). Please try again.`
+        : `Request failed (HTTP ${res.status}). Please try again.`,
     };
   }
   return { ok: res.ok, status: res.status, body, networkError: false, parseError };
@@ -1809,7 +2100,7 @@ function computeFinalPriceBreakdown(basePriceOverride) {
       Number(document.getElementById("coinsToSpendCents").value || 0)
     );
     coinsToSpendCents = Math.min(coinsAvailableCents, coinsToSpendRequestedCents);
-    coinsOffsetDollars = coinsToSpendCents / 100;
+    coinsOffsetDollars = coinsToSpendCents / LOYALTY_POINTS_PER_SGD;
   }
   const finalPaid = Math.max(0, afterCode - coinsOffsetDollars);
 
@@ -1831,12 +2122,12 @@ function refreshPricePreview() {
   // Bundle `finalTotal` already includes discount-service % and loyalty coins from
   // `/bundle-price`. Do not run tier/promo/coins again on it (that double-counted).
   if (Number.isFinite(Number(bTotal))) {
-    el.textContent = formatMoneyDisplayFromSgd(Number(bTotal));
+    el.textContent = formatMoneyDisplayFromSgd(Number(bTotal), { minFrac: 2, maxFrac: 2 });
     return;
   }
   const { finalPaid } = computeFinalPriceBreakdown();
   el.textContent = Number.isFinite(finalPaid)
-    ? formatMoneyDisplayFromSgd(finalPaid)
+    ? formatMoneyDisplayFromSgd(finalPaid, { minFrac: 2, maxFrac: 2 })
     : "-";
 }
 
@@ -1851,6 +2142,23 @@ function invalidateAppliedPromo() {
   renderVoucherApplyStatus();
 }
 
+function syncVoucherApplyButton() {
+  const btn = document.getElementById("voucherApplyBtn");
+  if (!btn) return;
+  const p = latestBundlePricing;
+  const active =
+    Boolean(appliedPromoCode) && Boolean(p?.promoAccepted);
+  if (active) {
+    btn.textContent = "Remove discount";
+    btn.setAttribute("aria-pressed", "true");
+    btn.dataset.voucherApplied = "1";
+  } else {
+    btn.textContent = "Apply";
+    btn.removeAttribute("aria-pressed");
+    delete btn.dataset.voucherApplied;
+  }
+}
+
 function renderVoucherApplyStatus() {
   const st = document.getElementById("voucherApplyStatus");
   if (!st) return;
@@ -1859,17 +2167,20 @@ function renderVoucherApplyStatus() {
     st.hidden = false;
     st.textContent = p.promoMessage || "Voucher not applied.";
     st.className = "field-hint pay-step__voucher-status pay-step__voucher-status--bad";
+    syncVoucherApplyButton();
     return;
   }
   if (p?.promoAccepted) {
     st.hidden = false;
     st.textContent = p.promoMessage || "Voucher applied.";
     st.className = "field-hint pay-step__voucher-status pay-step__voucher-status--ok";
+    syncVoucherApplyButton();
     return;
   }
   st.hidden = true;
   st.textContent = "";
   st.className = "field-hint pay-step__voucher-status";
+  syncVoucherApplyButton();
 }
 
 async function applyPaymentVoucher() {
@@ -1879,6 +2190,16 @@ async function applyPaymentVoucher() {
     const raw = document.getElementById("discountCode")?.value?.trim() || "";
     const bTotal = latestBundlePricing?.finalTotal;
     const hasBundleQuote = Number.isFinite(Number(bTotal)) && lastBundleParams;
+
+    if (hasBundleQuote && btn?.dataset.voucherApplied === "1") {
+      invalidateAppliedPromo();
+      const dc = document.getElementById("discountCode");
+      if (dc) dc.value = "";
+      await refreshBundleForCoins();
+      renderVoucherApplyStatus();
+      refreshPricePreview();
+      return;
+    }
 
     if (hasBundleQuote) {
       appliedPromoCode = raw ? raw.toUpperCase() : "";
@@ -1915,15 +2236,15 @@ async function applyPaymentVoucher() {
     if (!st) return;
     if (pct <= 0) {
       st.hidden = false;
-      st.textContent =
-        "That code is unknown or your tier does not qualify yet (tiers use completed bookings + this trip).";
+      st.textContent = "That code isn’t valid for this trip or your membership.";
       st.className = "field-hint pay-step__voucher-status pay-step__voucher-status--bad";
     } else {
       st.hidden = false;
-      st.textContent = `OK — ${pct}% will apply to the package total when you confirm & pay.`;
+      st.textContent = `${pct}% discount will apply when you confirm and pay.`;
       st.className = "field-hint pay-step__voucher-status pay-step__voucher-status--ok";
     }
     refreshPricePreview();
+    syncVoucherApplyButton();
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -1934,21 +2255,36 @@ function validateBookingStepBeforeNext(stepIndex) {
     const cid = Number(document.getElementById("customerID")?.value || 0);
     const pkg = String(document.getElementById("bundlePackageSelect")?.value || "").trim();
     if (cid < 1) return "Please sign in and select who this booking is for.";
-    if (curatedPackagesAllowedForCurrentRoute() && getRouteFilteredPresets().length > 0 && !pkg) {
+    if (curatedPackagesAllowedForCurrentRoute() && getBundleGalleryPresets().length > 0 && !pkg) {
       return "Choose a bundle package before continuing.";
     }
     return "";
   }
   if (stepIndex === 1) {
-    if (readTravellerProfileIdsFromInput().length < 1) {
-      return "Tick “On this trip” for at least one saved traveller before continuing.";
+    if (getEffectiveTripTravellerHeadcount() < 1) {
+      return "Load saved travellers and tick “On this trip” for everyone flying (or sign in so we can match your profile).";
     }
     return "";
   }
   if (stepIndex === 2) {
     const hid = Number(document.getElementById("hotelID")?.value || 0);
-    const room = String(document.getElementById("hotelRoomType")?.value || "").trim();
-    if (hid < 1 || !room) return "Pick a hotel and room type before continuing.";
+    const mix = getHotelRoomMixFromUI();
+    const total = Object.values(mix).reduce((a, b) => a + b, 0);
+    if (hid < 1 || total < 1) {
+      return "Pick a hotel and set at least one room (Standard and/or Deluxe).";
+    }
+    const pkgRooms = Math.max(1, Math.min(20, Number(document.getElementById("packageRooms")?.value || 1)));
+    if (total !== pkgRooms) {
+      return `Room counts should add up to ${pkgRooms} (your trip search). Currently ${total}.`;
+    }
+    const rts = selectedHotel?.roomTypes || [];
+    for (const code of Object.keys(mix)) {
+      const rt = rts.find((r) => String(r.code || "").toUpperCase() === code);
+      const avail = Number(rt?.availableRooms);
+      if (Number.isFinite(avail) && mix[code] > avail) {
+        return `Only ${avail} ${code} room(s) available — lower that count.`;
+      }
+    }
     return "";
   }
   if (stepIndex === 3) {
@@ -1980,8 +2316,8 @@ async function applyBundlePricingResult(bundle, inputsForThisCall) {
   if (statusEl) {
     const t = bundle.finalTotal;
     statusEl.textContent = Number.isFinite(Number(t))
-      ? `Selected — total ${formatMoneyDisplayFromSgd(Number(t))}. Continue with traveller, hotel & flight steps.`
-      : "Bundle applied.";
+      ? `Total ${formatMoneyDisplayFromSgd(Number(t), { minFrac: 2, maxFrac: 2 })}`
+      : "";
   }
 
   if (selectedBundlePresetId) {
@@ -2033,12 +2369,9 @@ async function applyBundlePricingResult(bundle, inputsForThisCall) {
   const chosenRoomType = (bundle.chosenRoomType || bundle.roomType || "").toString().toUpperCase();
   if (hid > 0) {
     void initHotelSelectionById(hid).then(() => {
-      const rtSel = document.getElementById("hotelRoomType");
-      if (rtSel && chosenRoomType && Array.from(rtSel.options || []).some((o) => o.value === chosenRoomType)) {
-        rtSel.value = chosenRoomType;
-      }
+      defaultHotelRoomQuantitiesForSelection(chosenRoomType || "STD");
+      applyRoomMixToBundlePricing();
       updateBreakfastAddonUI();
-      // Ensure total includes the room type selection side effects (UI keeps the input as-is).
       refreshPricePreview();
     });
   } else {
@@ -2058,13 +2391,14 @@ async function searchBundlePricing(loyaltyCoinsToUseCentsOverride = null) {
   const departDate = document.getElementById("bundleDepartDateTime")?.value?.trim();
   const returnDate = document.getElementById("bundleReturnDateTime")?.value?.trim();
   const travellers = document.getElementById("bundleNumberOfTravellers")?.value?.trim();
-  const customerId = document.getElementById("customerID")?.value?.trim();
+  const customerIdRaw = document.getElementById("customerID")?.value?.trim();
+  const customerId = customerIdRaw || "0";
 
   const statusEl = document.getElementById("bundleStatus");
   if (statusEl) statusEl.textContent = "Calculating bundle price…";
 
-  if (!origin || !destination || !departDate || !returnDate || !travellers || !customerId) {
-    if (statusEl) statusEl.textContent = "Please fill origin, destination, dates, travellers, and who's booking.";
+  if (!origin || !destination || !departDate || !returnDate || !travellers) {
+    if (statusEl) statusEl.textContent = "Please fill origin, destination, dates, and travellers.";
     return;
   }
   const depTs = Date.parse(departDate);
@@ -2093,6 +2427,11 @@ async function searchBundlePricing(loyaltyCoinsToUseCentsOverride = null) {
   const coins = loyaltyCoinsToUseCentsOverride ?? coinsInput?.value ?? 0;
   qs.set("loyaltyCoinsToUseCents", String(Math.max(0, Number(coins) || 0)));
   if (appliedPromoCode) qs.set("promoCode", appliedPromoCode);
+  const pkgId = String(selectedBundlePresetId || "").trim();
+  if (pkgId) {
+    qs.set("packageId", pkgId);
+    qs.set("cardIndex", String(bundlePresetIndexInCurrentGallery(pkgId)));
+  }
 
   latestBundlePricing = null;
   setBundleResultVisible(false);
@@ -2122,6 +2461,8 @@ async function searchBundlePricing(loyaltyCoinsToUseCentsOverride = null) {
     destination,
     travellers,
     customerId,
+    packageId: pkgId,
+    cardIndex: pkgId ? bundlePresetIndexInCurrentGallery(pkgId) : 0,
   });
 }
 
@@ -2143,6 +2484,12 @@ async function refreshBundleForCoins() {
   qs.set("customerId", lastBundleParams.customerId);
   qs.set("loyaltyCoinsToUseCents", String(coins));
   if (appliedPromoCode) qs.set("promoCode", appliedPromoCode);
+  const lpId = String(lastBundleParams.packageId || "").trim();
+  if (lpId) qs.set("packageId", lpId);
+  const lcix = Number(lastBundleParams.cardIndex);
+  if (lpId && Number.isFinite(lcix) && lcix >= 0) {
+    qs.set("cardIndex", String(lcix));
+  }
 
   const out = await fetchJson(`${BUNDLE_PRICE_BASE}?${qs.toString()}`);
   if (token !== bundleRefreshToken) return;
@@ -2178,6 +2525,7 @@ function clearBundleSelectionState() {
   lastBundleParams = null;
   appliedPromoCode = "";
   renderVoucherApplyStatus();
+  syncVoucherApplyButton();
   setBundleResultVisible(false);
   const st = document.getElementById("bundleStatus");
   if (st) st.textContent = "";
@@ -2191,7 +2539,7 @@ function renderBundleGallery() {
   const track = document.getElementById("bundleGalleryTrack");
   if (!track) return;
   updateBundlePackageSectionVisibility();
-  if (!curatedPackagesAllowedForCurrentRoute() || !getRouteFilteredPresets().length) {
+  if (!curatedPackagesAllowedForCurrentRoute() || !getBundleGalleryPresets().length) {
     return;
   }
   track.replaceChildren();
@@ -2201,10 +2549,17 @@ function renderBundleGallery() {
     empty.className = "muted bundle-gallery__empty";
     const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
     const d = document.getElementById("bundleDestination")?.value?.trim() || "";
-    empty.textContent =
-      o && d
-        ? `No curated packages for ${o} → ${d}. Change From/To above and search again, or pick another route.`
-        : "No packages match the current route. Set origin and destination, then search.";
+    const want = getHeroSearchTripNights();
+    if (want != null && isNightsFilterBlockingPackages()) {
+      empty.textContent = `No packages for ${formatNightsLabel(want)} on ${o} → ${d}. Adjust your return date or try another route.`;
+    } else if (getBundleGalleryCountrySlug() !== "all") {
+      empty.textContent =
+        "No packages for this destination country with the current trip length. Set Destination country to All countries or adjust dates in the search above.";
+    } else if (o && d) {
+      empty.textContent = `No curated packages for ${o} → ${d}. Change From/To above and search again, or pick another route.`;
+    } else {
+      empty.textContent = "No packages match the current filters. Adjust dates or country above.";
+    }
     track.appendChild(empty);
     return;
   }
@@ -2289,8 +2644,7 @@ function extractAirlineCode(flightId) {
 }
 
 /**
- * SQ = full-service style online seat map in this app.
- * AK / AA / TR etc. = must use check-in / counter (policy blocks the map).
+ * Demo: every booked flight uses the same interactive seat map; hold timer restarts when the seat set changes.
  */
 function getSeatPolicy(flightId) {
   const code = extractAirlineCode(flightId);
@@ -2302,67 +2656,18 @@ function getSeatPolicy(flightId) {
       reason: "Choose a flight from the list for your route.",
     };
   }
-  const rules = {
-    SQ: {
-      onlineSeatSelection: true,
-      airlineName: "Singapore Airlines",
-      reason: "",
-    },
-    AK: {
-      onlineSeatSelection: false,
-      airlineName: "AirAsia",
-      reason:
-        "AirAsia: seat assignment at online check-in or at the airport — advance seat map is disabled in this app.",
-    },
-    AA: {
-      onlineSeatSelection: false,
-      airlineName: "American Airlines",
-      reason:
-        "American Airlines: advance seat selection is not available in this app — check in online or at the airport.",
-    },
-    TR: {
-      onlineSeatSelection: false,
-      airlineName: "Scoot",
-      reason:
-        "Scoot: budget carrier — seat selection via the airline app or at check-in (not modelled in this UI).",
-    },
-    BA: {
-      onlineSeatSelection: false,
-      airlineName: "British Airways",
-      reason:
-        "British Airways: choose seats at online check-in or via the airline.",
-    },
-    JL: {
-      onlineSeatSelection: false,
-      airlineName: "Japan Airlines",
-      reason: "JAL: seat selection at check-in or partner flows — map disabled here.",
-    },
-    QF: {
-      onlineSeatSelection: false,
-      airlineName: "Qantas",
-      reason: "Qantas: seat assignment via airline check-in.",
-    },
-    TG: {
-      onlineSeatSelection: false,
-      airlineName: "Thai Airways",
-      reason: "Thai Airways: advance seat map not enabled — check in online.",
-    },
-  };
-  const r = rules[code];
-  if (r) {
-    return { ...r, airlineCode: code };
-  }
   return {
-    onlineSeatSelection: false,
+    onlineSeatSelection: true,
     airlineCode: code,
-    airlineName: code,
-    reason: `Airline ${code}: online seat map not enabled in this app — confirm your seat at check-in.`,
+    airlineName: "Your flight",
+    reason: "",
   };
 }
 
 function clearSeatSelection() {
   selectedSeatCodes = [];
   startSeatHoldTimer("");
+  void releaseCurrentSeatHold();
   document.getElementById("seatNumber").value = "";
   document.getElementById("seatSelectedDisplay").textContent = "—";
   const detail = document.getElementById("seatSelectedDetail");
@@ -2385,15 +2690,45 @@ function resetSeatMap() {
   syncPickedSeatsUI();
 }
 
+function syncSeatSelectionVisuals() {
+  const codes = Array.isArray(selectedSeatCodes) ? selectedSeatCodes : [];
+  const upper = codes.map((s) => String(s).trim().toUpperCase()).filter(Boolean);
+  const sn = document.getElementById("seatNumber");
+  if (sn) sn.value = upper[0] || "";
+  const display = document.getElementById("seatSelectedDisplay");
+  if (display) display.textContent = upper.length ? upper.join(", ") : "—";
+  const detail = document.getElementById("seatSelectedDetail");
+  if (detail) {
+    if (!upper.length) {
+      detail.textContent = "";
+    } else {
+      const parts = upper.map((c) => {
+        const btn = document.querySelector(`#seatMap button.seat[data-seat="${c}"]`);
+        const lbl = btn?.dataset?.seatLabel;
+        return lbl ? `${c} (${lbl})` : c;
+      });
+      detail.textContent = parts.join(" · ");
+    }
+  }
+  syncPickedSeatsUI();
+}
+
+function trimSeatSelectionToRequiredIfNeeded() {
+  const required = getSeatRequiredCount();
+  if (!Array.isArray(selectedSeatCodes) || required < 1 || selectedSeatCodes.length <= required) return;
+  selectedSeatCodes = selectedSeatCodes.slice(0, required);
+  syncSeatSelectionVisuals();
+  const flightId = String(document.getElementById("flightID")?.value || "").trim().toUpperCase();
+  if (flightId && getSeatPolicy(flightId).onlineSeatSelection) {
+    void tryHoldCurrentSeats();
+  }
+}
+
 async function selectSeat(seatCode) {
   if (bookingFlowCompletedLock) return;
-  const leadCode = String(seatCode).toUpperCase();
+  const code = String(seatCode).toUpperCase();
   const required = getSeatRequiredCount();
-
-  // When traveller profiles aren't picked yet, don't block the user.
-  if (required <= 0) {
-    return;
-  }
+  if (required <= 0) return;
 
   const flightId = String(document.getElementById("flightID")?.value || "").trim().toUpperCase();
   if (flightId && getSeatPolicy(flightId).onlineSeatSelection) {
@@ -2401,46 +2736,75 @@ async function selectSeat(seatCode) {
   }
 
   if (!currentTakenSeats) currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
-  if (isSeatUnavailableForSelection(leadCode)) {
-    clearSeatSelection();
+  const blocked = document.getElementById("seatBlockedNote");
+  const policyOnline = Boolean(flightId && getSeatPolicy(flightId).onlineSeatSelection);
+
+  const idx = selectedSeatCodes.findIndex((s) => String(s).toUpperCase() === code);
+
+  if (idx >= 0) {
+    const before = [...selectedSeatCodes];
+    selectedSeatCodes = selectedSeatCodes.filter((_, i) => i !== idx);
+    if (blocked) {
+      blocked.hidden = true;
+      blocked.textContent = "";
+    }
+    syncSeatSelectionVisuals();
+    updateSeatGroupSummary();
+    if (policyOnline) {
+      const hold = await tryHoldCurrentSeats();
+      if (!hold.ok) {
+        selectedSeatCodes = before;
+        syncSeatSelectionVisuals();
+        updateSeatGroupSummary();
+        if (blocked) {
+          blocked.hidden = false;
+          blocked.textContent = hold.message || "Could not update seat hold.";
+        }
+      }
+    }
     return;
   }
 
-  const proposed = computeSeatCodesForGroup(leadCode, required);
-  const blocked = document.getElementById("seatBlockedNote");
-  if (!proposed || proposed.length !== required) {
-    clearSeatSelection();
+  if (isSeatUnavailableForSelection(code)) {
     if (blocked) {
       blocked.hidden = false;
-      blocked.textContent = `Not enough free seats available for ${required} travellers near ${leadCode}. Please pick another seat.`;
+      blocked.textContent = "That seat isn’t available.";
     }
-    updateSeatGroupSummary();
+    return;
+  }
+  if (selectedSeatCodes.length >= required) {
+    if (blocked) {
+      blocked.hidden = false;
+      blocked.textContent = `You already chose ${required} seat(s). Tap a selected seat to deselect it before choosing another.`;
+    }
     return;
   }
 
-  selectedSeatCodes = proposed;
-  document.getElementById("seatNumber").value = String(selectedSeatCodes[0]).toUpperCase();
-
-  // Render selection summary.
-  const display = document.getElementById("seatSelectedDisplay");
-  if (display) display.textContent = selectedSeatCodes.join(", ");
-  const detail = document.getElementById("seatSelectedDetail");
-  const leadBtn = document.querySelector(`#seatMap button.seat[data-seat="${selectedSeatCodes[0]}"]`);
-  if (detail) {
-    const leadLabel = leadBtn?.dataset?.seatLabel ? `(${leadBtn.dataset.seatLabel})` : "";
-    detail.textContent =
-      selectedSeatCodes.length === 1
-        ? leadLabel
-        : `${leadLabel}${leadLabel ? " " : ""}(+${selectedSeatCodes.length - 1} additional seat(s))`;
-  }
-
+  const before = [...selectedSeatCodes];
+  selectedSeatCodes = [...selectedSeatCodes, code];
   if (blocked) {
     blocked.hidden = true;
     blocked.textContent = "";
   }
-
-  syncPickedSeatsUI();
+  syncSeatSelectionVisuals();
   updateSeatGroupSummary();
+
+  if (policyOnline) {
+    const hold = await tryHoldCurrentSeats();
+    if (!hold.ok) {
+      selectedSeatCodes = before;
+      syncSeatSelectionVisuals();
+      updateSeatGroupSummary();
+      if (blocked) {
+        blocked.hidden = false;
+        const lm = String(hold.message || "").toLowerCase();
+        blocked.textContent =
+          lm.includes("unavailable") || lm.includes("already reserved") || lm.includes("409")
+            ? "Seat unavailable — someone else may have just chosen it. Pick another seat."
+            : hold.message || "Could not hold this seat. Try another.";
+      }
+    }
+  }
 }
 
 async function selectSeatByCode(code) {
@@ -2450,13 +2814,42 @@ async function selectSeatByCode(code) {
   await selectSeat(up);
 }
 
-function getSeatHoldToken() {
-  let t = "";
+function peekSeatHoldToken() {
   try {
-    t = sessionStorage.getItem(SEAT_HOLD_TOKEN_KEY) || "";
+    return String(sessionStorage.getItem(SEAT_HOLD_TOKEN_KEY) || "").trim();
   } catch {
-    t = "";
+    return "";
   }
+}
+
+/**
+ * Release the in-memory flight hold and drop the browsing token. Call when switching accounts
+ * so the next user does not reuse the same token (which would hide others' holds from GET /seat-holds).
+ */
+function resetSeatBrowsingSessionForNewAccount() {
+  const t = peekSeatHoldToken();
+  if (t) {
+    try {
+      void fetch(`${FLIGHT_BASE}/release-seat`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ holdToken: t }),
+        keepalive: true,
+        cache: "no-store",
+      });
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    sessionStorage.removeItem(SEAT_HOLD_TOKEN_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function getSeatHoldToken() {
+  let t = peekSeatHoldToken();
   if (!t) {
     t = `hold_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
     try {
@@ -2468,28 +2861,50 @@ function getSeatHoldToken() {
   return t;
 }
 
+const SEAT_HOLD_BANNER_SLOTS = [
+  { wrap: "seatHoldTimerWrap", title: "seatHoldTimerTitle" },
+  { wrap: "seatHoldTimerPayWrap", title: "seatHoldTimerPayTitle" },
+];
+
+function hideSeatHoldBanners() {
+  for (const { wrap, title } of SEAT_HOLD_BANNER_SLOTS) {
+    const w = document.getElementById(wrap);
+    const t = document.getElementById(title);
+    if (w) w.hidden = true;
+    if (t) t.textContent = "";
+  }
+}
+
 function renderSeatHoldTimer() {
-  const el = document.getElementById("seatHoldTimer");
-  if (!el) return;
   if (!seatHoldExpiresAtIso) {
-    el.hidden = true;
-    el.textContent = "";
+    hideSeatHoldBanners();
     return;
   }
   const exp = new Date(seatHoldExpiresAtIso).getTime();
   const now = Date.now();
   const remainMs = Math.max(0, exp - now);
-  const mins = Math.floor(remainMs / 60000);
-  const secs = Math.floor((remainMs % 60000) / 1000);
-  el.hidden = false;
-  el.textContent = `Seat hold timer: ${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")} remaining`;
+
   if (remainMs <= 0) {
     seatHoldExpiresAtIso = "";
     if (seatHoldTimerId) {
       clearInterval(seatHoldTimerId);
       seatHoldTimerId = null;
     }
+    hideSeatHoldBanners();
     void refreshTakenSeatsQueued(document.getElementById("flightID")?.value || "");
+    return;
+  }
+
+  const mins = Math.floor(remainMs / 60000);
+  const secs = Math.floor((remainMs % 60000) / 1000);
+  const mm = String(mins).padStart(2, "0");
+  const ss = String(secs).padStart(2, "0");
+  const titleLine = `Flight seats on hold · ${mm}:${ss} left (15-minute window)`;
+  for (const { wrap, title } of SEAT_HOLD_BANNER_SLOTS) {
+    const w = document.getElementById(wrap);
+    const t = document.getElementById(title);
+    if (w) w.hidden = false;
+    if (t) t.textContent = titleLine;
   }
 }
 
@@ -2505,14 +2920,31 @@ function startSeatHoldTimer(expiresAtIso) {
   }
 }
 
+async function releaseCurrentSeatHold() {
+  const holdToken = peekSeatHoldToken();
+  if (holdToken) {
+    await fetchJson(`${FLIGHT_BASE}/release-seat`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ holdToken }),
+    });
+  }
+  startSeatHoldTimer("");
+  void trySyncHotelSessionHold();
+}
+
 async function tryHoldCurrentSeats() {
   const flightId = String(document.getElementById("flightID")?.value || "").trim().toUpperCase();
-  const required = getSeatRequiredCount();
-  if (!flightId || required < 1) {
-    return { ok: false, message: "Choose a flight and who is on this trip first." };
+  if (!flightId) {
+    return { ok: false, message: "Choose a flight first." };
   }
-  if (!Array.isArray(selectedSeatCodes) || selectedSeatCodes.length !== required) {
-    return { ok: false, message: `Select seats for ${required} travellers first.` };
+  if (!Array.isArray(selectedSeatCodes)) {
+    return { ok: false, message: "Seat selection not ready." };
+  }
+  if (selectedSeatCodes.length === 0) {
+    await releaseCurrentSeatHold();
+    startSeatHoldTimer("");
+    return { ok: true };
   }
   const holdToken = getSeatHoldToken();
   const out = await fetchJson(`${FLIGHT_BASE}/seat-holds`, {
@@ -2525,98 +2957,156 @@ async function tryHoldCurrentSeats() {
     }),
   });
   if (out.networkError) return { ok: false, message: out.errorMessage || "Network error while holding seats." };
-  if (!out.ok || out.body?.code !== 200) {
-    return { ok: false, message: out.body?.message || `Could not hold seats (HTTP ${out.status}).` };
+  const holdCode = out.body?.code;
+  const holdOk = holdCode === 200 || holdCode === "200";
+  if (!out.ok || !holdOk) {
+    let m = out.body?.message || `Could not hold seats (HTTP ${out.status}).`;
+    if (out.status === 409 || holdCode === 409 || holdCode === "409") {
+      m = "Seat unavailable, please choose again.";
+    }
+    return { ok: false, message: m };
   }
   const expiresAt = out.body?.data?.holdExpiresAt || "";
   if (expiresAt) startSeatHoldTimer(expiresAt);
+  void trySyncHotelSessionHold();
   return { ok: true };
 }
 
-function getSeatRequiredCount() {
-  const party = readTravellerProfileIdsFromInput().length;
-  if (party < 1) return 0;
+/**
+ * After flight seats are on hold, put the chosen hotel + room mix on the same short hold while
+ * the guest finishes details; payment confirms the booking. Uses the same session token as seats.
+ */
+async function trySyncHotelSessionHold() {
+  const token = getSeatHoldToken();
+  if (!token) return;
+  const hid = Number(document.getElementById("hotelID")?.value || 0);
+  const hasSeats = Array.isArray(selectedSeatCodes) && selectedSeatCodes.length > 0;
 
-  // Use the largest of: travellers ticked "on this trip", hero package total, bundle step total
-  // (avoids stale hero "2" blocking 3 seats when bundle / party is 3).
+  const releaseOnly = async () => {
+    await fetchJson(`${HOTEL_BASE}/hotel/release-session-hold`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionHoldToken: token }),
+    });
+    await refreshHotelHoldsSummary();
+    void refreshHotelsForBundleDestination();
+  };
+
+  if (!hasSeats || hid < 1) {
+    await releaseOnly();
+    return;
+  }
+
+  const mix = getHotelRoomMixFromUI();
+  const total = Object.values(mix).reduce((a, b) => a + (Number(b) || 0), 0);
+  if (total < 1) {
+    await releaseOnly();
+    return;
+  }
+
+  const checkIn = document.getElementById("hotelCheckInTime")?.value?.trim();
+  const checkOut = document.getElementById("hotelCheckOutTime")?.value?.trim();
+  if (!checkIn || !checkOut) return;
+
+  const keys = getEffectiveTripTravellerHeadcount();
+  const typeKeys = Object.keys(mix).filter((k) => (mix[k] || 0) > 0);
+  const roomType = typeKeys.length > 1 ? "MIX" : String(typeKeys[0] || "STD").toUpperCase();
+
+  const out = await fetchJson(`${HOTEL_BASE}/hotel/session-hold`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionHoldToken: token,
+      hotelID: hid,
+      roomMix: mix,
+      roomType,
+      noOfRooms: total,
+      numberOfRooms: total,
+      numberOfKeys: Math.max(1, keys),
+      checkIn,
+      checkOut,
+    }),
+  });
+
+  const hotelHoldHintEl = document.getElementById("hotelSelectedHint");
+  if (out.networkError) {
+    if (hotelHoldHintEl) {
+      hotelHoldHintEl.classList.add("section-hint--warn");
+      hotelHoldHintEl.textContent =
+        out.errorMessage || "Could not reach the hotel service to reserve your room choice. Try again.";
+    }
+    await refreshHotelHoldsSummary();
+    void refreshHotelsForBundleDestination();
+    return;
+  }
+  if (!out.ok || (out.body && typeof out.body.code === "number" && out.body.code >= 400)) {
+    const raw =
+      out.body?.message || `Could not hold those hotel rooms for your session (HTTP ${out.status}).`;
+    const msg =
+      humanizeTravellerUserMessage(raw) ||
+      (raw.length > 220 ? "Another guest may have taken those rooms. Change the mix or hotel and try again." : raw);
+    if (hotelHoldHintEl) {
+      hotelHoldHintEl.classList.add("section-hint--warn");
+      hotelHoldHintEl.textContent = msg;
+    }
+    await refreshHotelHoldsSummary();
+    void refreshHotelsForBundleDestination();
+    return;
+  }
+  if (hotelHoldHintEl) hotelHoldHintEl.classList.remove("section-hint--warn");
+
+  await refreshHotelHoldsSummary();
+  void refreshHotelsForBundleDestination();
+
+  if (out.ok && out.body?.code === 200 && out.body?.data?.holdExpiresAt) {
+    const hotelExp = new Date(out.body.data.holdExpiresAt).getTime();
+    const seatExp = seatHoldExpiresAtIso ? new Date(seatHoldExpiresAtIso).getTime() : 0;
+    if (!Number.isFinite(seatExp) || hotelExp > seatExp) {
+      startSeatHoldTimer(out.body.data.holdExpiresAt);
+    }
+  }
+}
+
+function getSeatRequiredCount() {
+  const party = getEffectiveTripTravellerHeadcount();
   const packageTotal = Number(document.getElementById("packageTotalTravellers")?.value || 0);
   const bundleTotal = Number(document.getElementById("bundleNumberOfTravellers")?.value || 0);
   const fromTotals = Math.max(
     Number.isFinite(packageTotal) && packageTotal > 0 ? packageTotal : 0,
     Number.isFinite(bundleTotal) && bundleTotal > 0 ? bundleTotal : 0
   );
-  return Math.max(party, fromTotals || party);
+
+  // Who is ticked "On this trip" is authoritative for seat count. Bundle/package totals often
+  // stay at default (e.g. 2 adults) and must not show "0/2" when only one traveller is flying.
+  if (party >= 1) return Math.min(12, party);
+
+  // Guest / not-yet-ticked: fall back to package or bundle pax so the map can still ask for seats.
+  if (fromTotals >= 1) return Math.min(12, fromTotals);
+
+  return 0;
 }
 
 function isSeatUnavailableForSelection(seatCode) {
   const up = String(seatCode || "").trim().toUpperCase();
   if (!up) return true;
-  const fromSet = (currentTakenSeats || new Set(DEFAULT_TAKEN_SEATS)).has(up);
+  const fromBooked = (currentTakenSeats || new Set(DEFAULT_TAKEN_SEATS)).has(up);
+  const fromHeld = (currentHeldSeats || new Set()).has(up);
   const el = document.querySelector(`#seatMap button.seat[data-seat="${up}"]`);
-  const fromDom = Boolean(el && (el.disabled || el.classList.contains("taken")));
-  return fromSet || fromDom;
-}
-
-function computeSeatCodesForGroup(leadCode, requiredCount) {
-  const code = String(leadCode || "").toUpperCase();
-  const m = code.match(/^(\d+)([A-F])$/);
-  if (!m) return [];
-
-  const row = Number(m[1]);
-  const leadLetter = m[2];
-
-  const selected = [code];
-
-  const sideLetters = ["A", "B", "C"].includes(leadLetter)
-    ? ["A", "B", "C"]
-    : ["D", "E", "F"];
-  const allLetters = ["A", "B", "C", "D", "E", "F"];
-
-  // First try same-side neighbours (same row).
-  const primaryCandidates = sideLetters
-    .filter((l) => l !== leadLetter)
-    .map((l) => `${row}${l}`);
-  // Then fill from both sides in seat-map order.
-  const secondaryCandidates = allLetters
-    .filter((l) => l !== leadLetter)
-    .map((l) => `${row}${l}`);
-
-  const candidates = [...primaryCandidates, ...secondaryCandidates];
-  const seenCand = new Set(selected.map((s) => String(s).toUpperCase()));
-  for (const c of candidates) {
-    if (selected.length >= requiredCount) break;
-    const up = String(c).toUpperCase();
-    if (seenCand.has(up)) continue;
-    seenCand.add(up);
-    if (isSeatUnavailableForSelection(up)) continue;
-    selected.push(up);
-  }
-
-  // If still not enough, scan remaining rows in seat map.
-  if (selected.length < requiredCount) {
-    const rowsToScan = [6, 7, 8, 9, 10, 11, 12];
-    for (const r of rowsToScan) {
-      if (selected.length >= requiredCount) break;
-      if (r === row) continue;
-      for (const l of allLetters) {
-        if (selected.length >= requiredCount) break;
-        const up = `${r}${l}`;
-        if (seenCand.has(up)) continue;
-        seenCand.add(up);
-        if (isSeatUnavailableForSelection(up)) continue;
-        selected.push(up);
-      }
-    }
-  }
-
-  return selected.length === requiredCount ? selected : [];
+  const fromDom = Boolean(
+    el &&
+      (el.disabled ||
+        el.classList.contains("taken") ||
+        el.classList.contains("held"))
+  );
+  return fromBooked || fromHeld || fromDom;
 }
 
 function syncPickedSeatsUI() {
   const picked = new Set((selectedSeatCodes || []).map((s) => String(s).toUpperCase()));
   document.querySelectorAll("#seatMap button.seat").forEach((b) => {
     const code = String(b.dataset.seat || "").toUpperCase();
-    const unavailable = b.disabled || b.classList.contains("taken");
+    const unavailable =
+      b.disabled || b.classList.contains("taken") || b.classList.contains("held");
     b.classList.toggle("picked", picked.has(code) && !unavailable);
   });
 }
@@ -2636,9 +3126,13 @@ function addSeatButton(container, row, letter) {
   if (currentTakenSeats.has(id)) {
     btn.disabled = true;
     btn.classList.add("taken");
-    btn.title = `${id} · ${meta.label} · Already taken`;
+    btn.title = `${id} · ${meta.label} · Already booked`;
+  } else if (currentHeldSeats.has(id)) {
+    btn.disabled = true;
+    btn.classList.add("held");
+    btn.title = `${id} · ${meta.label} · On hold by another guest — try again shortly`;
   } else {
-    btn.title = `${id} · ${meta.label} · Click to select`;
+    btn.title = `${id} · ${meta.label} · Click to select or deselect`;
     btn.addEventListener("click", () => {
       void selectSeat(id);
     });
@@ -2705,16 +3199,21 @@ function updateSeatSelectionUI() {
   const blocked = document.getElementById("seatBlockedNote");
 
   if (policy.onlineSeatSelection) {
-    policyEl.textContent = `${policy.airlineName}: choose a seat on the map below.`;
+    policyEl.textContent =
+      "Amber seats are on hold by another guest; grey dashed seats are already booked. Your picks turn teal. Choosing seats starts a short browsing hold (same countdown) so you can finish traveller details — your hotel + room mix joins that hold. Confirm & pay locks the booking; when the timer ends, seats and rooms go back to inventory if you have not paid.";
     mapWrap.hidden = false;
     blocked.hidden = true;
     blocked.textContent = "";
     void refreshTakenSeatsQueued(flightId);
+    startSeatMapAvailabilityPolling(flightId);
   } else {
+    stopSeatMapAvailabilityPolling();
     policyEl.textContent = policy.reason;
     mapWrap.hidden = true;
     clearSeatSelection();
     currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
+    currentHeldSeats = new Set();
+    seatMapAvailabilityFlightId = "";
     resetSeatMap();
     if (blocked) {
       blocked.hidden = true;
@@ -2753,14 +3252,10 @@ async function refreshFlightDropdownFromRoute() {
       : "— Set From and To in the trip search first —";
   sel.appendChild(ph);
 
-  const hint = document.getElementById("flightSelectHint");
   if (!origin || !dest) {
     sel.disabled = true;
     routeFlightsInventoryChecked = false;
     routeHasOutboundFlights = false;
-    if (hint) {
-      hint.textContent = "Use the trip search at the top to set From and To.";
-    }
     updateSeatSelectionUI();
     syncRouteInventoryToPackageUI();
     return;
@@ -2771,10 +3266,6 @@ async function refreshFlightDropdownFromRoute() {
     routeFlightsInventoryChecked = false;
     routeHasOutboundFlights = false;
     ph.textContent = "— Same city —";
-    if (hint) {
-      hint.textContent =
-        "Origin and destination cannot be the same city. Change one of the cities to search flights.";
-    }
     updateSeatSelectionUI();
     syncRouteInventoryToPackageUI();
     return;
@@ -2799,7 +3290,6 @@ async function refreshFlightDropdownFromRoute() {
     const out = await fetchJson(`${FLIGHT_BASE}/flight/search?${qs.toString()}`);
 
     if (out.networkError || !out.ok || !Array.isArray(out.body?.data)) {
-      if (hint) hint.textContent = "Could not load flights for this route.";
       ph.textContent = "— No flight (could not load) —";
       routeHasOutboundFlights = false;
       updateSeatSelectionUI();
@@ -2819,7 +3309,7 @@ async function refreshFlightDropdownFromRoute() {
       if (!fn) continue;
       const seats = Number(f.availableSeats ?? 0);
       if (seats < 1) continue;
-      const dep = String(f.departureTime || "").replace("T", " ").slice(0, 16);
+      const dep = formatDemoFlightDeparture(String(f.departureTime || ""));
       const price = Number(f.economyPrice ?? 0);
       const air = String(f.airline || "").slice(0, 28);
       const opt = document.createElement("option");
@@ -2828,19 +3318,11 @@ async function refreshFlightDropdownFromRoute() {
       sel.appendChild(opt);
     }
 
-    const dateHint = depD ? ` near ${depD} (±2 days)` : "";
-    const bookableCount = Math.max(0, sel.options.length - 1);
     if (sel.options.length <= 1) {
       ph.textContent = "— No flight for this route —";
       routeHasOutboundFlights = false;
-      if (hint) {
-        hint.textContent = `No flights with enough seats for ${origin} → ${dest}${dateHint}. Try different dates or cities.`;
-      }
     } else {
       routeHasOutboundFlights = true;
-      if (hint) {
-        hint.textContent = `${bookableCount} outbound flight(s)${dateHint}: ${origin} → ${dest}.`;
-      }
     }
 
     if (keep && [...sel.options].some((o) => o.value === keep)) {
@@ -2888,39 +3370,50 @@ async function refreshTakenSeatsForFlight(flightId) {
   if (!fid) return;
 
   const token = ++seatRefreshToken;
-  const outBooked = await fetchJson(`${API_BASE}/booking/seats/${encodeURIComponent(fid)}`);
-  if (token !== seatRefreshToken) return;
-  if (outBooked.networkError || !outBooked.ok) {
-    currentTakenSeats = new Set(DEFAULT_TAKEN_SEATS);
-    resetSeatMap();
-    return;
-  }
-
   const holdToken = getSeatHoldToken();
-  const outHeld = await fetchJson(
-    `${FLIGHT_BASE}/seat-holds/${encodeURIComponent(fid)}?excludeToken=${encodeURIComponent(holdToken)}`
-  );
+  const [outBooked, outHeld] = await Promise.all([
+    fetchJson(`${API_BASE}/booking/seats/${encodeURIComponent(fid)}`),
+    fetchJson(
+      `${FLIGHT_BASE}/seat-holds/${encodeURIComponent(fid)}?excludeToken=${encodeURIComponent(holdToken)}`
+    ),
+  ]);
+  if (token !== seatRefreshToken) return;
 
-  const seats = outBooked.body?.data?.seats;
-  const heldSeats = outHeld.ok ? outHeld.body?.data?.seats : [];
-  const merged = new Set(DEFAULT_TAKEN_SEATS);
-  if (Array.isArray(seats)) {
-    seats.forEach((s) => {
+  const flightChanged = fid !== seatMapAvailabilityFlightId;
+  if (flightChanged) {
+    seatMapAvailabilityFlightId = fid;
+    currentHeldSeats = new Set();
+  }
+
+  const mergedBooked = new Set(DEFAULT_TAKEN_SEATS);
+  if (outBooked.ok && Array.isArray(outBooked.body?.data?.seats)) {
+    outBooked.body.data.seats.forEach((s) => {
       const up = String(s || "").trim().toUpperCase();
-      if (up) merged.add(up);
+      if (up) mergedBooked.add(up);
     });
   }
-  if (Array.isArray(heldSeats)) {
-    heldSeats.forEach((s) => {
+
+  if (outHeld.ok && Array.isArray(outHeld.body?.data?.seats)) {
+    const heldOnly = new Set();
+    outHeld.body.data.seats.forEach((s) => {
       const up = String(s || "").trim().toUpperCase();
-      if (up) merged.add(up);
+      if (up && !mergedBooked.has(up)) heldOnly.add(up);
     });
+    currentHeldSeats = heldOnly;
+  } else if (!flightChanged) {
+    currentHeldSeats = new Set(
+      [...currentHeldSeats].filter((s) => !mergedBooked.has(s))
+    );
   }
-  currentTakenSeats = merged;
+
+  currentTakenSeats = mergedBooked;
 
   if (
     Array.isArray(selectedSeatCodes) &&
-    selectedSeatCodes.some((s) => currentTakenSeats.has(String(s).trim().toUpperCase()))
+    selectedSeatCodes.some((s) => {
+      const u = String(s).trim().toUpperCase();
+      return currentTakenSeats.has(u) || currentHeldSeats.has(u);
+    })
   ) {
     clearSeatSelection();
   }
@@ -2943,22 +3436,23 @@ function updateSeatGroupSummary() {
   if (summaryEl) summaryEl.hidden = false;
 
   const seatCodes = Array.isArray(selectedSeatCodes) ? selectedSeatCodes : [];
-  const seat = seatCodes[0] ? String(seatCodes[0]).trim().toUpperCase() : "—";
   const required = getSeatRequiredCount();
   const selectedCount = seatCodes.length;
+  const list =
+    seatCodes.length > 0
+      ? seatCodes.map((s) => String(s).trim().toUpperCase()).join(", ")
+      : "none yet";
 
-  if (leadPill) leadPill.textContent = `Lead traveller seat: ${seat === "—" ? "not selected" : seat}`;
-  if (compPill)
-    compPill.textContent = `Group seats: ${selectedCount}/${required || 0}`;
+  if (leadPill) leadPill.textContent = `Selected seats: ${list}`;
+  if (compPill) compPill.textContent = `Progress: ${selectedCount}/${required || 0} travellers`;
 
   if (hintPill) {
     if (!required) {
       hintPill.textContent = "Select who is on this trip to enable seat selection.";
     } else if (selectedCount === required) {
-      hintPill.textContent = "All seats for your group are selected.";
+      hintPill.textContent = "All seats for your party are selected.";
     } else {
-      hintPill.textContent =
-        "Pick the lead seat on the map and nearby seats are auto-assigned for your group.";
+      hintPill.textContent = "Tap an available seat to assign the next traveller. Tap a teal seat to deselect it.";
     }
   }
 }
@@ -3028,15 +3522,12 @@ function applyTravellerSelectionFromIds(preferredIds) {
   updateSeatGroupSummary();
 }
 
-/**
- * Loyalty `coins` are integer reward credits: 100 credits = S$1.00 off at checkout.
- * (Not a second currency — the S$ line is the same balance expressed as dollars off.)
- */
-function formatLoyaltyWalletSgd(coinsCents) {
-  const n = Number(coinsCents);
-  if (!Number.isFinite(n)) return "-";
-  if (n <= 0) return "S$0.00";
-  return `S$${(n / 100).toFixed(2)}`;
+/** Wallet balance for display: show points only (backend still redeems points toward SGD totals). */
+function formatLoyaltyPointsLabel(coins) {
+  const n = Math.floor(Number(coins));
+  if (!Number.isFinite(n) || n < 0) return "0 points";
+  if (n === 0) return "0 points";
+  return `${n.toLocaleString()} points`;
 }
 
 function updateCoinsOffsetUI() {
@@ -3062,15 +3553,12 @@ function updateCoinsOffsetUI() {
 
     const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
     if (availEl) {
-      availEl.textContent = formatLoyaltyWalletSgd(coinsAvailableCents);
-      availEl.title = `${Math.floor(coinsAvailableCents).toLocaleString()} reward credits · 100 = S$1 off`;
+      availEl.textContent = formatLoyaltyPointsLabel(coinsAvailableCents);
+      availEl.title = "";
     }
     const sgdHint = document.getElementById("coinsAvailableSgd");
     if (sgdHint) {
-      sgdHint.textContent =
-        coinsAvailableCents > 0
-          ? `· ${coinsAvailableCents.toLocaleString()} credits available · enter credits below (100 credits = S$1 off)`
-          : "";
+      sgdHint.textContent = `· ${LOYALTY_POINTS_PER_SGD.toLocaleString()} points = S$1.00 off your total — use at most your current balance.`;
     }
     if (btnNone) btnNone.disabled = coinsAvailableCents <= 0;
     if (btnAll) btnAll.disabled = coinsAvailableCents <= 0;
@@ -3099,43 +3587,24 @@ function setCoinsToSpendCents(value) {
 }
 
 function updateBreakfastAddonUI() {
-  const room = document.getElementById("hotelRoomType")?.value;
+  const mix = getHotelRoomMixFromUI();
+  const hasDlx = (mix.DLX || 0) > 0;
   const wrap = document.getElementById("breakfastAddonWrap");
   const cb = document.getElementById("hotelIncludesBreakfast");
   if (!wrap || !cb) return;
-  if (room === "DLX") {
+  if (hasDlx) {
     wrap.hidden = true;
     cb.checked = true;
   } else {
     wrap.hidden = false;
     if (lastHotelRoomType === "DLX") cb.checked = false;
   }
-  lastHotelRoomType = room;
+  lastHotelRoomType = hasDlx ? "DLX" : "STD";
   updateHotelRoomDetailsUI();
 }
 
 function setHotelRoomTypeOptionsFromHotel(hotel) {
-  const select = document.getElementById("hotelRoomType");
-  if (!select || !hotel || !Array.isArray(hotel.roomTypes)) return;
-
-  const current = select.value;
-
-  const codes = hotel.roomTypes
-    .map((rt) => rt.code)
-    .filter((c) => c === "STD" || c === "DLX");
-
-  select.innerHTML = "";
-  codes.forEach((code) => {
-    const rt = hotel.roomTypes.find((x) => x.code === code);
-    const label = rt?.label || (code === "DLX" ? "Deluxe" : "Standard");
-    const opt = document.createElement("option");
-    opt.value = code;
-    opt.textContent = label.includes("Room") ? label : `${label} (hotel room)`;
-    select.appendChild(opt);
-  });
-
-  if (codes.includes(current)) select.value = current;
-  else select.value = codes[0] || "";
+  setHotelRoomQtyMaxFromHotel(hotel);
 }
 
 function setHotelSelection(hotel) {
@@ -3150,14 +3619,14 @@ function setHotelSelection(hotel) {
   if (displayEl) displayEl.textContent = hotel.name || "—";
 
   setHotelRoomTypeOptionsFromHotel(hotel);
+  defaultHotelRoomQuantitiesForSelection("STD");
 
-  const roomCode = document.getElementById("hotelRoomType")?.value;
   const cb = document.getElementById("hotelIncludesBreakfast");
-  if (cb) cb.checked = roomCode === "DLX";
+  if (cb) cb.checked = (parseHotelRoomQtyInput("hotelRoomQtyDLX") || 0) > 0;
 
   updateBreakfastAddonUI();
-  updateHotelRoomDetailsUI();
   syncHotelResultsPickedVisibility();
+  void trySyncHotelSessionHold();
 }
 
 function updateHotelCardSelectButtons() {
@@ -3222,31 +3691,37 @@ function updateHotelRoomDetailsUI() {
   const displayEl = document.getElementById("hotelSelectedRoomDisplay");
   if (!displayEl || !selectedHotel) return;
 
-  const roomCode = document.getElementById("hotelRoomType")?.value;
-  const cb = document.getElementById("hotelIncludesBreakfast");
-  const room = (selectedHotel.roomTypes || []).find((rt) => rt.code === roomCode);
-
-  if (!room) {
+  const mix = getHotelRoomMixFromUI();
+  const keys = Object.keys(mix);
+  if (!keys.length) {
     displayEl.textContent = "—";
     return;
   }
 
-  const label = room.label || room.typeName || roomCode || "Room";
-  const price = Number.isFinite(Number(room.pricePerNight))
+  const nights = getHotelStayNightsForPricing();
+  const cb = document.getElementById("hotelIncludesBreakfast");
+  const segments = [];
+  for (const code of ["STD", "DLX"]) {
+    const n = mix[code];
+    if (!n) continue;
+    const room = (selectedHotel.roomTypes || []).find(
+      (rt) => String(rt.code || "").toUpperCase() === code
+    );
+    const label = room?.label || room?.typeName || code;
+    const price = Number.isFinite(Number(room?.pricePerNight))
     ? formatMoneyDisplayFromSgd(Number(room.pricePerNight))
     : null;
-  const available = Number.isFinite(Number(room.availableRooms)) ? Number(room.availableRooms) : null;
-  const breakfastIncluded = room.code === "DLX" || !!cb?.checked;
-  const addonText = breakfastIncluded ? "Breakfast included" : "Room only";
-
-  const parts = [
-    label,
-    price !== null ? `${price}/night` : null,
-    addonText,
-    available !== null ? `${available} rooms left` : null,
+    const breakfast =
+      code === "DLX" ? "breakfast incl." : cb?.checked ? "breakfast add-on" : "room only";
+    const sub = [
+      `${n}× ${label}`,
+      price ? `${price}/night × ${nights}n` : null,
+      breakfast,
   ].filter(Boolean);
+    segments.push(sub.join(" · "));
+  }
 
-  displayEl.textContent = parts.join(" · ");
+  displayEl.textContent = segments.join(" · ");
 }
 
 function renderHotelResults(hotels) {
@@ -3277,13 +3752,27 @@ function renderHotelResults(hotels) {
           rt.availableRooms !== undefined && rt.availableRooms !== null
             ? `${rt.availableRooms} rooms left`
             : "";
+        const held = getHeldRoomsForHotelType(id, code);
+        const heldHtml =
+          held > 0
+            ? ` · <span class="hotel-card__hold-tag">${held} on hold</span>`
+            : "";
         return `<div class="hotel-card__roomline"><strong>${escapeHtml(
           label
         )}</strong>${code ? ` (${escapeHtml(code)})` : ""}: ${escapeHtml(
           addon
-        )}${price ? ` · ${escapeHtml(price)}` : ""}${available ? ` · ${escapeHtml(available)}` : ""}</div>`;
+        )}${price ? ` · ${escapeHtml(price)}` : ""}${available ? ` · ${escapeHtml(available)}` : ""}${heldHtml}</div>`;
       })
       .join("");
+    const heldStd = getHeldRoomsForHotelType(id, "STD");
+    const heldDlx = getHeldRoomsForHotelType(id, "DLX");
+    const heldTotal = heldStd + heldDlx;
+    const holdBanner =
+      heldTotal > 0
+        ? `<div class="hotel-card__hold-note muted">${escapeHtml(
+            String(heldTotal)
+          )} room(s) on hold — other guests mid-checkout or finishing details before payment (~15 min).</div>`
+        : "";
     const totalRoomsFromTypes = (h.roomTypes || []).reduce((sum, rt) => {
       const v = Number(rt?.availableRooms);
       return Number.isFinite(v) && v > 0 ? sum + v : sum;
@@ -3315,6 +3804,7 @@ function renderHotelResults(hotels) {
         <div class="hotel-card__amenities muted">${escapeHtml(h.amenities || '')}</div>
         <div class="hotel-card__rooms muted">
           ${totalRooms > 0 ? `Rooms available: ${escapeHtml(String(totalRooms))}` : "Rooms available: —"}
+          ${holdBanner}
           ${roomLines ? `<div style="margin-top:2px;">Room types:</div>${roomLines}` : ""}
         </div>
         <div class="hotel-card__actions">
@@ -3347,7 +3837,10 @@ async function searchHotels() {
 
   const resultsEl = document.getElementById("hotelResults");
   const selectedHintEl = document.getElementById("hotelSelectedHint");
-  if (selectedHintEl) selectedHintEl.textContent = "Searching hotels…";
+  if (selectedHintEl) {
+    selectedHintEl.classList.remove("section-hint--warn");
+    selectedHintEl.textContent = "Searching hotels…";
+  }
   if (resultsEl) resultsEl.textContent = "Loading…";
 
   try {
@@ -3395,6 +3888,7 @@ async function searchHotels() {
         if (resultsEl) resultsEl.textContent = restOut.errorMessage || gqlOut.errorMessage || "";
         latestHotelRows = [];
         destinationHasHotels = false;
+        await refreshHotelHoldsSummary();
         renderHotelResults([]);
         return;
       }
@@ -3405,11 +3899,13 @@ async function searchHotels() {
     destinationHasHotels = latestHotelRows.length > 0;
     if (!latestHotelRows.length) {
       if (selectedHintEl) selectedHintEl.textContent = "No hotels match those details.";
+      await refreshHotelHoldsSummary();
       renderHotelResults([]);
       return;
     }
 
     if (selectedHintEl) selectedHintEl.textContent = "Pick one hotel option below.";
+    await refreshHotelHoldsSummary();
     renderHotelResults(latestHotelRows);
   } finally {
     routeHotelsInventoryChecked = true;
@@ -3463,11 +3959,17 @@ async function setManualDefaults() {
   if (bfc) bfc.value = "all";
   if (bff) bff.value = "all";
   if (bft) bft.value = "all";
+  const bgc = document.getElementById("bundleGalleryCountryFilter");
+  if (bgc) bgc.value = "all";
   populateBundleFilterSelects(true);
   populateBundlePackageSelect();
   renderBundleGallery();
   scheduleBundleCardPriceRefresh();
   document.getElementById("hotelID").value = 1;
+  const hqS = document.getElementById("hotelRoomQtySTD");
+  const hqD = document.getElementById("hotelRoomQtyDLX");
+  if (hqS) hqS.value = "1";
+  if (hqD) hqD.value = "0";
   document.getElementById("hotelRoomType").value = "STD";
   document.getElementById("hotelIncludesBreakfast").checked = false;
   updateBreakfastAddonUI();
@@ -3479,7 +3981,6 @@ async function setManualDefaults() {
   document.getElementById("hotelCheckOutTime").value = "2026-05-05T11:00";
   document.getElementById("totalPrice").value = 1200;
   document.getElementById("currency").value = "SGD";
-  document.getElementById("fareType").value = "Flexi";
   document.getElementById("discountCode").value = "";
   appliedPromoCode = "";
   renderVoucherApplyStatus();
@@ -3528,7 +4029,11 @@ function showResult(obj, meta = "") {
   const bookingConfirmed =
     meta === "Trip confirmed" && obj && typeof obj === "object" && obj.data && obj.data.id != null;
   if (bookingConfirmed) {
-    el.textContent = `Booking #${obj.data.id} confirmed. Open My profile → Technical details for raw JSON.`;
+    el.textContent = JSON.stringify(
+      { bookingReference: obj.data.id, status: "Confirmed" },
+      null,
+      2
+    );
     return;
   }
 
@@ -3576,23 +4081,18 @@ function fillAccountLoyaltyFromData(data) {
   const tierEl = document.getElementById("accountPageTier");
   const tierHint = document.getElementById("accountPageTierHint");
   const nextEl = document.getElementById("accountPageNextTier");
-  if (balEl) balEl.textContent = Number.isFinite(cents) ? formatLoyaltyWalletSgd(cents) : "-";
+  if (balEl) balEl.textContent = Number.isFinite(cents) ? formatLoyaltyPointsLabel(cents) : "-";
   if (balHint) {
     balHint.textContent = Number.isFinite(cents)
-      ? `${Math.floor(cents).toLocaleString()} reward credits (100 = S$1 off on Pay) — same balance as the S$ line. Cancelling restores credits you spent on that trip and removes credits you earned on it, so the total can go up or down.`
+      ? `${Math.floor(cents).toLocaleString()} points. Redeem at payment; refunds may adjust your balance.`
       : "";
   }
   if (tierEl) tierEl.textContent = tier;
-  const cid =
-    Number(getSession()?.customerID) ||
-    Number(document.getElementById("customerID")?.value || 0) ||
-    0;
   if (tierHint) {
-    tierHint.textContent = `Tier follows completed bookings: ${bc} recorded in loyalty.${
-      cid > 0
-        ? ` Wallet is tied to member ID ${cid} (not your email). Editing your profile email does not create a new account — use Sign up for a separate wallet.`
-        : ""
-    }`;
+    tierHint.textContent =
+      bc > 0
+        ? `Based on ${bc} completed trip${bc === 1 ? "" : "s"}.`
+        : "Your tier updates as you complete trips.";
   }
   if (nextEl) nextEl.textContent = tierProgressCopy(bc);
 }
@@ -3635,7 +4135,7 @@ function openBookingConfirmModal(apiBody, loyaltySnapshot) {
       const c = Number(loyaltySnapshot.coins ?? loyaltySnapshot.points ?? NaN);
       const t = loyaltySnapshot.tier ?? "-";
       const b = Number(loyaltySnapshot.bookingCount ?? 0);
-      lo.textContent = `Wallet now ${Number.isFinite(c) ? formatLoyaltyWalletSgd(c) : "-"} · Tier ${t} · ${b} completed trip(s). ${tierProgressCopy(b)}`;
+      lo.textContent = `Wallet now ${Number.isFinite(c) ? formatLoyaltyPointsLabel(c) : "-"} · Tier ${t} · ${b} completed trip(s). ${tierProgressCopy(b)}`;
     } else {
       lo.textContent = "";
     }
@@ -3705,8 +4205,8 @@ function humanizeAuthError(rawMessage, httpStatus, kind) {
   if (low.includes("already exists")) {
     return "That email is already registered. Sign in or pick another email.";
   }
-  if (msg.includes("Non-JSON") || msg.includes("empty response")) {
-    return "Could not reach the account service. Is Docker running and the UI opened on the app port (e.g. :8080)?";
+  if (msg.includes("Non-JSON") || msg.includes("empty response") || msg.includes("Something went wrong")) {
+    return "We couldn’t reach the account service. Please try again in a moment.";
   }
   return msg;
 }
@@ -3739,9 +4239,9 @@ async function updateLoyaltySummary(customerID) {
   fillAccountLoyaltyFromData(data.data);
   const centsRaw = data.data.coins ?? data.data.points;
   const cents = Number(centsRaw);
-  const walletLabel = Number.isFinite(cents) ? formatLoyaltyWalletSgd(cents) : "-";
+  const walletLabel = Number.isFinite(cents) ? formatLoyaltyPointsLabel(cents) : "-";
   const walletTitle = Number.isFinite(cents)
-    ? `${Math.floor(cents).toLocaleString()} reward credits (100 = S$1 off at Pay)`
+    ? `${Math.floor(cents).toLocaleString()} points — apply at checkout`
     : "";
 
   const lc = document.getElementById("loyaltyCoins");
@@ -3790,8 +4290,7 @@ async function loadTwilioConfig() {
   const out = await fetchJson(`${NOTIFICATION_BASE}/twilio/config`);
   if (out.networkError || !out.ok || !out.body?.data) {
     if (hint) {
-      hint.textContent =
-        "Could not load Twilio status — start the stack (Docker) and ensure /api/notification is reachable.";
+      hint.textContent = "SMS settings couldn’t be loaded. Try again later.";
     }
     return;
   }
@@ -3801,12 +4300,11 @@ async function loadTwilioConfig() {
   if (sidEl) sidEl.value = "";
   if (tokenEl) tokenEl.value = "";
   if (hint) {
-    const smsDest =
-      "SMS is sent to the mobile on My profile (or booking contact); you do not set a Twilio “to” number.";
+    const smsDest = "Messages are sent to the mobile on your profile or the one you use at checkout.";
     if (d.hasAccountSid && d.accountSidMasked) {
-      hint.textContent = `Current Account SID: ${d.accountSidMasked}. ${smsDest}`;
+      hint.textContent = `Provider account on file (${d.accountSidMasked}). ${smsDest}`;
     } else {
-      hint.textContent = `No Account SID saved yet — paste it on first setup. ${smsDest}`;
+      hint.textContent = `Add your SMS provider details below. ${smsDest}`;
     }
   }
 }
@@ -3887,7 +4385,7 @@ async function onCreateBookingSubmit(e) {
     if (!Array.isArray(selectedSeatCodes) || selectedSeatCodes.length !== required) {
       setError(
         createError,
-        `Select seats for ${required} travellers on the map (lead seat drives auto-assignment for the group).`
+        `Select a seat on the map for each of your ${required} travellers.`
       );
       createBtn.disabled = false;
       return;
@@ -3916,25 +4414,36 @@ async function onCreateBookingSubmit(e) {
     return;
   }
 
-  const hotelRoomType = document.getElementById("hotelRoomType").value;
-  if (!hotelRoomType) {
-    setError(createError, "Select a room type for your hotel.");
+  syncHotelRoomTypeHiddenFromMix();
+  const mix = getHotelRoomMixFromUI();
+  const roomTotal = Object.values(mix).reduce((a, b) => a + b, 0);
+  if (roomTotal < 1) {
+    setError(createError, "Choose at least one Standard or Deluxe room.");
     createBtn.disabled = false;
     return;
   }
+  const pkgRooms = Math.max(1, Math.min(20, Number(document.getElementById("packageRooms")?.value || 1)));
+  if (roomTotal !== pkgRooms) {
+    setError(
+      createError,
+      `Set room counts to match your search (${pkgRooms} room${pkgRooms === 1 ? "" : "s"}). Right now they add up to ${roomTotal}.`
+    );
+    createBtn.disabled = false;
+    return;
+  }
+  const hotelRoomType = document.getElementById("hotelRoomType").value || "STD";
   const payload = {
     customerID: Number(document.getElementById("customerID").value),
     passengerName,
     flightID: document.getElementById("flightID").value,
     hotelID: Number(document.getElementById("hotelID").value),
     hotelRoomType,
+    hotelRoomMix: mix,
     hotelIncludesBreakfast:
-      hotelRoomType === "DLX" ||
-      document.getElementById("hotelIncludesBreakfast").checked,
+      (mix.DLX || 0) > 0 || document.getElementById("hotelIncludesBreakfast").checked,
     departureTime: document.getElementById("departureTime").value,
     totalPrice: Number(document.getElementById("totalPrice").value),
     currency: "SGD",
-    fareType: document.getElementById("fareType").value,
     seatNumber: seatPol.onlineSeatSelection
       ? selectedSeatCodes[0]
         ? String(selectedSeatCodes[0]).trim().toUpperCase()
@@ -3953,7 +4462,7 @@ async function onCreateBookingSubmit(e) {
     const phEl = document.getElementById("passengerPhone");
     if (phEl) phEl.value = passengerPhoneRaw;
   }
-  const tpIds = readTravellerProfileIdsFromInput();
+  const tpIds = getTravellerProfileIdsForBookingPayload();
   if (tpIds.length) {
     payload.travellerProfileIds = tpIds;
   }
@@ -4014,12 +4523,21 @@ async function onCreateBookingSubmit(e) {
     }
 
     if (!out.ok || (data && typeof data.code === "number" && data.code >= 400)) {
-      const raw = data?.message || `Request failed (HTTP ${httpStatus})`;
+      let raw = data?.message || `Request failed (HTTP ${httpStatus})`;
+      if (
+        seatPol.onlineSeatSelection &&
+        (httpStatus === 502 || httpStatus === 503) &&
+        String(raw).toLowerCase().includes("payment")
+      ) {
+        raw = `${raw} Your seat hold keeps counting down until the timer ends — failed payment does not release those seats early.`;
+      }
       const msg =
         humanizeTravellerUserMessage(raw) ||
-        (raw.length > 160 ? "We couldn’t complete the booking. Check your details and try again." : raw);
+        (raw.length > 200 ? "We couldn’t complete the booking. Check your details and try again." : raw);
       setError(createError, msg);
-      showResult(data ?? { error: msg }, "Couldn't confirm trip");
+      const failTitle =
+        httpStatus === 409 ? "Availability changed" : "Couldn't confirm trip";
+      showResult(data ?? { error: msg }, failTitle);
       return;
     }
 
@@ -4067,7 +4585,7 @@ async function refreshCancelRefundEstimate() {
   if (!el) return;
   if (!idRaw || !/^\d+$/.test(idRaw) || Number(idRaw) < 1) {
     el.textContent =
-      "Enter a booking reference to see estimated refund for the selected cancellation type.";
+      "Enter a booking reference to see an estimated refund in your selected display currency.";
     return;
   }
   el.textContent = "Loading estimate…";
@@ -4082,11 +4600,14 @@ async function refreshCancelRefundEstimate() {
     return;
   }
   const d = out.body.data;
-  const cur = d.currency || "SGD";
   const days = d.daysBeforeDeparture;
   const srcLabel =
     src === "airline" ? "Airline" : src === "hotel" ? "Hotel" : "Customer";
-  el.textContent = `Estimate (${srcLabel}): ~${cur} ${d.refundAmount} (${d.refundPercentage}% of total). Policy ${d.cancellationPolicyID}. About ${days} day(s) before departure.`;
+  const refundNum = Number(d.refundAmount);
+  const refundShown = Number.isFinite(refundNum)
+    ? formatMoneyDisplayFromSgd(refundNum)
+    : String(d.refundAmount ?? "—");
+  el.textContent = `Estimate (${srcLabel}): ~${refundShown} (${d.refundPercentage}% of package total). Policy ${d.cancellationPolicyID}. About ${days} day(s) before departure.`;
 }
 
 function scheduleCancelRefundEstimate() {
@@ -4157,8 +4678,7 @@ async function executeBookingCancellation(idRaw, cancelSource) {
     }
 
     if (isBookingWelcomePayload(data)) {
-      const msg =
-        "Couldn't complete cancellation — wrong service or URL. Open the app at http://localhost:8080 (not file://) so /api/booking proxies to Docker, or check Kong/nginx routes.";
+      const msg = "We couldn’t complete cancellation right now. Please try again shortly.";
       showCancelError(msg);
       showResult({ _help: msg, received: data }, "Unexpected response");
       return;
@@ -4192,7 +4712,7 @@ async function executeBookingCancellation(idRaw, cancelSource) {
         ? "Already cancelled"
         : "Cancellation processed";
     showCancelSuccess(
-      `${doneTitle}. If activity shows a Twilio SMS error, the trip is still cancelled — fix Twilio in .env for texts. Details: My profile → Technical details (JSON).`
+      `${doneTitle}. You’ll see updates under Notifications & activity on your profile.`
     );
     showResult(data, doneTitle);
 
@@ -4368,7 +4888,10 @@ function syncBookingFlowCompletedLockUI() {
   }
 
   document.querySelectorAll("#seatMap button.seat").forEach((b) => {
-    b.disabled = bookingFlowCompletedLock || b.classList.contains("taken");
+    b.disabled =
+      bookingFlowCompletedLock ||
+      b.classList.contains("taken") ||
+      b.classList.contains("held");
   });
 
   if (typeof window.__horizonBookingStepNavSync === "function") {
@@ -4563,21 +5086,56 @@ function sliceDateFromLocal(dt) {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
-function updatePackageNightsHint() {
-  const dep = document.getElementById("packageDepartDate")?.value;
-  const ret = document.getElementById("packageReturnDate")?.value;
+/** Calendar nights for a curated preset (matches hero date math). */
+function presetNights(p) {
+  const dep = sliceDateFromLocal(p.depart);
+  const ret = sliceDateFromLocal(p.ret);
+  if (!dep || !ret) return null;
+  const d0 = new Date(`${dep}T12:00:00`);
+  const d1 = new Date(`${ret}T12:00:00`);
+  if (!(d1 > d0)) return null;
+  return Math.max(0, Math.round((d1 - d0) / 86400000));
+}
+
+/** Nights from the main search (return trips only); null = do not filter packages by length. */
+function getHeroSearchTripNights() {
   const isReturn =
     document.querySelector('input[name="packageTripType"]:checked')?.value === "return";
+  if (!isReturn) return null;
+  const dep = document.getElementById("packageDepartDate")?.value;
+  const ret = document.getElementById("packageReturnDate")?.value;
+  if (!dep || !ret) return null;
+  const d0 = new Date(`${dep}T12:00:00`);
+  const d1 = new Date(`${ret}T12:00:00`);
+  if (!(d1 > d0)) return null;
+  return Math.max(0, Math.round((d1 - d0) / 86400000));
+}
+
+function formatNightsLabel(n) {
+  return n === 1 ? "1 night" : `${n} nights`;
+}
+
+/** Route has presets but none match the selected trip length. */
+function isNightsFilterBlockingPackages() {
+  const want = getHeroSearchTripNights();
+  if (want == null) return false;
+  const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const d = document.getElementById("bundleDestination")?.value?.trim() || "";
+  if (!o || !d) return false;
+  const routeList = BUNDLE_PRESETS.filter((p) => p.origin === o && p.destination === d);
+  if (!routeList.length) return false;
+  return !routeList.some((p) => presetNights(p) === want);
+}
+
+function updatePackageNightsHint() {
   const el = document.getElementById("packageNightsHint");
   if (!el) return;
-  if (!isReturn || !dep || !ret) {
+  const nights = getHeroSearchTripNights();
+  if (nights == null) {
     el.textContent = "—";
     return;
   }
-  const d0 = new Date(`${dep}T12:00:00`);
-  const d1 = new Date(`${ret}T12:00:00`);
-  const nights = Math.max(0, Math.round((d1 - d0) / 86400000));
-  el.textContent = nights === 1 ? "1 night" : `${nights} nights`;
+  el.textContent = formatNightsLabel(nights);
 }
 
 function updatePackageTripSummary() {
@@ -4678,6 +5236,17 @@ function applyPackageSearchToBundle() {
   syncBundleTravellerTotals();
 }
 
+/** After hero search, narrow the package gallery to the destination country (user can set All countries again). */
+function syncBundleGalleryCountryFromDestinationCity(destCity) {
+  const sel = document.getElementById("bundleGalleryCountryFilter");
+  if (!sel || sel.tagName !== "SELECT") return;
+  const slug = CITY_COUNTRY_SLUG[String(destCity || "").trim()];
+  if (!slug) return;
+  if ([...sel.options].some((o) => o.value === slug)) {
+    sel.value = slug;
+  }
+}
+
 function runPackageSearch() {
   invalidateAppliedPromo();
   applyPackageSearchToBundle();
@@ -4705,6 +5274,7 @@ function runPackageSearch() {
   if (bff && fromS) bff.value = fromS.value;
   if (bft && toS) bft.value = toS.value;
   populateBundleFilterSelects(true);
+  syncBundleGalleryCountryFromDestinationCity(bd);
   onBundleFiltersChanged();
   const flex = document.getElementById("packageFlexibleDates")?.checked;
   if (!flex) {
@@ -4784,7 +5354,21 @@ function setupPackageSearchUI() {
       onFineTuneDivergeFromPackage();
     });
   });
-  ["packageRooms", "packageAdults", "packageChildren", "packageInfants", "packageCabin"].forEach((id) => {
+  document.getElementById("packageRooms")?.addEventListener("change", () => {
+    if (syncingPackageRoomsProgrammatically) return;
+    updatePackageTripSummary();
+    applyPackageSearchToBundle();
+    syncTripWindowFromDateInputs();
+    scheduleBundleCardPriceRefresh();
+    if (selectedHotel) {
+      defaultHotelRoomQuantitiesForSelection("STD");
+      syncHotelRoomTypeHiddenFromMix();
+      updateBreakfastAddonUI();
+      applyRoomMixToBundlePricing();
+    }
+    if (selectedBundlePresetId) void searchBundlePricing();
+  });
+  ["packageAdults", "packageChildren", "packageInfants", "packageCabin"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", updatePackageTripSummary);
   });
 
@@ -4914,29 +5498,99 @@ function travellerRowNumericId(row) {
 /** Collapse spaces/punctuation so "A A" matches saved profile "aa". */
 function normalizeTravellerNameKey(s) {
   return String(s ?? "")
+    .normalize("NFKC")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
 }
 
+/** Keys derived from a display string (full normalize + "first last" → firstlast). */
+function addNameMatchVariants(raw, intoSet) {
+  const t = String(raw ?? "").trim();
+  if (!t) return;
+  intoSet.add(normalizeTravellerNameKey(t));
+  const parts = t
+    .normalize("NFKC")
+    .toLowerCase()
+    .split(/\s+/)
+    .map((p) => p.replace(/[^a-z0-9]+/gi, ""))
+    .filter(Boolean);
+  if (parts.length >= 2) intoSet.add(parts.join(""));
+}
+
+/** Name keys for the signed-in member (session + My profile first/last when present). */
+function sessionBookerNameMatchKeySet() {
+  const sess = getSession();
+  const keys = new Set();
+  if (!sess || sess.mode !== "member") return keys;
+  addNameMatchVariants(sess.displayName, keys);
+  const em = String(sess.email || "").trim();
+  if (em.includes("@")) addNameMatchVariants(em.split("@")[0], keys);
+  const fn = document.getElementById("profileFirstName")?.value?.trim();
+  const ln = document.getElementById("profileLastName")?.value?.trim();
+  addNameMatchVariants(`${fn || ""} ${ln || ""}`, keys);
+  addNameMatchVariants(`${fn || ""}${ln || ""}`, keys);
+  return keys;
+}
+
+/** Name keys from a traveller profile row (full name + given/family if split). */
+function travellerProfileNameMatchKeys(row) {
+  const keys = new Set();
+  const full = String(
+    getOsField(row, ["FullName", "Name", "TravellerName", "fullName"]) || ""
+  ).trim();
+  addNameMatchVariants(full, keys);
+  const given = String(
+    getOsField(row, ["FirstName", "GivenName", "firstName", "Given"]) || ""
+  ).trim();
+  const family = String(
+    getOsField(row, ["LastName", "FamilyName", "Surname", "lastName"]) || ""
+  ).trim();
+  addNameMatchVariants(`${given} ${family}`, keys);
+  addNameMatchVariants(`${given}${family}`, keys);
+  return keys;
+}
+
 /**
- * Traveller profile Id for the signed-in booker when their saved name matches session displayName.
+ * Traveller profile Id for the signed-in booker when any session name variant matches the profile.
+ * e.g. Member "a a" ↔ saved "aa", or first+last ↔ FullName.
  */
 function getBookerTravellerProfileId(safeRows) {
   const sess = getSession();
   if (!sess || sess.mode !== "member") return 0;
-  const display = String(sess.displayName || "").trim();
-  const want = normalizeTravellerNameKey(display);
-  if (!want) return 0;
+  const sessionKeys = sessionBookerNameMatchKeySet();
+  if (!sessionKeys.size) return 0;
   const rows = Array.isArray(safeRows) ? safeRows : [];
   for (const row of rows) {
     const id = travellerRowNumericId(row);
     if (!id) continue;
-    const fn = String(
-      getOsField(row, ["FullName", "Name", "TravellerName", "fullName"]) || ""
-    ).trim();
-    if (normalizeTravellerNameKey(fn) === want) return id;
+    for (const k of travellerProfileNameMatchKeys(row)) {
+      if (k && sessionKeys.has(k)) return id;
+    }
   }
   return 0;
+}
+
+/**
+ * Headcount for pricing, seats, and validation: saved profiles ticked “On this trip”, plus the
+ * signed-in member when they have a matching saved profile but forgot to tick themselves.
+ */
+function getEffectiveTripTravellerHeadcount() {
+  const ticked = readTravellerProfileIdsFromInput();
+  const n = ticked.length;
+  const sess = getSession();
+  if (!sess || sess.mode !== "member") return Math.min(12, n);
+  const bid = getBookerTravellerProfileId(latestTravellerRows);
+  if (!bid || ticked.includes(bid)) return Math.min(12, n);
+  return Math.min(12, n + 1);
+}
+
+/** Booking payload: include booker’s profile id when they’re counted but not ticked. */
+function getTravellerProfileIdsForBookingPayload() {
+  const ids = readTravellerProfileIdsFromInput();
+  const sess = getSession();
+  const bid = getBookerTravellerProfileId(latestTravellerRows);
+  if (!sess || sess.mode !== "member" || !bid || ids.includes(bid)) return ids;
+  return [bid, ...ids.filter((x) => x !== bid)];
 }
 
 /** Keep the booker’s profile first in the party (lead seat + contact) when they’re on the trip. */
@@ -4964,11 +5618,55 @@ function normalizeTripPartyForRows(safeRows, opts = {}) {
   }
 
   if (!tripPartyOrderedIds.length && safeRows.length > 0 && allowAutoFirst) {
-    const first = travellerRowNumericId(safeRows[0]);
-    if (first) tripPartyOrderedIds = [first];
+    const bid = getBookerTravellerProfileId(safeRows);
+    const fallback = travellerRowNumericId(safeRows[0]);
+    const pick = bid > 0 ? bid : fallback;
+    if (pick) tripPartyOrderedIds = [pick];
   }
 
   ensureBookerFirstInTripParty(safeRows);
+}
+
+/**
+ * Saved profiles ticked "On this trip" drive the hero package pax: each counts as one adult
+ * (children/infants cleared) so bundle pricing and the top summary stay aligned.
+ */
+function syncTripPartySizeToPackageHeroAndBundlePricing() {
+  const n = getEffectiveTripTravellerHeadcount();
+  if (n < 1) return;
+
+  const cap = Math.min(n, 12);
+  const adultsSel = document.getElementById("packageAdults");
+  const childrenSel = document.getElementById("packageChildren");
+  const infantsSel = document.getElementById("packageInfants");
+  if (adultsSel) adultsSel.value = String(cap);
+  if (childrenSel) childrenSel.value = "0";
+  if (infantsSel) infantsSel.value = "0";
+
+  const bundleAdultsEl = document.getElementById("bundleAdults");
+  const bundleChildrenEl = document.getElementById("bundleChildren");
+  const bundleInfantsEl = document.getElementById("bundleInfants");
+  if (bundleAdultsEl && bundleAdultsEl.tagName === "SELECT") {
+    bundleAdultsEl.value = String(cap);
+    if (bundleChildrenEl) bundleChildrenEl.value = "0";
+    if (bundleInfantsEl) bundleInfantsEl.value = "0";
+    syncBundleTravellerTotals();
+  }
+
+  updatePackageTripSummary();
+  applyPackageSearchToBundle();
+  syncTripWindowFromDateInputs();
+  scheduleBundleCardPriceRefresh();
+  if (selectedHotel) {
+    defaultHotelRoomQuantitiesForSelection("STD");
+    syncHotelRoomTypeHiddenFromMix();
+    updateBreakfastAddonUI();
+    applyRoomMixToBundlePricing();
+  }
+  const flex = document.getElementById("packageFlexibleDates")?.checked;
+  if (!flex) {
+    void searchBundlePricing();
+  }
 }
 
 function onToggleTripTraveller(id, checked) {
@@ -4982,10 +5680,9 @@ function onToggleTripTraveller(id, checked) {
   populateTravellerSelectorsFromRows(latestTravellerRows, { allowAutoFirst: false });
   renderTravellerProfileList();
   refreshTripContactSummary();
+  trimSeatSelectionToRequiredIfNeeded();
   updateSeatGroupSummary();
-  if (Array.isArray(selectedSeatCodes) && selectedSeatCodes[0]) {
-    void selectSeat(selectedSeatCodes[0]);
-  }
+  syncTripPartySizeToPackageHeroAndBundlePricing();
 }
 
 function renderTravellerProfileList() {
@@ -4995,6 +5692,9 @@ function renderTravellerProfileList() {
   listEl.innerHTML = "";
   const party = dedupeTripPartyOrderedIds();
   const partySet = new Set(party);
+
+  const bookerProfileId = getBookerTravellerProfileId(latestTravellerRows);
+  const bookerDisplay = String(getSession()?.displayName || "").trim();
 
   latestTravellerRows.forEach((row) => {
     const id = travellerRowNumericId(row);
@@ -5007,6 +5707,12 @@ function renderTravellerProfileList() {
     const selectedId = travellerRowNumericId(selectedTravellerRow);
     const isSelected = selectedId > 0 && selectedId === id;
     const isOnTrip = partySet.has(id);
+    const isBookerProfile = bookerProfileId > 0 && id === bookerProfileId;
+    const accountBadge = isBookerProfile
+      ? ` <span class="traveller-item__account-badge">(${escapeHtml(
+          bookerDisplay || "this account"
+        )})</span>`
+      : "";
 
     const item = document.createElement("div");
     item.className = "traveller-item";
@@ -5020,7 +5726,7 @@ function renderTravellerProfileList() {
         </label>
       </div>
       <div class="traveller-item__meta">
-        <div class="traveller-item__title">${escapeHtml(title)}</div>
+        <div class="traveller-item__title">${escapeHtml(title)}${accountBadge}</div>
         <div class="traveller-item__sub">${escapeHtml(sub)}</div>
       </div>
       <button type="button" class="${isSelected ? "btn-primary" : "btn-secondary"}" data-action="selectTraveller" data-id="${id}">
@@ -5654,6 +6360,7 @@ async function onLoginSubmit(e) {
     return;
   }
   const d = body.data;
+  resetSeatBrowsingSessionForNewAccount();
   setSession({
     mode: "member",
     customerID: Number(d.customerID),
@@ -5666,8 +6373,34 @@ async function onLoginSubmit(e) {
   enterAppAfterAuth();
 }
 
+/** Must match account/app.py _validate_password special-char set. */
+const SIGNUP_PASSWORD_SPECIAL_CHARS = "!@#$%^&*()_+-=[]{}|;:,.<>?/`~";
+
+function validateSignupPasswordClient(pw) {
+  const s = String(pw);
+  if (!s.length) return "Please choose a password.";
+  if (s.length < 10) return "Password must be at least 10 characters.";
+  if (!/[a-z]/.test(s)) return "Password must include at least one lowercase letter.";
+  if (!/[A-Z]/.test(s)) return "Password must include at least one uppercase letter.";
+  if (!/\d/.test(s)) return "Password must include at least one digit.";
+  const specials = new Set([...SIGNUP_PASSWORD_SPECIAL_CHARS]);
+  if (![...s].some((c) => specials.has(c))) {
+    return "Password must include at least one special character (e.g. ! @ # $ % & *).";
+  }
+  return "";
+}
+
+function signupPhoneDigitCount(raw) {
+  return (String(raw).match(/\d/g) || []).length;
+}
+
 async function onSignupSubmit(e) {
   e.preventDefault();
+  const form = e.currentTarget;
+  if (form instanceof HTMLFormElement && !form.checkValidity()) {
+    form.reportValidity();
+    return;
+  }
   const errEl = document.getElementById("signupError");
   const submitBtn = document.getElementById("signupSubmitBtn");
   const email = document.getElementById("signupEmail")?.value?.trim() || "";
@@ -5683,19 +6416,28 @@ async function onSignupSubmit(e) {
     setError(errEl, "Please enter your email address.");
     return;
   }
-  if (!String(password).trim()) {
-    setError(errEl, "Please choose a password.");
+  if (!firstName) {
+    setError(errEl, "Please enter your first name.");
     return;
   }
-  if (String(password).trim().length < 6) {
-    setError(errEl, "Use at least 6 characters for your password.");
+  if (!lastName) {
+    setError(errEl, "Please enter your last name.");
+    return;
+  }
+  const pwMsg = validateSignupPasswordClient(password);
+  if (pwMsg) {
+    setError(errEl, pwMsg);
     return;
   }
   if (!phoneNumber) {
     setError(
       errEl,
-      "Mobile number is required — we use it for booking SMS when Twilio is on."
+      "Mobile number is required so we can send booking updates by SMS."
     );
+    return;
+  }
+  if (signupPhoneDigitCount(phoneNumber) < 8) {
+    setError(errEl, "Enter a valid mobile number (at least 8 digits).");
     return;
   }
   if (submitBtn) submitBtn.disabled = true;
@@ -5722,6 +6464,7 @@ async function onSignupSubmit(e) {
     return;
   }
   const d = out.body.data;
+  resetSeatBrowsingSessionForNewAccount();
   setSession({
     mode: "member",
     customerID: Number(d.customerID),
@@ -5735,6 +6478,8 @@ async function onSignupSubmit(e) {
 }
 
 function enterAppAfterAuth() {
+  selectedSeatCodes = [];
+  startSeatHoldTimer("");
   const gate = document.getElementById("loginGate");
   const shell = document.getElementById("appShell");
   if (gate) {
@@ -5756,6 +6501,7 @@ function enterAppAfterAuth() {
 }
 
 function onLogout() {
+  resetSeatBrowsingSessionForNewAccount();
   clearSession();
   location.reload();
 }
@@ -5789,11 +6535,11 @@ function initAppShell() {
 
   void initDisplayCurrencyUI();
 
-  buildSeatMapOnce();
   updateSeatSelectionUI();
   populateTravellerCountSelect();
   populateBundleFilterSelects(false);
   populateBundleRouteSelectsFromPresets();
+  populateBundleGalleryCountryFilter();
   setupHotelSearchLocationSelects();
   populateTripWindowSelect();
   applyTripWindowFromSelect();
@@ -5827,6 +6573,14 @@ function initAppShell() {
     void syncFlightScheduleUI();
   });
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    const fid = String(document.getElementById("flightID")?.value || "").trim();
+    if (fid && getSeatPolicy(fid).onlineSeatSelection) {
+      void refreshTakenSeatsQueued(fid);
+    }
+  });
+
   document.getElementById("bundleDepartDateTime")?.addEventListener("change", () => {
     syncTripWindowFromDateInputs();
     void refreshFlightDropdownFromRoute();
@@ -5835,9 +6589,20 @@ function initAppShell() {
     syncTripWindowFromDateInputs();
     void refreshFlightDropdownFromRoute();
   });
-  document
-    .getElementById("hotelRoomType")
-    .addEventListener("change", updateBreakfastAddonUI);
+  for (const id of ["hotelRoomQtySTD", "hotelRoomQtyDLX"]) {
+    document.getElementById(id)?.addEventListener("input", onHotelRoomMixInputsChanged);
+    document.getElementById(id)?.addEventListener("change", onHotelRoomMixInputsChanged);
+  }
+  document.getElementById("hotelCheckInTime")?.addEventListener("change", () => {
+    applyRoomMixToBundlePricing();
+    updateHotelRoomDetailsUI();
+    void trySyncHotelSessionHold();
+  });
+  document.getElementById("hotelCheckOutTime")?.addEventListener("change", () => {
+    applyRoomMixToBundlePricing();
+    updateHotelRoomDetailsUI();
+    void trySyncHotelSessionHold();
+  });
 
 
   document.getElementById("hotelSearchBtn")?.addEventListener("click", () => {
@@ -6128,6 +6893,7 @@ async function loadMyAccount(customerID) {
     // container restarts, previously created IDs may disappear and this lookup
     // returns 404 — clear the stale session and ask the user to sign in again.
     if (out.status === 404) {
+      resetSeatBrowsingSessionForNewAccount();
       clearSession();
       const gate = document.getElementById("loginGate");
       const shell = document.getElementById("appShell");

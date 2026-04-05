@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 import os
+import threading
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -19,6 +20,7 @@ CORS(app)
 # Supports multi-seat reservations by storing `seatNos` (list) under the same bookingID.
 FLIGHT_RESERVATIONS: dict[int, dict] = {}
 HOLD_MINUTES = int(os.environ.get("SEAT_HOLD_MINUTES", "15") or "15")
+_FLIGHT_RES_LOCK = threading.Lock()
 
 
 def _utc_now() -> datetime:
@@ -82,10 +84,21 @@ def _purge_expired_holds():
             FLIGHT_RESERVATIONS.pop(bid, None)
 
 
+def _sorted_seat_key(seat_nos: list[str]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                str(s).strip().upper()
+                for s in seat_nos
+                if s is not None and str(s).strip().upper() and str(s).strip().upper() != "AUTO"
+            }
+        )
+    )
+
+
 def _online_seat_selection(flight_num: str) -> bool:
-    # Match UI logic: it enables seat map when prefix is "SQ".
-    code = str(flight_num).upper()[:2]
-    return code == "SQ"
+    """Demo: all flights use the same interactive seat map + hold flow."""
+    return bool(str(flight_num or "").strip())
 
 
 FLIGHTS = {
@@ -217,12 +230,12 @@ _EXTRA_FLIGHTS = [
     ("SQ707", "Singapore Airlines", "BKK", "SIN", "Bangkok", "Singapore", "2026-05-06T10:00:00", "2026-05-06T13:30:00", 90, 180.00, 520.00, 120, 120),
     ("TR863", "Scoot", "BKK", "SIN", "Bangkok", "Singapore", "2026-05-06T14:00:00", "2026-05-06T15:40:00", 100, 99.00, None, 150, 150),
     # Worldwide demo routes (bundle gallery beyond Singapore departures)
-    ("BA201", "British Airways", "LHR", "CDG", "London", "Paris", "2025-07-01T09:00:00", "2025-07-01T11:30:00", 150, 320.00, 900.00, 180, 100),
-    ("BA102", "British Airways", "CDG", "LHR", "Paris", "London", "2025-07-05T18:00:00", "2025-07-05T18:55:00", 115, 185.00, 520.00, 180, 110),
-    ("BA304E", "British Airways", "LHR", "NRT", "London", "Tokyo", "2025-07-06T11:00:00", "2025-07-07T07:00:00", 720, 890.00, 3100.00, 280, 72),
-    ("JL905", "Japan Airlines", "NRT", "BKK", "Tokyo", "Bangkok", "2025-07-02T11:00:00", "2025-07-02T16:00:00", 320, 410.00, 1200.00, 200, 88),
-    ("QF031", "Qantas", "SYD", "SIN", "Sydney", "Singapore", "2025-07-03T20:00:00", "2025-07-04T01:30:00", 480, 580.00, 1600.00, 250, 96),
-    ("TG604", "Thai Airways", "BKK", "DPS", "Bangkok", "Bali", "2025-07-04T10:00:00", "2025-07-04T14:30:00", 120, 220.00, 650.00, 180, 74),
+    ("BA201", "British Airways", "LHR", "CDG", "London", "Paris", "2026-07-01T09:00:00", "2026-07-01T11:30:00", 150, 320.00, 900.00, 180, 100),
+    ("BA102", "British Airways", "CDG", "LHR", "Paris", "London", "2026-07-05T18:00:00", "2026-07-05T18:55:00", 115, 185.00, 520.00, 180, 110),
+    ("BA304", "British Airways", "LHR", "NRT", "London", "Tokyo", "2026-07-06T11:00:00", "2026-07-07T07:00:00", 720, 890.00, 3100.00, 280, 72),
+    ("JL905", "Japan Airlines", "NRT", "BKK", "Tokyo", "Bangkok", "2026-07-02T11:00:00", "2026-07-02T16:00:00", 320, 410.00, 1200.00, 200, 88),
+    ("QF031", "Qantas", "SYD", "SIN", "Sydney", "Singapore", "2026-07-03T20:00:00", "2026-07-04T01:30:00", 480, 580.00, 1600.00, 250, 96),
+    ("TG604", "Thai Airways", "BKK", "DPS", "Bangkok", "Bali", "2026-07-04T10:00:00", "2026-07-04T14:30:00", 120, 220.00, 650.00, 180, 74),
 ]
 
 
@@ -273,16 +286,128 @@ _GEN_SEQ = 0
 
 
 def _next_flight_num(prefix: str) -> str:
+    """IATA-style flight id: 2-letter carrier + 2–4 digits (no artificial zero padding)."""
     global _GEN_SEQ
+    pref = str(prefix).upper().strip()
+    if len(pref) < 2:
+        pref = "SQ"
     while True:
         _GEN_SEQ += 1
-        n = _GEN_SEQ % 10000
-        pref = str(prefix).upper()
-        cand = f"{pref}{n:04d}"
-        if len(cand) > 8:
-            cand = f"{pref}{n % 9999:04d}"
-        if cand not in FLIGHTS:
+        k = _GEN_SEQ % 13
+        if k == 0:
+            num = 10 + (_GEN_SEQ % 89)
+        elif k <= 7:
+            num = 100 + (_GEN_SEQ % 899)
+        else:
+            num = 1000 + (_GEN_SEQ % 8999)
+        if num > 9999:
+            num = 100 + (num % 899)
+        cand = f"{pref}{num}"
+        if len(cand) <= 7 and cand not in FLIGHTS:
             return cand
+
+
+def _carriers_for_route(origin_city: str, dest_city: str) -> list[tuple[str, str]]:
+    """Plausible airlines per corridor (demo), instead of rotating through every carrier."""
+    sg_hub: list[tuple[str, str]] = [
+        ("Singapore Airlines", "SQ"),
+        ("Scoot", "TR"),
+        ("Jetstar Asia", "3K"),
+    ]
+
+    def _merge(extra: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for pair in sg_hub + extra:
+            if pair[1] in seen:
+                continue
+            seen.add(pair[1])
+            out.append(pair)
+        return out or list(sg_hub)
+
+    oc, dc = origin_city, dest_city
+    if oc == "London" and dc == "Tokyo":
+        return [("British Airways", "BA"), ("Japan Airlines", "JL"), ("ANA", "NH")]
+    if oc == "Paris" and dc == "Tokyo":
+        return [("Air France", "AF"), ("Japan Airlines", "JL"), ("ANA", "NH")]
+    if {oc, dc} == {"London", "Paris"}:
+        return [("British Airways", "BA"), ("Air France", "AF"), ("KLM", "KL")]
+    if oc == "Tokyo" and dc == "Bangkok":
+        return [("Japan Airlines", "JL"), ("ANA", "NH"), ("Thai Airways", "TG")]
+    if oc == "Tokyo" and dc == "Sydney":
+        return [("Japan Airlines", "JL"), ("ANA", "NH"), ("Qantas", "QF")]
+    if oc == "Bangkok":
+        return [("Thai Airways", "TG"), ("AirAsia", "AK"), ("Singapore Airlines", "SQ")]
+    if oc == "Bali" and dc == "Singapore":
+        return [("Garuda Indonesia", "GA"), ("Singapore Airlines", "SQ"), ("Jetstar Asia", "3K")]
+    if oc == "Kuala Lumpur":
+        return [("AirAsia", "AK"), ("Malaysia Airlines", "MH"), ("Singapore Airlines", "SQ")]
+    if oc == "Seoul":
+        if dc == "Bangkok":
+            return [("Korean Air", "KE"), ("Thai Airways", "TG"), ("Asiana Airlines", "OZ")]
+        if dc == "Tokyo":
+            return [("Korean Air", "KE"), ("Asiana Airlines", "OZ"), ("Japan Airlines", "JL")]
+        return [("Korean Air", "KE"), ("Singapore Airlines", "SQ"), ("Scoot", "TR")]
+    if oc == "Manila":
+        return [("Philippine Airlines", "PR"), ("Singapore Airlines", "SQ"), ("Cebu Pacific", "5J")]
+    if oc == "Dubai":
+        return [("Emirates", "EK"), ("British Airways", "BA"), ("Singapore Airlines", "SQ")]
+    if oc == "Frankfurt":
+        return [("Lufthansa", "LH"), ("Singapore Airlines", "SQ")]
+    if oc == "Amsterdam" and dc == "London":
+        return [("KLM", "KL"), ("British Airways", "BA")]
+    if oc == "Amsterdam":
+        return [("KLM", "KL"), ("Singapore Airlines", "SQ")]
+    if oc == "Los Angeles" and dc == "Tokyo":
+        return [("United Airlines", "UA"), ("Japan Airlines", "JL"), ("ANA", "NH")]
+    if oc == "San Francisco":
+        return [("United Airlines", "UA"), ("Singapore Airlines", "SQ")]
+    if oc == "Hanoi":
+        return [("Vietnam Airlines", "VN"), ("Thai Airways", "TG")]
+    if oc == "Jakarta":
+        return [("Garuda Indonesia", "GA"), ("Singapore Airlines", "SQ"), ("AirAsia", "AK")]
+    if oc == "Chennai":
+        return [("Singapore Airlines", "SQ"), ("AirAsia", "AK")]
+    if oc == "Sydney" and dc == "Melbourne":
+        return [("Qantas", "QF"), ("Jetstar", "JQ"), ("Virgin Australia", "VA")]
+    if oc == "Melbourne":
+        return [("Qantas", "QF"), ("Jetstar", "JQ"), ("Virgin Australia", "VA")]
+
+    if oc == "Singapore" or dc == "Singapore":
+        extra: list[tuple[str, str]] = []
+        if "Tokyo" in (oc, dc) or "Seoul" in (oc, dc):
+            extra.extend(
+                [("Japan Airlines", "JL"), ("ANA", "NH"), ("Korean Air", "KE")]
+            )
+        if "Sydney" in (oc, dc) or "Melbourne" in (oc, dc):
+            extra.append(("Qantas", "QF"))
+        if "London" in (oc, dc) or "Paris" in (oc, dc):
+            extra.extend([("British Airways", "BA"), ("Lufthansa", "LH")])
+        if "Bangkok" in (oc, dc):
+            extra.extend([("Thai Airways", "TG"), ("AirAsia", "AK")])
+        if "Bali" in (oc, dc):
+            extra.extend([("Garuda Indonesia", "GA"), ("AirAsia", "AK")])
+        if "Manila" in (oc, dc):
+            extra.append(("Philippine Airlines", "PR"))
+        if "Kuala Lumpur" in (oc, dc):
+            extra.extend([("AirAsia", "AK"), ("Malaysia Airlines", "MH")])
+        if "Los Angeles" in (oc, dc) or "San Francisco" in (oc, dc):
+            extra.extend([("United Airlines", "UA"), ("Japan Airlines", "JL"), ("ANA", "NH")])
+        if "Dubai" in (oc, dc):
+            extra.append(("Emirates", "EK"))
+        if "Frankfurt" in (oc, dc):
+            extra.append(("Lufthansa", "LH"))
+        if "Amsterdam" in (oc, dc):
+            extra.append(("KLM", "KL"))
+        if "Ho Chi Minh City" in (oc, dc) or "Hanoi" in (oc, dc):
+            extra.extend([("Vietnam Airlines", "VN"), ("AirAsia", "AK")])
+        if "Jakarta" in (oc, dc):
+            extra.extend([("Garuda Indonesia", "GA"), ("AirAsia", "AK")])
+        if "Chennai" in (oc, dc):
+            extra.append(("AirAsia", "AK"))
+        return _merge(extra)
+
+    return [("Singapore Airlines", "SQ"), ("Scoot", "TR")]
 
 
 def _merge_programmatic_catalog() -> None:
@@ -357,7 +482,8 @@ def _merge_programmatic_catalog() -> None:
             airline, prefix = carriers[(rxi + si * 3) % len(carriers)]
             flight_num = _next_flight_num(prefix)
             h, m = (int(hhmm[:2]), int(hhmm[3:]))
-            dep_dt = base_day0 + timedelta(days=(rxi + si) % 28, hours=h, minutes=m)
+            # Cluster around early May 2026 so hero / bundle date filters still surface options.
+            dep_dt = base_day0 + timedelta(days=min(3, (rxi + si) % 4), hours=h, minutes=m)
             arr_dt = dep_dt + timedelta(minutes=int(dur_mins))
             dep_s = dep_dt.strftime("%Y-%m-%dT%H:%M")
             arr_s = arr_dt.strftime("%Y-%m-%dT%H:%M")
@@ -506,6 +632,7 @@ def search_flights():
 
 
 @app.route("/availability", methods=["GET"])
+@app.route("/flight/availability", methods=["GET"])
 def availability():
     """
     Bundle pricing helper for Diagram compliance.
@@ -647,7 +774,6 @@ def reserve_seat():
       - seatNo (string) OR seatNos (array of strings) (use "AUTO" if not modeled)
       - travellers (optional array with passportNumber / mealPreference)
     """
-    _purge_expired_holds()
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
@@ -686,54 +812,72 @@ def reserve_seat():
 
     requested = {s for s in seat_nos if s and s != "AUTO"}
 
-    # If client is upgrading an existing temporary hold into a booking-bound hold,
-    # remove that hold first so it does not conflict with itself.
-    if hold_token:
-        hold_key = f"HOLD:{hold_token}"
-        hold_rec = FLIGHT_RESERVATIONS.get(hold_key)
-        if hold_rec:
-            FLIGHT_RESERVATIONS.pop(hold_key, None)
+    with _FLIGHT_RES_LOCK:
+        _purge_expired_holds()
+        now = _utc_now()
+        preserved_expires = None
+        preserved_started = None
+        # Upgrade HOLD:{token} → booking-bound hold: keep the same window as the UI timer.
+        if hold_token:
+            hold_key = f"HOLD:{hold_token}"
+            hold_rec = FLIGHT_RESERVATIONS.get(hold_key)
+            if hold_rec:
+                old_exp = _parse_iso_dt(hold_rec.get("holdExpiresAt"))
+                if old_exp and old_exp > now:
+                    preserved_expires = old_exp
+                st = _parse_iso_dt(hold_rec.get("holdStartedAt"))
+                if st:
+                    preserved_started = st
+                FLIGHT_RESERVATIONS.pop(hold_key, None)
 
-    # Conflict: if another pending booking/hold has the same seat, reject.
-    for bid, rec in FLIGHT_RESERVATIONS.items():
-        if bid == booking_id:
-            continue
-        if hold_token and str(rec.get("holdToken") or "").strip() == hold_token:
-            continue
-        rec_status = str(rec.get("status", "")).upper()
-        if rec_status not in ("HELD", "CONFIRMED"):
-            continue
+        # Conflict: if another pending booking/hold has the same seat, reject.
+        for bid, rec in FLIGHT_RESERVATIONS.items():
+            if bid == booking_id:
+                continue
+            if hold_token and str(rec.get("holdToken") or "").strip() == hold_token:
+                continue
+            rec_status = str(rec.get("status", "")).upper()
+            if rec_status not in ("HELD", "CONFIRMED"):
+                continue
 
-        other_seats = rec.get("seatNos")
-        if isinstance(other_seats, list):
-            other_set = {str(s).strip().upper() for s in other_seats if s is not None}
-        else:
-            other_set = {str(rec.get("seatNo", "")).strip().upper()} if rec.get("seatNo") else set()
+            other_seats = rec.get("seatNos")
+            if isinstance(other_seats, list):
+                other_set = {str(s).strip().upper() for s in other_seats if s is not None}
+            else:
+                other_set = {str(rec.get("seatNo", "")).strip().upper()} if rec.get("seatNo") else set()
 
-        # "AUTO" means "not modelled" in this demo, so it doesn't participate in seat conflicts.
-        if requested and (other_set & requested):
-            first_conflict = sorted(list(other_set & requested))[0]
-            return (
-                jsonify({"code": 409, "message": f"Seat {first_conflict} already reserved"}),
-                409,
-            )
+            # "AUTO" means "not modelled" in this demo, so it doesn't participate in seat conflicts.
+            if requested and (other_set & requested):
+                first_conflict = sorted(list(other_set & requested))[0]
+                return (
+                    jsonify(
+                        {
+                            "code": 409,
+                            "message": (
+                                f"Seat {first_conflict} was just taken by another guest "
+                                f"(same flight, same moment). Choose different seats and try again."
+                            ),
+                        }
+                    ),
+                    409,
+                )
 
-    now = _utc_now()
-    expires = now + timedelta(minutes=HOLD_MINUTES)
-    FLIGHT_RESERVATIONS[booking_id] = {
-        "bookingID": booking_id,
-        "flightNum": flight_num,
-        "seatNo": seat_no,
-        "seatNos": seat_nos,
-        "travellers": travellers,
-        "passportNumber": passport_number,
-        "mealPreference": meal_preference,
-        "holdToken": hold_token or None,
-        "holdStartedAt": now.isoformat(),
-        "holdExpiresAt": expires.isoformat(),
-        "status": "HELD",
-    }
-    return jsonify({"code": 200, "data": FLIGHT_RESERVATIONS[booking_id]}), 200
+        expires = preserved_expires if preserved_expires else now + timedelta(minutes=HOLD_MINUTES)
+        started_at = preserved_started if preserved_started else now
+        FLIGHT_RESERVATIONS[booking_id] = {
+            "bookingID": booking_id,
+            "flightNum": flight_num,
+            "seatNo": seat_no,
+            "seatNos": seat_nos,
+            "travellers": travellers,
+            "passportNumber": passport_number,
+            "mealPreference": meal_preference,
+            "holdToken": hold_token or None,
+            "holdStartedAt": started_at.isoformat(),
+            "holdExpiresAt": expires.isoformat(),
+            "status": "HELD",
+        }
+        return jsonify({"code": 200, "data": FLIGHT_RESERVATIONS[booking_id]}), 200
 
 
 @app.route("/availability/<seat_no>/<status>", methods=["PUT"])
@@ -815,7 +959,8 @@ def release_seat():
         hold_key = f"HOLD:{hold_token}"
         if hold_key in FLIGHT_RESERVATIONS:
             FLIGHT_RESERVATIONS.pop(hold_key, None)
-            return jsonify({"code": 200, "data": {"holdToken": hold_token}}), 200
+            return jsonify({"code": 200, "data": {"holdToken": hold_token, "released": True}}), 200
+        return jsonify({"code": 200, "data": {"holdToken": hold_token, "released": False}}), 200
     if booking_id is None and flight_ref:
         for bid, rec in FLIGHT_RESERVATIONS.items():
             if str(rec.get("flightNum", "")).strip().upper() == flight_ref and rec.get(
@@ -908,7 +1053,6 @@ def create_seat_hold():
     Create/update a temporary seat hold (15-min default).
     Body: { holdToken, flightNum, seatNos[] }
     """
-    _purge_expired_holds()
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({"code": 400, "message": "Body must be a JSON object"}), 400
@@ -932,38 +1076,73 @@ def create_seat_hold():
     if not requested:
         return jsonify({"code": 400, "message": "seatNos[] must include real seat codes"}), 400
 
-    # Remove previous hold owned by this token before checking conflicts.
-    FLIGHT_RESERVATIONS.pop(f"HOLD:{hold_token}", None)
+    with _FLIGHT_RES_LOCK:
+        _purge_expired_holds()
+        now = _utc_now()
+        prev = FLIGHT_RESERVATIONS.pop(f"HOLD:{hold_token}", None)
+        new_key = _sorted_seat_key(seat_nos)
+        prev_flight = str(prev.get("flightNum") or "").strip().upper() if prev else ""
+        prev_seats = (
+            _sorted_seat_key(list(prev.get("seatNos") or []))
+            if prev and isinstance(prev.get("seatNos"), list)
+            else tuple()
+        )
+        if not prev_seats and prev and prev.get("seatNo"):
+            prev_seats = _sorted_seat_key([str(prev.get("seatNo"))])
 
-    for _, rec in FLIGHT_RESERVATIONS.items():
-        rec_status = str(rec.get("status", "")).upper()
-        if rec_status not in ("HELD", "CONFIRMED"):
-            continue
-        if str(rec.get("flightNum") or "").strip().upper() != flight_num:
-            continue
-        if str(rec.get("holdToken") or "").strip() == hold_token:
-            continue
-        other = rec.get("seatNos") if isinstance(rec.get("seatNos"), list) else [rec.get("seatNo")]
-        other_set = {str(s or "").strip().upper() for s in other if s}
-        conflict = requested & other_set
-        if conflict:
-            seat = sorted(list(conflict))[0]
-            return jsonify({"code": 409, "message": f"Seat {seat} unavailable", "seatNo": seat}), 409
+        preserved_expires = None
+        hold_started = now
+        # New 15-minute window when flight or seat selection changes; keep clock only on identical re-hold (e.g. Next).
+        if (
+            prev
+            and prev_flight == flight_num
+            and prev_seats == new_key
+            and new_key
+        ):
+            old_exp = _parse_iso_dt(prev.get("holdExpiresAt"))
+            if old_exp and old_exp > now:
+                preserved_expires = old_exp
+            st = _parse_iso_dt(prev.get("holdStartedAt"))
+            if st:
+                hold_started = st
 
-    now = _utc_now()
-    expires = now + timedelta(minutes=HOLD_MINUTES)
-    rec = {
-        "bookingID": None,
-        "holdToken": hold_token,
-        "flightNum": flight_num,
-        "seatNo": seat_nos[0],
-        "seatNos": seat_nos,
-        "holdStartedAt": now.isoformat(),
-        "holdExpiresAt": expires.isoformat(),
-        "status": "HELD",
-    }
-    FLIGHT_RESERVATIONS[f"HOLD:{hold_token}"] = rec
-    return jsonify({"code": 200, "data": rec}), 200
+        for _, rec in FLIGHT_RESERVATIONS.items():
+            rec_status = str(rec.get("status", "")).upper()
+            if rec_status not in ("HELD", "CONFIRMED"):
+                continue
+            if str(rec.get("flightNum") or "").strip().upper() != flight_num:
+                continue
+            if str(rec.get("holdToken") or "").strip() == hold_token:
+                continue
+            other = rec.get("seatNos") if isinstance(rec.get("seatNos"), list) else [rec.get("seatNo")]
+            other_set = {str(s or "").strip().upper() for s in other if s}
+            conflict = requested & other_set
+            if conflict:
+                seat = sorted(list(conflict))[0]
+                return jsonify(
+                    {
+                        "code": 409,
+                        "message": (
+                            f"Seat {seat} was just held or booked by another guest at the same time. "
+                            f"Pick another seat."
+                        ),
+                        "seatNo": seat,
+                    }
+                ), 409
+
+        expires = preserved_expires if preserved_expires else now + timedelta(minutes=HOLD_MINUTES)
+        rec = {
+            "bookingID": None,
+            "holdToken": hold_token,
+            "flightNum": flight_num,
+            "seatNo": seat_nos[0],
+            "seatNos": seat_nos,
+            "holdStartedAt": hold_started.isoformat(),
+            "holdExpiresAt": expires.isoformat(),
+            "status": "HELD",
+        }
+        FLIGHT_RESERVATIONS[f"HOLD:{hold_token}"] = rec
+        return jsonify({"code": 200, "data": rec}), 200
 
 
 @app.route("/seat-holds/<flight_num>", methods=["GET"])

@@ -670,6 +670,11 @@ body {
   font-size: 0.8125rem;
 }
 
+.section-hint--warn {
+  color: #b42318;
+  font-weight: 500;
+}
+
 .form-after-submit-hint {
   margin: 12px 0 0;
   font-size: 0.875rem;
@@ -1293,6 +1298,12 @@ button {
   font-size: 0.8125rem;
 }
 
+.bundle-package-intro {
+  margin: -6px 0 12px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
 .bundle-gallery-wrap {
   display: flex;
   align-items: stretch;
@@ -1524,6 +1535,12 @@ button {
   border: 2px solid #334155;
 }
 
+.seat-map-legend .swatch.held {
+  background: #fff7ed;
+  border: 2px solid #f59e0b;
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+
 .seat-map-legend .swatch.taken {
   background: #e5e7eb;
   border: 2px dashed #64748b;
@@ -1620,49 +1637,58 @@ button.seat {
 }
 
 /* Cabin zone = left accent only (avoid full green/purple/orange fills that read like states). */
-button.seat--zone-standard:not(.taken) {
+button.seat--zone-standard:not(.taken):not(.held) {
   box-shadow: inset 4px 0 0 #64748b;
 }
 
-button.seat--zone-extra_legroom:not(.taken) {
+button.seat--zone-extra_legroom:not(.taken):not(.held) {
   box-shadow: inset 4px 0 0 #0f766a;
 }
 
-button.seat--zone-exit_row:not(.taken) {
+button.seat--zone-exit_row:not(.taken):not(.held) {
   box-shadow: inset 4px 0 0 #c2410c;
 }
 
-button.seat--window:not(.taken) {
+button.seat--window:not(.taken):not(.held) {
   /* Window: slightly lighter left rail so it doesn’t read as “disabled”. */
   box-shadow: inset 4px 0 0 #38bdf8, inset 8px 0 0 #64748b;
 }
 
-button.seat--window.seat--zone-extra_legroom:not(.taken) {
+button.seat--window.seat--zone-extra_legroom:not(.taken):not(.held) {
   box-shadow: inset 4px 0 0 #38bdf8, inset 8px 0 0 #0f766a;
 }
 
-button.seat--window.seat--zone-exit_row:not(.taken) {
+button.seat--window.seat--zone-exit_row:not(.taken):not(.held) {
   box-shadow: inset 4px 0 0 #38bdf8, inset 8px 0 0 #c2410c;
 }
 
-button.seat--aisle:not(.taken) {
+button.seat--aisle:not(.taken):not(.held) {
   border-bottom-width: 3px;
   border-bottom-color: #94a3b8;
 }
 
-button.seat:hover:not(:disabled):not(.taken) {
+button.seat:hover:not(:disabled):not(.taken):not(.held) {
   border-color: var(--ocean);
   background: rgba(13, 148, 136, 0.07);
 }
 
-button.seat.taken,
-button.seat:disabled {
+button.seat.taken {
   background: #e5e7eb !important;
   color: #64748b !important;
   border: 2px dashed #64748b !important;
   cursor: not-allowed !important;
   box-shadow: none !important;
   opacity: 0.88;
+}
+
+/* Short-term hold by another customer — distinct from confirmed/booked “taken”. */
+button.seat.held {
+  background: #fff7ed !important;
+  color: #9a3412 !important;
+  border: 2px solid #ea580c !important;
+  cursor: not-allowed !important;
+  box-shadow: inset 0 0 0 1px rgba(251, 146, 60, 0.45) !important;
+  opacity: 1;
 }
 
 button.seat.picked:not(:disabled) {
@@ -1874,6 +1900,12 @@ button.seat.picked:not(:disabled) {
   margin-bottom: 4px;
 }
 
+.traveller-item__account-badge {
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: #0d9488;
+}
+
 .traveller-item__sub {
   color: var(--muted);
   font-size: 0.8125rem;
@@ -2008,6 +2040,20 @@ button.seat.picked:not(:disabled) {
   overflow-wrap: anywhere;
 }
 
+.hotel-card__hold-tag {
+  display: inline;
+  color: #c2410c;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hotel-card__hold-note {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #9a3412;
+}
+
 .hotel-card__roomline {
   margin-top: 3px;
 }
@@ -2048,6 +2094,22 @@ button.seat.picked:not(:disabled) {
   margin-top: 0;
 }
 
+.hotel-room-mix {
+  margin-top: 12px;
+}
+
+.hotel-room-mix__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 8px;
+}
+
+.hotel-room-mix__grid input[type="number"] {
+  width: 100%;
+  max-width: 8rem;
+}
+
 /* Traveller selects should fill the label width */
 #leadTravellerSelect,
 #companionTravellerSelect,
@@ -2075,6 +2137,33 @@ button.seat.picked:not(:disabled) {
   margin: 8px 0 0;
   font-weight: 600;
   color: #9a3412;
+}
+
+/* 15-minute flight / checkout hold — visible above seat map & on pay step */
+.hold-banner {
+  margin: 12px 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(13, 148, 136, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(13, 148, 136, 0.12) 0%,
+    rgba(251, 191, 36, 0.1) 100%
+  );
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.hold-banner__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f766e;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+.hold-banner--pay {
+  margin-top: 16px;
+  margin-bottom: 18px;
 }
 
 .payment-card-grid {
@@ -2336,20 +2425,6 @@ button.seat.picked:not(:disabled) {
   background: rgba(13, 148, 136, 0.06);
   border: 1px solid rgba(13, 148, 136, 0.2);
   border-radius: var(--radius);
-}
-
-.pay-step__simulated-payment {
-  padding: 14px 16px;
-  margin-bottom: 18px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
-}
-
-.pay-step__simulated-payment__title {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 500;
 }
 
 .pay-step__coins-field {

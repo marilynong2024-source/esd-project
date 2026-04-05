@@ -30,6 +30,60 @@ def _get_json(url: str, params: dict | None = None) -> dict | None:
         return None
 
 
+def _room_type_for_graphql(r: dict) -> dict:
+    return {
+        "code": r.get("code"),
+        "label": r.get("label"),
+        "price_per_night": r.get("pricePerNight"),
+        "includes_breakfast": r.get("includesBreakfast"),
+        "available_rooms": r.get("availableRooms"),
+    }
+
+
+def _hotel_for_graphql(d: dict) -> dict:
+    if not d:
+        return {}
+    room_types = d.get("roomTypes") or []
+    return {
+        "hotel_id": d.get("hotelID"),
+        "name": d.get("name"),
+        "city": d.get("city"),
+        "country": d.get("country"),
+        "star_rating": d.get("starRating"),
+        "image_url": d.get("imageUrl"),
+        "amenities": d.get("amenities"),
+        "available_rooms": d.get("availableRooms"),
+        "room_types": [_room_type_for_graphql(r) for r in room_types if isinstance(r, dict)],
+    }
+
+
+def _flight_for_graphql(d: dict) -> dict:
+    if not d:
+        return {}
+    return {
+        "flight_num": d.get("flightNum") or d.get("flightNumber"),
+        "airline": d.get("airline"),
+        "origin_city": d.get("originCity"),
+        "destination_city": d.get("destinationCity"),
+        "departure_time": d.get("departureTime"),
+        "economy_price": d.get("economyPrice"),
+        "business_price": d.get("businessPrice"),
+        "available_seats": d.get("availableSeats"),
+        "online_seat_selection": d.get("onlineSeatSelection"),
+    }
+
+
+def _loyalty_for_graphql(d: dict) -> dict:
+    if not d:
+        return {}
+    return {
+        "customer_id": d.get("customerID"),
+        "coins": d.get("coins"),
+        "booking_count": d.get("bookingCount"),
+        "tier": d.get("tier"),
+    }
+
+
 class RoomType(graphene.ObjectType):
     code = graphene.String()
     label = graphene.String()
@@ -105,7 +159,7 @@ class Query(graphene.ObjectType):
 
         out = _get_json(f"{HOTEL_BASE}/search", params=params)
         rows = (out or {}).get("data") or []
-        return rows
+        return [_hotel_for_graphql(row) for row in rows if isinstance(row, dict)]
 
     def resolve_package_preview(self, info, customer_id, flight_id, hotel_id, room_code=None):
         flight_out = _get_json(f"{FLIGHT_BASE}/{str(flight_id).upper()}")
@@ -128,12 +182,12 @@ class Query(graphene.ObjectType):
 
         estimated_total = round(flight_price + hotel_price, 2)
         return {
-            "customerID": int(customer_id),
-            "estimatedTotalPrice": estimated_total,
+            "customer_id": int(customer_id),
+            "estimated_total_price": estimated_total,
             "currency": "SGD",
-            "flight": flight,
-            "hotel": hotel,
-            "loyalty": loyalty,
+            "flight": _flight_for_graphql(flight),
+            "hotel": _hotel_for_graphql(hotel),
+            "loyalty": _loyalty_for_graphql(loyalty),
         }
 
 

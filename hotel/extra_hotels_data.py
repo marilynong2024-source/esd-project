@@ -74,6 +74,22 @@ def _amenities_for_stars(stars: int) -> str:
     return "WiFi,Restaurant"
 
 
+_UPSCALE_BRANDS = (
+    "Pullman",
+    "Sofitel",
+    "Grand Hyatt",
+    "JW Marriott",
+    "The Ritz-Carlton",
+)
+_MID_BRANDS = (
+    "Novotel",
+    "Holiday Inn",
+    "Mercure",
+    "Courtyard",
+    "ibis Styles",
+)
+
+
 def build_extra_catalog() -> list[dict[str, Any]]:
     """Returns ordered list of hotel specs starting at hotelID START_ID."""
     rows: list[dict[str, Any]] = []
@@ -81,12 +97,21 @@ def build_extra_catalog() -> list[dict[str, Any]]:
     for city, country, area in _CITIES:
         sl = _slug(city + country[:2])
         # Upscale + mid — two per city for density
-        for tier, stars, suffix, std_p, dlx_p in (
+        for _tier, stars, _suffix, std_p, dlx_p in (
             ("Grand", 5, "Tower", 120 + len(rows) % 80, 220 + len(rows) % 120),
             ("Harbour", 4, "Hotel", 75 + len(rows) % 55, 130 + len(rows) % 90),
         ):
-            name = f"{tier} {city} {suffix}"
-            desc = f"{stars}-star stay near {area.split(',')[0]} - Horizon demo inventory."
+            if stars >= 5:
+                brand = _UPSCALE_BRANDS[hid % len(_UPSCALE_BRANDS)]
+                name = f"{brand} {city}"
+            else:
+                brand = _MID_BRANDS[hid % len(_MID_BRANDS)]
+                name = f"{brand} {city} City Centre"
+            neighbourhood = area.split(",")[0].strip()
+            desc = (
+                f"{stars}-star stay at {brand}, near {neighbourhood} ({city}). "
+                "Demo inventory for Horizon — Wi-Fi, late checkout, and breakfast bundles available."
+            )
             seed = f"xh{hid}-{sl}"
             std_r = 28 + (hid % 15)
             dlx_r = 14 + (hid % 10)

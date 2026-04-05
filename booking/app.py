@@ -309,6 +309,68 @@ def booking_dict_with_hotel(booking: "Booking") -> dict:
     return d
 
 
+def _booking_room_mix_dict(booking: "Booking") -> dict[str, int]:
+    if getattr(booking, "hotelRoomMixJson", None):
+        try:
+            raw = json.loads(booking.hotelRoomMixJson)
+            if isinstance(raw, dict):
+                out: dict[str, int] = {}
+                for k, v in raw.items():
+                    c = str(k).strip().upper()
+                    if c not in ("STD", "DLX"):
+                        continue
+                    try:
+                        n = int(v)
+                    except (TypeError, ValueError):
+                        continue
+                    if n > 0:
+                        out[c] = n
+                if out:
+                    return out
+        except (ValueError, TypeError, json.JSONDecodeError):
+            pass
+    rt = str(booking.hotelRoomType or "STD").strip().upper()
+    if rt == "MIX":
+        rt = "STD"
+    if rt not in ("STD", "DLX"):
+        rt = "STD"
+    n = int(booking.noOfRooms or 1)
+    return {rt: max(1, n)}
+
+
+def _parse_create_booking_room_fields(data: dict) -> tuple[dict[str, int], str, int, str | None]:
+    """Returns (mix, hotel_room_type_label, no_of_rooms, error_message)."""
+    raw_mix = data.get("hotelRoomMix")
+    if isinstance(raw_mix, dict) and raw_mix:
+        mix: dict[str, int] = {}
+        for k, v in raw_mix.items():
+            code = str(k).strip().upper()
+            if code not in ("STD", "DLX"):
+                continue
+            try:
+                n = int(v)
+            except (TypeError, ValueError):
+                return {}, "STD", 1, "Invalid hotelRoomMix counts"
+            if n > 0:
+                mix[code] = mix.get(code, 0) + n
+        if not mix:
+            return {}, "STD", 1, "hotelRoomMix must include at least one room"
+        total = sum(mix.values())
+        if total > 20:
+            return {}, "STD", 1, "Too many rooms (max 20)"
+        rtype = "MIX" if len(mix) > 1 else next(iter(mix.keys()))
+        return mix, rtype, total, None
+    rt = str(data.get("hotelRoomType") or "STD").strip().upper()
+    if rt not in ("STD", "DLX"):
+        rt = "STD"
+    try:
+        n_rooms = int(data.get("noOfRooms") or 1)
+    except (TypeError, ValueError):
+        n_rooms = 1
+    n_rooms = max(1, min(20, n_rooms))
+    return {rt: n_rooms}, rt, n_rooms, None
+
+
 class Booking(db.Model):
     __tablename__ = "bookings"
 
@@ -316,12 +378,13 @@ class Booking(db.Model):
     customerID = db.Column(db.Integer, nullable=False)
     flightID = db.Column(db.String(20), nullable=False)
     hotelID = db.Column(db.Integer, nullable=False)
-    hotelRoomType = db.Column(db.String(10), nullable=True)  # e.g. STD, DLX
+    hotelRoomType = db.Column(db.String(10), nullable=True)  # e.g. STD, DLX, MIX
+    hotelRoomMixJson = db.Column(db.Text, nullable=True)  # {"STD":1,"DLX":2}
     hotelIncludesBreakfast = db.Column(db.Boolean, default=False)
     departureTime = db.Column(db.String(40), nullable=False)
     totalPrice = db.Column(db.Float, nullable=False)
     currency = db.Column(db.String(8), default="SGD")
-    fareType = db.Column(db.String(20), default="Saver")
+    fareType = db.Column(db.String(20), default="Package")
     loyaltyTier = db.Column(db.String(20), nullable=True)
     status = db.Column(db.String(20), default="CONFIRMED")
     # Number of rooms reserved for this package (diagram-required field).
@@ -384,6 +447,7 @@ class Booking(db.Model):
             "flightID": self.flightID,
             "hotelID": self.hotelID,
             "hotelRoomType": self.hotelRoomType,
+            "hotelRoomMix": _booking_room_mix_dict(self),
             "hotelIncludesBreakfast": self.hotelIncludesBreakfast,
             "departureTime": self.departureTime,
             "totalPrice": self.totalPrice,
@@ -409,59 +473,40 @@ def traveller_profile_ids_for_event(booking: Booking) -> list[int]:
     return booking.to_dict()["travellerProfileIds"]
 
 
-def compute_refund_percentage(
-    departure_time: datetime,
-    cancel_time: datetime,
-    fare_type: str,
+def compute_customer_refund_percentage(
+    days_before_departure: int,
     loyalty_tier: str | None = None,
 ) -> int:
-    delta = departure_time - cancel_time
-    days = delta.days
-    fare_type = (fare_type or "Saver").lower()
-
-    # Base table inspired by full‑service airlines
-    table = {
-        "flexi": [
-            (30, 100),
-            (15, 90),
-            (7, 70),
-            (1, 50),
-        ],
-        "standard": [
-            (21, 70),
-            (7, 50),
-            (1, 25),
-        ],
-        "saver": [],  # non‑refundable
-    }
-
-    brackets = table.get(fare_type, table["saver"])
+    """Single schedule by days before departure (no fare-type bands)."""
+    days = int(days_before_departure)
+    brackets = [
+        (30, 100),
+        (14, 75),
+        (7, 50),
+        (1, 25),
+    ]
     percentage = 0
     for min_days, pct in brackets:
         if days >= min_days:
             percentage = pct
             break
-
-    # Loyalty override: Gold tier gets bumped one level up (once in our simplified logic)
     if loyalty_tier and loyalty_tier.lower() == "gold" and percentage > 0:
         percentage = min(100, percentage + 10)
-
     return percentage
 
 
 def compute_refund_policy_id_and_amount(
     *,
     total_price: float,
-    fare_type: str,
     loyalty_tier: str | None,
     days_before_departure: int,
     cancel_source: str,
 ) -> tuple[str, int, float]:
     """
-    Diagram-facing refund calculator:
+    Refund calculator:
     - Airline cancel => full package refund.
-    - Hotel cancel   => hotel-side 40% refund.
-    - Customer       => tiered rules by fare/tier and days to departure.
+    - Hotel cancel   => 40% of package total.
+    - Customer       => days-before-departure brackets + Gold bonus.
     """
     total = float(total_price or 0.0)
     src = (cancel_source or "customer").strip().lower()
@@ -472,15 +517,14 @@ def compute_refund_policy_id_and_amount(
         pct = int(round((amt / total) * 100)) if total > 0 else 0
         return "HOTEL_PARTIAL", pct, amt
 
-    pct = compute_refund_percentage(
-        departure_time=datetime.utcnow() + timedelta(days=max(-1, int(days_before_departure))),
-        cancel_time=datetime.utcnow(),
-        fare_type=fare_type,
+    pct = compute_customer_refund_percentage(
+        days_before_departure,
         loyalty_tier=loyalty_tier,
     )
     if days_before_departure < 0:
         pct = 0
-    policy = f"{(fare_type or 'Saver').strip().upper()}_{(loyalty_tier or 'STD').strip().upper()}_D{max(-1, int(days_before_departure))}"
+    d = max(-1, int(days_before_departure))
+    policy = f"PKG_{(loyalty_tier or 'STD').strip().upper()}_D{d}"
     amt = round(max(0.0, total * (pct / 100.0)), 2)
     return policy, pct, amt
 
@@ -662,7 +706,7 @@ def create_booking():
             return _bad_request("departureTime is required")
 
         currency = str(data.get("currency") or "SGD").strip()[:8] or "SGD"
-        fare_type = str(data.get("fareType") or "Saver").strip()[:20] or "Saver"
+        fare_type = str(data.get("fareType") or "Package").strip()[:20] or "Package"
 
         traveller_ids, tid_err = _parse_traveller_profile_ids(data)
         if tid_err:
@@ -740,12 +784,19 @@ def create_booking():
         if cat_err:
             return _bad_request(cat_err)
 
+        room_mix, room_type_label, n_rooms, room_err = _parse_create_booking_room_fields(data)
+        if room_err:
+            return _bad_request(room_err)
+        has_dlx = int(room_mix.get("DLX", 0) or 0) > 0
+        includes_breakfast = has_dlx or bool(data.get("hotelIncludesBreakfast", False))
+
         booking = Booking(
             customerID=customer_id,
             flightID=flight_id,
             hotelID=hotel_id,
-            hotelRoomType=data.get("hotelRoomType"),
-            hotelIncludesBreakfast=bool(data.get("hotelIncludesBreakfast", False)),
+            hotelRoomType=room_type_label,
+            hotelRoomMixJson=json.dumps(room_mix),
+            hotelIncludesBreakfast=includes_breakfast,
             departureTime=departure_time,
             totalPrice=total_price,
             currency=currency,
@@ -754,7 +805,7 @@ def create_booking():
             seatNumber=seat_number,
             seatNumbersJson=(json.dumps(seat_numbers) if seat_numbers else None),
             status="PENDING",
-            noOfRooms=1,
+            noOfRooms=int(n_rooms),
             travellerProfileId=traveller_profile_id,
             travellerDisplayName=display_name,
             travellerProfileIdsJson=ids_json,
@@ -816,7 +867,7 @@ def create_booking():
         # Keep check_out as check_in if parsing fails (demo tolerance).
         pass
 
-    def _release_all():
+    def _release_flight_seat_hold():
         try:
             requests.put(
                 f"{flight_base}/release-seat",
@@ -825,6 +876,8 @@ def create_booking():
             )
         except Exception:
             pass
+
+    def _release_hotel_room():
         try:
             requests.put(
                 f"{hotel_base}/release-room",
@@ -833,6 +886,10 @@ def create_booking():
             )
         except Exception:
             pass
+
+    def _release_all():
+        _release_flight_seat_hold()
+        _release_hotel_room()
 
     primary_doc = traveller_docs[0] if traveller_docs else {}
 
@@ -912,13 +969,27 @@ def create_booking():
         db.session.commit()
         return jsonify({"code": 503, "message": f"Flight reserve-seat unreachable: {e}"}), 503
 
-    # 2) Hotel Hold
+    # 2) Hotel Hold (roomMix supports multiple types, e.g. 2×STD + 1×DLX)
+    # Drop browsing-time session hold so counts are not double-stacked with the booking hold.
+    if hold_token:
+        try:
+            requests.put(
+                f"{hotel_base}/hotel/release-session-hold",
+                json={"sessionHoldToken": hold_token},
+                timeout=3,
+            )
+        except Exception:
+            pass
+
+    room_mix = _booking_room_mix_dict(booking)
     room_type = booking.hotelRoomType or "STD"
     try:
         hold_payload = {
             "bookingID": booking.id,
             "hotelID": booking.hotelID,
             "roomType": room_type,
+            "roomMix": room_mix,
+            "noOfRooms": int(booking.noOfRooms or sum(room_mix.values()) or 1),
             "checkIn": check_in,
             "checkOut": check_out,
             "numberOfKeys": number_of_keys,
@@ -935,9 +1006,30 @@ def create_booking():
             _release_all()
             booking.status = "CANCELLED"
             db.session.commit()
+            upstream_msg = ""
+            try:
+                uj = hold_resp.json()
+                upstream_msg = str((uj or {}).get("message") or "")
+            except Exception:
+                upstream_msg = ""
+            if hold_resp.status_code == 409:
+                return (
+                    jsonify(
+                        {
+                            "code": 409,
+                            "message": upstream_msg
+                            or "Those hotel rooms were just taken by another guest. Change rooms or hotel and try again.",
+                        }
+                    ),
+                    409,
+                )
             return (
                 jsonify(
-                    {"code": 502, "message": "Hotel hold-room failed", "upstream": hold_resp.status_code}
+                    {
+                        "code": 502,
+                        "message": upstream_msg or "Hotel hold-room failed",
+                        "upstream": hold_resp.status_code,
+                    }
                 ),
                 502,
             )
@@ -1009,7 +1101,8 @@ def create_booking():
             payment_process_url, json=payment_payload, timeout=10
         )
     except requests.RequestException as e:
-        _release_all()
+        # Keep flight seat hold until it expires in the flight service (timer UX).
+        _release_hotel_room()
         booking.status = "CANCELLED"
         try:
             db.session.commit()
@@ -1018,7 +1111,8 @@ def create_booking():
         return jsonify({"code": 503, "message": f"Payment process unreachable: {e}"}), 503
 
     if not payment_resp.ok:
-        _release_all()
+        # Do not release flight seats on failed payment — hold runs until flight MS TTL.
+        _release_hotel_room()
         booking.status = "CANCELLED"
         try:
             db.session.commit()
@@ -1079,14 +1173,16 @@ def create_booking():
                     },
                     timeout=5,
                 )
-            requests.put(
-                f"{hotel_base}/availability/{int(booking.hotelID)}/CONFIRMED",
-                json={
-                    "roomType": booking.hotelRoomType or "STD",
-                    "bookingID": booking.id,
-                },
-                timeout=5,
-            )
+            for rt_code, rm_count in _booking_room_mix_dict(booking).items():
+                requests.put(
+                    f"{hotel_base}/availability/{int(booking.hotelID)}/CONFIRMED",
+                    json={
+                        "roomType": rt_code,
+                        "count": int(rm_count),
+                        "bookingID": booking.id,
+                    },
+                    timeout=5,
+                )
         except requests.RequestException as e:
             warnings.append(f"Inventory availability PUT after confirm: {e}")
     except requests.RequestException as e:
@@ -1259,8 +1355,14 @@ def get_bookings_by_customer(customer_id: int):
 def get_booking_policies():
     data = {
         "sources": ["customer", "airline", "hotel"],
-        "fareTypes": ["Saver", "Standard", "Flexi"],
-        "notes": "Customer cancellations use fare+tier day brackets. Airline=full refund. Hotel=hotel component refund.",
+        "customerRefundBrackets": [
+            {"minDaysBeforeDeparture": 30, "refundPercent": 100},
+            {"minDaysBeforeDeparture": 14, "refundPercent": 75},
+            {"minDaysBeforeDeparture": 7, "refundPercent": 50},
+            {"minDaysBeforeDeparture": 1, "refundPercent": 25},
+        ],
+        "goldBonusPercent": 10,
+        "notes": "Customer refunds use days-before-departure only (see customerRefundBrackets). Gold members get +10% when refund > 0. Airline-initiated: full refund. Hotel-initiated: 40% of package. After departure: 0%.",
     }
     return jsonify({"code": 200, "data": data}), 200
 
@@ -1302,7 +1404,6 @@ def booking_refund_estimate():
     days_before_departure = (departure_time - now).days
     policy_id, pct, amount = compute_refund_policy_id_and_amount(
         total_price=float(booking.totalPrice or 0),
-        fare_type=booking.fareType or "Saver",
         loyalty_tier=booking.loyaltyTier,
         days_before_departure=days_before_departure,
         cancel_source=cancel_source,
@@ -1582,7 +1683,6 @@ def cancel_booking(booking_id: int):
 
     policy_id, percentage, amount = compute_refund_policy_id_and_amount(
         total_price=total_price,
-        fare_type=booking.fareType or "Saver",
         loyalty_tier=booking.loyaltyTier,
         days_before_departure=days_before_departure,
         cancel_source=cancel_source,
@@ -1735,14 +1835,16 @@ def cancel_booking(booking_id: int):
                 json={"flightNum": booking.flightID, "bookingID": booking_id},
                 timeout=5,
             )
-        requests.put(
-            f"{hotel_base}/availability/{int(booking.hotelID)}/RELEASED",
-            json={
-                "roomType": booking.hotelRoomType or "STD",
-                "bookingID": booking_id,
-            },
-            timeout=5,
-        )
+        for rt_code, rm_count in _booking_room_mix_dict(booking).items():
+            requests.put(
+                f"{hotel_base}/availability/{int(booking.hotelID)}/RELEASED",
+                json={
+                    "roomType": rt_code,
+                    "count": int(rm_count),
+                    "bookingID": booking_id,
+                },
+                timeout=5,
+            )
     except requests.RequestException as e:
         cancel_warnings.append(f"PUT availability after cancel: {e}")
 
@@ -1778,8 +1880,8 @@ def cancel_booking(booking_id: int):
     t_ids_event = traveller_profile_ids_for_event(booking)
 
     cancel_amqp_payload = {
-        "bookingID": booking_id,
-        "customerID": booking.customerID,
+            "bookingID": booking_id,
+            "customerID": booking.customerID,
         "travellerProfileId": booking.travellerProfileId,
         "travellerProfileIds": t_ids_event,
         "travellerDisplayName": booking.travellerDisplayName,
@@ -1789,7 +1891,7 @@ def cancel_booking(booking_id: int):
         "passengerName": booking.passengerName,
         "passengerEmail": booking.passengerEmail,
         "passengerPhone": booking.passengerPhone,
-        "refundPercentage": percentage,
+            "refundPercentage": percentage,
         "refundAmount": round(amount, 2),
         "cancelSource": cancel_source,
         "flightID": booking.flightID,
@@ -1797,12 +1899,12 @@ def cancel_booking(booking_id: int):
         "departureTime": booking.departureTime,
         "totalPrice": float(booking.totalPrice or 0),
         "currency": booking.currency or "SGD",
-        "fareType": booking.fareType,
-        "loyaltyTier": booking.loyaltyTier,
+            "fareType": booking.fareType,
+            "loyaltyTier": booking.loyaltyTier,
         "seatNumber": booking.seatNumber,
         "seatNumbers": booking.to_dict().get("seatNumbers", []),
         "status": "CANCELLED",
-        "cancelledAt": now.isoformat(),
+            "cancelledAt": now.isoformat(),
         "cancellationPolicyID": policy_id,
     }
     # Dedicated routing key so notification/Twilio never confuses cancel with confirm (both used notify.user before).

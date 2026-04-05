@@ -204,7 +204,7 @@ def main():
     ]
     statuses = ["CONFIRMED"] * 55 + ["CANCELLED"] * 8 + ["PENDING"] * 4
     roomt = ["STD", "DLX", "STD", "DLX", "SUITE"]
-    fares = ["Saver", "Standard", "Flexi"]
+    fares = ["Package"]
     bk2 = []
     for i in range(4, 68):
         cid = 1 + (i % 48)

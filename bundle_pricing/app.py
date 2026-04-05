@@ -91,6 +91,113 @@ def _required_param(name: str, raw: str | None) -> tuple[bool, str]:
     return True, ""
 
 
+def _stable_hash_u32(s: str) -> int:
+    """Deterministic hash for package cards (not Python's salted hash())."""
+    acc = 5381
+    for ch in s:
+        acc = ((acc << 5) + acc) + ord(ch)
+        acc &= 0xFFFFFFFF
+    return int(acc)
+
+
+def _flight_ranked_options(
+    origin: str,
+    destination: str,
+    depart_date: str,
+    travellers: int,
+) -> list[tuple[float, str]]:
+    """Sorted cheapest-first (economy, flightNum) with enough seats."""
+    body, terr = _http_get_json(
+        f"{FLIGHT_BASE}/flight/search",
+        params={
+            "originCity": origin.strip(),
+            "destinationCity": destination.strip(),
+            "departDate": depart_date,
+            "minSeats": str(travellers),
+        },
+    )
+    if terr or not body or body.get("code") != 200:
+        return []
+    rows = body.get("data") or []
+    out: list[tuple[float, str]] = []
+    for f in rows:
+        if not isinstance(f, dict):
+            continue
+        if _safe_int(f.get("availableSeats")) < travellers:
+            continue
+        fn = f.get("flightNum") or f.get("flightNumber")
+        if not fn:
+            continue
+        price = _safe_float(f.get("economyPrice"), float("inf"))
+        out.append((price, str(fn).strip().upper()))
+    out.sort(key=lambda x: x[0])
+    seen: set[str] = set()
+    deduped: list[tuple[float, str]] = []
+    for p, fn in out:
+        if fn in seen:
+            continue
+        seen.add(fn)
+        deduped.append((p, fn))
+    return deduped
+
+
+def _hotel_ranked_options(
+    destination_city: str,
+    travellers: int,
+    forced_room: str,
+) -> list[tuple[float, int, str]]:
+    """
+    Sorted cheapest-first: (sort_price, hotelID, roomType STD|DLX).
+    forced_room: '' → prefer STD then DLX per hotel; 'STD'|'DLX' → only that code.
+    """
+    body, terr = _http_get_json(
+        f"{HOTEL_BASE}/hotel/search",
+        params={"city": destination_city.strip()},
+    )
+    if terr or not body or body.get("code") != 200:
+        return []
+    rows = body.get("data") or []
+    room_order = (
+        [forced_room]
+        if forced_room in ("STD", "DLX")
+        else ["STD", "DLX"]
+    )
+    out: list[tuple[float, int, str]] = []
+    for h in rows:
+        if not isinstance(h, dict):
+            continue
+        hid = _safe_int(h.get("hotelID") or h.get("hotelId"))
+        if hid < 1:
+            continue
+        rooms = h.get("roomTypes") or []
+        best: tuple[float, str] | None = None
+        for rt in room_order:
+            sel = next(
+                (r for r in rooms if str(r.get("code", "")).upper() == rt),
+                None,
+            )
+            if not sel:
+                continue
+            if _safe_int(sel.get("availableRooms")) < travellers:
+                continue
+            ppn = _safe_float(sel.get("pricePerNight"), float("inf"))
+            if best is None or ppn < best[0]:
+                best = (ppn, rt)
+        if best is None:
+            continue
+        ppn, rt = best
+        out.append((ppn, hid, rt))
+    out.sort(key=lambda x: (x[0], x[1]))
+    seen_h: set[int] = set()
+    deduped: list[tuple[float, int, str]] = []
+    for row in out:
+        if row[1] in seen_h:
+            continue
+        seen_h.add(row[1])
+        deduped.append(row)
+    return deduped
+
+
 def _account_check(customer_id: int) -> tuple[bool, str | None, str]:
     """
     Diagram step 2–3: verify account exists and is active.
@@ -144,6 +251,8 @@ def bundle_price():
     return_date = request.args.get("returnDate")
     number_of_travellers = request.args.get("numberOfTravellers")
     customer_id = request.args.get("customerId") or request.args.get("customerID")
+    if customer_id is None or str(customer_id).strip() == "":
+        customer_id = "0"
 
     ok, msg = _required_param("origin", origin)
     if not ok:
@@ -158,9 +267,6 @@ def bundle_price():
     if not ok:
         return jsonify({"code": 400, "message": msg}), 400
     ok, msg = _required_param("numberOfTravellers", number_of_travellers)
-    if not ok:
-        return jsonify({"code": 400, "message": msg}), 400
-    ok, msg = _required_param("customerId", customer_id)
     if not ok:
         return jsonify({"code": 400, "message": msg}), 400
 
@@ -206,6 +312,9 @@ def bundle_price():
         0,
     )
     promo_code = (request.args.get("promoCode") or request.args.get("discountCode") or "").strip()
+    package_id = (request.args.get("packageId") or "").strip()
+    # Gallery position 0..n-1 — spreads picks when packageId hashes collide.
+    card_index = max(0, _parse_int(request.args.get("cardIndex"), 0))
 
     # --- Composite order aligned with diagram "Search & Price Bundle" ---
     # 2–3 Account, 4–5 Loyalty, 6–7 Flight, 8–9 Hotel, 10–11 Discount, then coin offset.
@@ -233,27 +342,110 @@ def bundle_price():
             return jsonify({"code": 503, "message": msg}), 503
         loyalty_preview = loyalty_raw.get("data") or {}
 
-    # 6–7) Flight service: availability -> price
-    flight_avail, fa_terr = _http_get_json(
-        f"{FLIGHT_BASE}/availability",
-        params={"origin": origin, "destination": destination, "departDate": depart_date},
-    )
-    if fa_terr:
-        return jsonify({"code": 503, "message": f"Flight service: {fa_terr}"}), 503
-    if flight_avail.get("code") != 200:
-        fm = (
-            flight_avail.get("message")
-            or f"No flight availability for {origin} → {destination}. "
-            "Adjust From/To or dates."
+    # 6–7 / 8–9) Flight + hotel: ranked search + stable pick per packageId (gallery cards differ).
+    forced_hotel_room = room_type if room_type in ("STD", "DLX") else ""
+    f_opts = _flight_ranked_options(o_norm, d_norm, depart_date, travellers)
+    h_opts = _hotel_ranked_options(d_norm, travellers, forced_hotel_room)
+
+    flight_num: str | None = None
+    chosen_room_type = "STD"
+    hotel_id = 0
+    available_seats = 0
+    available_rooms = 0
+
+    if f_opts and h_opts:
+        hf = _stable_hash_u32(package_id + "|f") if package_id else 0
+        hh = _stable_hash_u32(package_id + "|h") if package_id else 0
+        # Without packageId, ignore cardIndex so manual "Search bundle" stays cheapest (0,0).
+        effective_ci = card_index if package_id else 0
+        fi = (hf + effective_ci * 13) % len(f_opts)
+        hi = (hh + effective_ci * 11) % len(h_opts)
+        _, flight_num = f_opts[fi]
+        _sort_pn, hotel_id, chosen_room_type = h_opts[hi]
+        available_seats = max(travellers, 1)
+        available_rooms = max(travellers, 1)
+    else:
+        # Fallback: single cheapest via /availability (search empty or transport issue).
+        flight_avail, fa_terr = _http_get_json(
+            f"{FLIGHT_BASE}/availability",
+            params={"origin": origin, "destination": destination, "departDate": depart_date},
         )
-        return jsonify({"code": 404, "message": fm}), 404
-    flight_data = flight_avail.get("data") or {}
-    flight_num = flight_data.get("flightNum") or flight_data.get("flight_num")
-    available_seats = _safe_int(flight_data.get("availableSeats"))
+        if fa_terr:
+            return jsonify({"code": 503, "message": f"Flight service: {fa_terr}"}), 503
+        if flight_avail.get("code") != 200:
+            fm = (
+                flight_avail.get("message")
+                or f"No flight availability for {origin} → {destination}. "
+                "Adjust From/To or dates."
+            )
+            return jsonify({"code": 404, "message": fm}), 404
+        flight_data = flight_avail.get("data") or {}
+        flight_num = flight_data.get("flightNum") or flight_data.get("flight_num")
+        available_seats = _safe_int(flight_data.get("availableSeats"))
+        if not flight_num:
+            return (
+                jsonify({"code": 404, "message": "Flight availability did not return flightNum"}),
+                404,
+            )
+        if available_seats < travellers:
+            return (
+                jsonify({"code": 409, "message": "Not enough flight seats for travellers"}),
+                409,
+            )
+
+        candidate_room_types = ["STD", "DLX"] if room_type == "" else [room_type]
+        hotel_chosen = None
+        hotel_last_terr: str | None = None
+        for rt in candidate_room_types:
+            hotel_avail, ha_terr = _http_get_json(
+                f"{HOTEL_BASE}/availability",
+                params={
+                    "city": destination,
+                    "roomType": rt,
+                    "departDate": depart_date,
+                    "returnDate": return_date,
+                    "minRooms": str(travellers),
+                },
+            )
+            if ha_terr:
+                hotel_last_terr = ha_terr
+                continue
+            if hotel_avail.get("code") != 200:
+                continue
+            data = hotel_avail.get("data") or {}
+            if _safe_int(data.get("availableRooms")) >= travellers:
+                hotel_chosen = (data, rt)
+                break
+
+        if not hotel_chosen:
+            if hotel_last_terr:
+                return (
+                    jsonify({"code": 503, "message": f"Hotel service: {hotel_last_terr}"}),
+                    503,
+                )
+            return (
+                jsonify({"code": 404, "message": "No hotel availability for requested travellers"}),
+                404,
+            )
+
+        hotel_data, chosen_room_type = hotel_chosen
+        hotel_id = _safe_int(hotel_data.get("hotelID") or hotel_data.get("hotelId"))
+        available_rooms = _safe_int(hotel_data.get("availableRooms"))
+        if hotel_id < 1:
+            return (
+                jsonify({"code": 404, "message": "Hotel availability did not return hotelID"}),
+                404,
+            )
+        if available_rooms < travellers:
+            return (
+                jsonify({"code": 409, "message": "Not enough hotel rooms for travellers"}),
+                409,
+            )
+
     if not flight_num:
-        return jsonify({"code": 404, "message": "Flight availability did not return flightNum"}), 404
-    if available_seats < travellers:
-        return jsonify({"code": 409, "message": "Not enough flight seats for travellers"}), 409
+        return jsonify({"code": 404, "message": "No flight available for bundle"}), 404
+    if hotel_id < 1:
+        return jsonify({"code": 404, "message": "No hotel available for bundle"}), 404
 
     flight_price_out, fp_terr = _http_get_json(
         f"{FLIGHT_BASE}/flights/price",
@@ -274,51 +466,6 @@ def bundle_price():
     flight_price = _safe_float((flight_price_out.get("data") or {}).get("price"), 0.0)
 
     flight_total = round(flight_price * travellers, 2)
-
-    # 8–9) Hotel service: availability -> price
-    # Prefer standard rooms first, then deluxe (package = sensible flight + value hotel).
-    candidate_room_types = ["STD", "DLX"] if room_type == "" else [room_type]
-    hotel_chosen = None
-    hotel_last_terr: str | None = None
-    for rt in candidate_room_types:
-        hotel_avail, ha_terr = _http_get_json(
-            f"{HOTEL_BASE}/availability",
-            params={
-                "city": destination,
-                "roomType": rt,
-                "departDate": depart_date,
-                "returnDate": return_date,
-                "minRooms": str(travellers),
-            },
-        )
-        if ha_terr:
-            hotel_last_terr = ha_terr
-            continue
-        if hotel_avail.get("code") != 200:
-            continue
-        data = hotel_avail.get("data") or {}
-        if _safe_int(data.get("availableRooms")) >= travellers:
-            hotel_chosen = (data, rt)
-            break
-
-    if not hotel_chosen:
-        if hotel_last_terr:
-            return (
-                jsonify({"code": 503, "message": f"Hotel service: {hotel_last_terr}"}),
-                503,
-            )
-        return (
-            jsonify({"code": 404, "message": "No hotel availability for requested travellers"}),
-            404,
-        )
-
-    hotel_data, chosen_room_type = hotel_chosen
-    hotel_id = _safe_int(hotel_data.get("hotelID") or hotel_data.get("hotelId"))
-    available_rooms = _safe_int(hotel_data.get("availableRooms"))
-    if hotel_id < 1:
-        return jsonify({"code": 404, "message": "Hotel availability did not return hotelID"}), 404
-    if available_rooms < travellers:
-        return jsonify({"code": 409, "message": "Not enough hotel rooms for travellers"}), 409
 
     hotel_price_out, hp_terr = _http_get_json(
         f"{HOTEL_BASE}/hotels/price",
