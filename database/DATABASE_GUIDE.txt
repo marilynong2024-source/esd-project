@@ -70,6 +70,11 @@ In THIS repo you have THREE kinds of storage
 
       FLIGHT / HOTEL   In-memory catalog + seat/hold logic
                        (does not read FlightDB/HotelDB unless you wire it).
+                       Flight: optional Aviationstack enrichment (see flight service).
+                       Hotel: hotel/app.py HOTELS dict plus merge from
+                       hotel/extra_hotels_data.py so search/pricing match the
+                       large HotelDB seed (~130+ hotelIDs); runtime still does not
+                       query MySQL HotelDB.
 
       LOYALTY          In-memory balances + transactions
                        API: `coins` (cents). LoyaltyDB in init_db.sql is the
@@ -222,6 +227,25 @@ In THIS repo you have THREE kinds of storage
       NumberOfKeys, Status, CreatedAt
 
     FK:   none (logical link to bookings)
+
+
+  Scale & regeneration (Hotel seed)
+  ---------------------------------
+    init_db.sql includes: core city hotels (IDs 1-21), a bulk appendix (22-33),
+    and a large extra block (34-133) across many world cities for demos and
+    SQL/report exercises.
+
+    To regenerate only the SQL for hotelIDs 34+ after editing the catalog in
+    hotel/extra_hotels_data.py:
+
+      python scripts/emit_extra_hotels_sql.py
+
+    Paste or merge the printed statements into init_db.sql where the
+    '-- Extra hotels' comment in init_db.sql marks that block.
+
+    The generated bulk appendix from generate_init_db_bulk.py assigns sample
+    bookings/hotel rows using modulo over the hotel count (currently 133); see
+    that script if you add or remove hotels and need consistent demo IDs.
 
 
 --------------------------------------------------------------------------------
@@ -389,9 +413,14 @@ In THIS repo you have THREE kinds of storage
   3.  Docker booking-db only creates travel_booking via MYSQL_DATABASE.
       Full multi-DB script → run on a full MySQL (or import chosen parts).
 
-  Regenerate bulk tail:
+  Regenerate bulk tail (extra flights, customers, sample bookings, loyalty,
+  flight/hotel reservation rows — stdout; merge per init_db.sql header notes):
 
       python scripts/generate_init_db_bulk.py
+
+  Regenerate HotelDB extra hotels fragment only (hotelIDs 34+):
+
+      python scripts/emit_extra_hotels_sql.py
 
 
 ================================================================================

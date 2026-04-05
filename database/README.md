@@ -12,6 +12,8 @@ This directory holds **documentation only**. The canonical SQL that matches the 
 
 For a summary table of diagram vs Docker, see the project root **`README.md`** → “Databases (diagram vs Docker runtime)”. For full detail, use **`DATABASE_GUIDE.txt`** above.
 
+**Large hotel catalog (SQL + hotel service):** after changing `hotel/extra_hotels_data.py`, run `python scripts/emit_extra_hotels_sql.py` and merge the output into `init_db.sql` (see `DATABASE_GUIDE.txt` §2.2).
+
 ## Removed duplicates
 
 Per-file extracts under `database/*.sql` were removed; they duplicated or drifted from `init_db.sql`. Use **`init_db.sql`** as the single reference for slides and reports.

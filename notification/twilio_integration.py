@@ -256,12 +256,71 @@ def _normalize_phone_e164(raw: Any, default_cc: str = "65") -> str | None:
     return None
 
 
+def _sms_is_cancellation_event(routing_key: str, payload: dict[str, Any]) -> bool:
+    """Cancellations must never use the confirmation template."""
+    rk = (routing_key or "").strip()
+    if rk == "booking.cancelled":
+        return True
+    st = str(payload.get("status") or "").strip().upper()
+    if st == "CANCELLED":
+        return True
+    if payload.get("cancelledAt") or payload.get("cancellationTimestamp"):
+        return True
+    # notify.user used for both flows; refund-only shape without confirm marker
+    if rk == "notify.user" and payload.get("refundAmount") is not None and not payload.get("confirmedAt"):
+        return True
+    return False
+
+
 def _sms_is_booking_confirmation(routing_key: str, payload: dict[str, Any]) -> bool:
+    if _sms_is_cancellation_event(routing_key, payload):
+        return False
     if routing_key == "booking.confirmed":
         return True
-    if payload.get("cancelledAt"):
-        return False
-    return bool(payload.get("confirmedAt"))
+    if routing_key == "notify.user" and payload.get("confirmedAt"):
+        return True
+    return False
+
+
+def format_confirmation_sms_body(payload: dict[str, Any]) -> str:
+    bid = payload.get("bookingID", "?")
+    cur = payload.get("currency") or "SGD"
+    who = (
+        payload.get("passengerName")
+        or payload.get("travellerDisplayName")
+        or "Guest"
+    )
+    total = payload.get("totalPrice")
+    flight = payload.get("flightID") or "?"
+    dep = str(payload.get("departureTime") or "").replace("T", " ")[:16]
+    seat = payload.get("seatNumber")
+    seat_bit = f" Seat {seat}." if seat else ""
+    return (
+        f"[Travel demo] Booking #{bid} confirmed — {who}. "
+        f"{flight} {dep}. Total {cur} {total}.{seat_bit}"
+    )
+
+
+def format_cancellation_sms_body(payload: dict[str, Any]) -> str:
+    bid = payload.get("bookingID", "?")
+    cur = payload.get("currency") or "SGD"
+    who = (
+        payload.get("passengerName")
+        or payload.get("travellerDisplayName")
+        or "Guest"
+    )
+    pct = payload.get("refundPercentage")
+    pct_disp = pct if pct is not None else 0
+    amt = payload.get("refundAmount")
+    amt_disp = amt if amt is not None else 0
+    src = (payload.get("cancelSource") or "customer").strip().lower()
+    policy = str(payload.get("cancellationPolicyID") or "").strip()
+    src_label = {"customer": "customer", "airline": "airline", "hotel": "hotel"}.get(src, src)
+    policy_bit = f" Policy {policy}." if policy else ""
+    return (
+        f"[Travel demo] Booking #{bid} CANCELLED ({src_label}) — {who}. "
+        f"Refund {pct_disp}% (~{cur} {amt_disp}).{policy_bit}"
+    )
 
 
 def send_sms_for_amqp_event(
@@ -278,29 +337,36 @@ def send_sms_for_amqp_event(
             "then book again — or optional TWILIO_TO_NUMBER in .env for demos only",
         }
 
-    bid = event_payload.get("bookingID", "?")
-    cur = event_payload.get("currency") or "SGD"
-    who = (
-        event_payload.get("passengerName")
-        or event_payload.get("travellerDisplayName")
-        or "Guest"
-    )
-    if _sms_is_booking_confirmation(routing_key, event_payload):
-        total = event_payload.get("totalPrice")
-        flight = event_payload.get("flightID") or "?"
-        dep = str(event_payload.get("departureTime") or "").replace("T", " ")[:16]
-        seat = event_payload.get("seatNumber")
-        seat_bit = f" Seat {seat}." if seat else ""
-        body = (
-            f"[Travel demo] Booking #{bid} confirmed — {who}. "
-            f"{flight} {dep}. Total {cur} {total}.{seat_bit}"
-        )
+    if _sms_is_cancellation_event(routing_key, event_payload):
+        body = format_cancellation_sms_body(event_payload)
+    elif _sms_is_booking_confirmation(routing_key, event_payload):
+        body = format_confirmation_sms_body(event_payload)
     else:
-        pct = event_payload.get("refundPercentage")
-        amt = event_payload.get("refundAmount")
-        body = (
-            f"[Travel demo] Booking #{bid} cancelled/refunded ({who}). "
-            f"Refund {pct}% (~{cur} {amt})."
-        )
+        return {
+            "skipped": True,
+            "reason": (
+                f"notify payload (routing_key={routing_key!r}) missing confirmation/cancellation markers — "
+                "SMS not sent"
+            ),
+        }
 
+    return send_sms(to, body)
+
+
+def send_sms_for_manual_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """HTTP /notify/manual — cancellation SMS when RabbitMQ publish failed (booking sync path)."""
+    if not isinstance(data, dict):
+        return {"skipped": True, "reason": "invalid manual payload"}
+    st = str(data.get("status") or "").strip().upper()
+    if st != "CANCELLED" and data.get("source") != "cancellation_sync":
+        return {"skipped": True, "reason": "manual SMS only used for cancellation fallback"}
+    to = _normalize_phone_e164(data.get("passengerPhone"))
+    if not to:
+        to = _normalize_phone_e164(os.environ.get("TWILIO_TO_NUMBER"))
+    if not to:
+        return {
+            "skipped": True,
+            "reason": "No passengerPhone on manual notify — add mobile on profile or TWILIO_TO_NUMBER",
+        }
+    body = format_cancellation_sms_body(data)
     return send_sms(to, body)

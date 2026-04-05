@@ -56,7 +56,7 @@ Your **slides, report, video (`video.txt`), and eLearn zip** are still your team
 | **OutSystems** | Traveller profiles integrated from booking service (see `TRAVELLER_PROFILE_*` env / OutSystems client). |
 | Service **reused** across scenarios | **Loyalty**, **payment**, **flight**, **hotel**, **notification** used in multiple flows. |
 | **External service** | **Twilio** (SMS, UI + saved config) is the main live hook; **payment** is simulated in Docker. |
-| ≥2 scenarios with **orchestration/choreography** | Booking orchestrates many HTTP calls; **RabbitMQ** `notify.user` choreography to notification (+ optional Twilio). |
+| ≥2 scenarios with **orchestration/choreography** | Booking orchestrates many HTTP calls; **RabbitMQ** `notify.user` (confirm) and `booking.cancelled` (cancel) to notification (+ optional Twilio). |
 | Exclusive **data store** per service where applicable | Booking → MySQL; account → JSON file; other demo services in-memory — document in report appendix. |
 | ≥1 service with a **DB** | **booking** + `booking-db` (MySQL in Compose). |
 | **HTTP** between services | Flask REST calls throughout. |

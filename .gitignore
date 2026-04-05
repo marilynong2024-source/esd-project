@@ -1,5 +1,6 @@
 .env
 bulk_append.sql
+hotel_extra_append.sql
 notification/data/
 *.pyc
 __pycache__/

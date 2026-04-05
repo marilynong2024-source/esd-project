@@ -38,6 +38,34 @@ function isMemberSession() {
   return !!(s && s.mode === "member" && Number(s.customerID) > 0);
 }
 
+/**
+ * Greeting name for the booking confirmation modal — the signed-in member / account owner,
+ * not the lead saved traveller (passengerName / travellerDisplayName on the booking row).
+ */
+function getAccountHolderDisplayNameForThanks() {
+  const sess = getSession();
+  if (sess && sess.mode === "member") {
+    const dn = String(sess.displayName || "").trim();
+    if (dn) return dn;
+    const page = document.getElementById("accountPageName")?.textContent?.trim() || "";
+    if (page && page !== "-") return page;
+    const fn = document.getElementById("profileFirstName")?.value?.trim() || "";
+    const ln = document.getElementById("profileLastName")?.value?.trim() || "";
+    const fromProfile = `${fn} ${ln}`.trim();
+    if (fromProfile) return fromProfile;
+    const em = String(sess.email || "").trim();
+    if (em) {
+      const local = em.split("@")[0]?.trim();
+      if (local) return local;
+      return em;
+    }
+    return "Member";
+  }
+  const pageGuest = document.getElementById("accountPageName")?.textContent?.trim() || "";
+  if (pageGuest && pageGuest !== "-") return pageGuest;
+  return "";
+}
+
 /** After successful Confirm & pay, block steps, seats, and resubmit until Reset form. */
 let bookingFlowCompletedLock = false;
 
@@ -3266,7 +3294,10 @@ function openBookingConfirmModal(apiBody, loyaltySnapshot) {
       : "-"
   );
   set("bookingConfirmDep", d.departureTime ? String(d.departureTime).replace("T", " ") : "-");
-  const who = String(d.passengerName || d.travellerDisplayName || "Traveller").trim();
+  const who =
+    getAccountHolderDisplayNameForThanks() ||
+    String(d.passengerName || "").trim() ||
+    "Guest";
   set(
     "bookingConfirmLede",
     `Thanks, ${who}. Keep your booking reference for changes or cancellation.`
@@ -3647,6 +3678,42 @@ async function onCreateBookingSubmit(e) {
 
 function scrollCancelFeedbackIntoView() {
   document.getElementById("cancelFeedback")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+let cancelRefundEstimateTimer = null;
+
+async function refreshCancelRefundEstimate() {
+  const el = document.getElementById("cancelRefundEstimate");
+  const idRaw = document.getElementById("cancelBookingID")?.value?.trim() || "";
+  const src = document.getElementById("cancelSource")?.value || "customer";
+  if (!el) return;
+  if (!idRaw || !/^\d+$/.test(idRaw) || Number(idRaw) < 1) {
+    el.textContent =
+      "Enter a booking reference to see estimated refund for the selected cancellation type.";
+    return;
+  }
+  el.textContent = "Loading estimate…";
+  const out = await fetchJson(
+    `${API_BASE}/booking/refund-estimate?bookingID=${encodeURIComponent(idRaw)}&cancelSource=${encodeURIComponent(src)}`
+  );
+  if (out.networkError || !out.ok || !out.body?.data) {
+    el.textContent =
+      out.body?.message ||
+      out.errorMessage ||
+      "Could not load refund estimate — check booking id or try again.";
+    return;
+  }
+  const d = out.body.data;
+  const cur = d.currency || "SGD";
+  const days = d.daysBeforeDeparture;
+  const srcLabel =
+    src === "airline" ? "Airline" : src === "hotel" ? "Hotel" : "Customer";
+  el.textContent = `Estimate (${srcLabel}): ~${cur} ${d.refundAmount} (${d.refundPercentage}% of total). Policy ${d.cancellationPolicyID}. About ${days} day(s) before departure.`;
+}
+
+function scheduleCancelRefundEstimate() {
+  if (cancelRefundEstimateTimer) clearTimeout(cancelRefundEstimateTimer);
+  cancelRefundEstimateTimer = setTimeout(() => void refreshCancelRefundEstimate(), 350);
 }
 
 /**
@@ -5472,6 +5539,8 @@ function initAppShell() {
 
   document.getElementById("createForm").addEventListener("submit", onCreateBookingSubmit);
   document.getElementById("cancelForm").addEventListener("submit", onCancelBookingSubmit);
+  document.getElementById("cancelBookingID")?.addEventListener("input", scheduleCancelRefundEstimate);
+  document.getElementById("cancelSource")?.addEventListener("change", scheduleCancelRefundEstimate);
 
   document.getElementById("bookingNavBtn")?.addEventListener("click", () => {
     goToBookingFlow();
@@ -5499,6 +5568,7 @@ function initAppShell() {
   document.getElementById("cancelNavBtn")?.addEventListener("click", () => {
     setActiveSegment("manage");
     document.getElementById("step-manage")?.scrollIntoView({ behavior: "smooth" });
+    scheduleCancelRefundEstimate();
   });
 }
 
@@ -5527,7 +5597,7 @@ function setupMyAccountBookingsUI() {
     if (!bid) return;
 
     const ok = window.confirm(
-      `Cancel booking #${bid}? Refunds follow your fare rules. You can’t undo this.`
+      `Open cancel form for booking #${bid}? Choose who is cancelling (customer / airline / hotel) — each uses different refund rules — then review the estimate and tap Submit cancellation.`
     );
     if (!ok) return;
 
@@ -5538,8 +5608,7 @@ function setupMyAccountBookingsUI() {
 
     if (typeof setActiveSegment === "function") setActiveSegment("manage");
     document.getElementById("step-manage")?.scrollIntoView({ behavior: "smooth", block: "start" });
-
-    void executeBookingCancellation(String(bid), "customer");
+    scheduleCancelRefundEstimate();
   });
 }
 

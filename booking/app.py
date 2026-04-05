@@ -1763,57 +1763,66 @@ def cancel_booking(booking_id: int):
     # Publish cancellation event for async processing (e.g. notification)
     t_ids_event = traveller_profile_ids_for_event(booking)
 
-    published = publish_event(
-        "notify.user",
-        {
-            "bookingID": booking_id,
-            "customerID": booking.customerID,
-            "travellerProfileId": booking.travellerProfileId,
-            "travellerProfileIds": t_ids_event,
-            "travellerDisplayName": booking.travellerDisplayName,
-            "adultCount": int(booking.adultCount or 0),
-            "childCount": int(booking.childCount or 0),
-            "infantCount": int(booking.infantCount or 0),
-            "passengerName": booking.passengerName,
-            "passengerEmail": booking.passengerEmail,
-            "passengerPhone": booking.passengerPhone,
-            "refundPercentage": percentage,
-            "refundAmount": round(amount, 2),
-            "flightID": booking.flightID,
-            "hotelID": booking.hotelID,
-            "departureTime": booking.departureTime,
-            "totalPrice": float(booking.totalPrice or 0),
-            "currency": booking.currency or "SGD",
-            "fareType": booking.fareType,
-            "loyaltyTier": booking.loyaltyTier,
-            "seatNumber": booking.seatNumber,
-            "seatNumbers": booking.to_dict().get("seatNumbers", []),
-            "cancelledAt": now.isoformat(),
-            "cancellationPolicyID": policy_id,
-        },
-    )
+    cancel_amqp_payload = {
+        "bookingID": booking_id,
+        "customerID": booking.customerID,
+        "travellerProfileId": booking.travellerProfileId,
+        "travellerProfileIds": t_ids_event,
+        "travellerDisplayName": booking.travellerDisplayName,
+        "adultCount": int(booking.adultCount or 0),
+        "childCount": int(booking.childCount or 0),
+        "infantCount": int(booking.infantCount or 0),
+        "passengerName": booking.passengerName,
+        "passengerEmail": booking.passengerEmail,
+        "passengerPhone": booking.passengerPhone,
+        "refundPercentage": percentage,
+        "refundAmount": round(amount, 2),
+        "cancelSource": cancel_source,
+        "flightID": booking.flightID,
+        "hotelID": booking.hotelID,
+        "departureTime": booking.departureTime,
+        "totalPrice": float(booking.totalPrice or 0),
+        "currency": booking.currency or "SGD",
+        "fareType": booking.fareType,
+        "loyaltyTier": booking.loyaltyTier,
+        "seatNumber": booking.seatNumber,
+        "seatNumbers": booking.to_dict().get("seatNumbers", []),
+        "status": "CANCELLED",
+        "cancelledAt": now.isoformat(),
+        "cancellationPolicyID": policy_id,
+    }
+    # Dedicated routing key so notification/Twilio never confuses cancel with confirm (both used notify.user before).
+    published = publish_event("booking.cancelled", cancel_amqp_payload)
     if not published:
         cancel_warnings.append(
-            "Could not publish notify.user (cancellation) to RabbitMQ — check booking logs "
+            "Could not publish booking.cancelled to RabbitMQ — check booking logs "
             "and that the rabbitmq service is reachable (notification/Twilio will not run)."
         )
-
-    manual_cancel = _post_notify_manual(
-        {
-            "source": "cancellation_sync",
-            "bookingID": booking_id,
-            "customerID": booking.customerID,
-            "email": booking.passengerEmail,
-            "userEmail": booking.passengerEmail,
-            "passengerPhone": booking.passengerPhone,
-            "refundAmount": round(amount, 2),
-            "refundAmt": round(amount, 2),
-            "status": "CANCELLED",
-            "note": "Diagram fallback: synchronous cancellation notice alongside AMQP.",
-        }
-    )
-    if manual_cancel:
-        cancel_warnings.append(manual_cancel)
+        manual_cancel = _post_notify_manual(
+            {
+                "source": "cancellation_sync",
+                "bookingID": booking_id,
+                "customerID": booking.customerID,
+                "email": booking.passengerEmail,
+                "userEmail": booking.passengerEmail,
+                "passengerPhone": booking.passengerPhone,
+                "passengerName": booking.passengerName,
+                "travellerDisplayName": booking.travellerDisplayName,
+                "refundAmount": round(amount, 2),
+                "refundPercentage": percentage,
+                "cancelSource": cancel_source,
+                "cancellationPolicyID": policy_id,
+                "flightID": booking.flightID,
+                "departureTime": booking.departureTime,
+                "currency": booking.currency or "SGD",
+                "refundAmt": round(amount, 2),
+                "status": "CANCELLED",
+                "cancelledAt": now.isoformat(),
+                "note": "Fallback: RabbitMQ unreachable; synchronous cancel notice + SMS.",
+            }
+        )
+        if manual_cancel:
+            cancel_warnings.append(manual_cancel)
 
     result = {
         "bookingID": booking_id,

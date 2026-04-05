@@ -923,13 +923,18 @@
             />
           </label>
           <label>
-            Cancelled by
-            <select id="cancelSource">
-              <option value="customer" selected>You</option>
-              <option value="airline">Airline</option>
-              <option value="hotel">Hotel</option>
-      </select>
-    </label>
+            Who is cancelling? (refund rules differ)
+            <select id="cancelSource" aria-describedby="cancelRefundEstimate">
+              <option value="customer" selected>
+                Customer (you) — fare + loyalty day brackets
+              </option>
+              <option value="airline">Airline-initiated — full package refund</option>
+              <option value="hotel">Hotel-initiated — partial refund (~40% of package)</option>
+            </select>
+          </label>
+          <p id="cancelRefundEstimate" class="muted muted--compact-top" role="status">
+            Enter a booking reference to see estimated refund for this cancellation type.
+          </p>
           <button type="submit" class="btn-secondary" id="cancelBtn">
             <span aria-hidden="true">↩</span>
             <span>Submit cancellation</span>
@@ -937,11 +942,14 @@
           <details class="advanced-details">
             <summary>Refund rules</summary>
             <p class="muted advanced-details__body">
-              <code>POST /booking/cancel/{id}</code>. Some hotel refunds only 7+ days before travel.
+              <code>POST /booking/cancel/{id}</code> with <code>cancelSource</code>: <strong>customer</strong> uses fare type
+              (Saver / Standard / Flexi) and days before departure; <strong>airline</strong> = full refund;
+              <strong>hotel</strong> = demo partial refund on the package.
             </p>
           </details>
           <p class="muted muted--compact-top">
-            Tip: under <strong>My bookings</strong>, use <strong>Cancel this booking</strong> — confirms once and submits for you.
+            Tip: under <strong>My bookings</strong>, <strong>Cancel this booking</strong> fills the reference here — choose who is
+            cancelling above, review the estimate, then submit.
           </p>
         </form>
         <div id="cancelFeedback" class="alert" role="status" aria-live="polite"></div>
