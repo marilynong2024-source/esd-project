@@ -45,7 +45,13 @@
               required
             />
           </label>
-          <div id="loginError" class="alert" role="alert" hidden></div>
+          <div
+            id="loginError"
+            class="alert alert--strong login-gate__error"
+            role="alert"
+            aria-live="assertive"
+            hidden
+          ></div>
           <button
             type="submit"
             class="btn-primary login-gate__submit"
@@ -122,7 +128,13 @@
               <span>Date of birth (optional)</span>
               <input type="date" id="signupDob" name="dateOfBirth" />
             </label>
-            <div id="signupError" class="alert" role="alert" hidden></div>
+            <div
+              id="signupError"
+              class="alert alert--strong login-gate__error"
+              role="alert"
+              aria-live="assertive"
+              hidden
+            ></div>
             <button type="submit" class="btn-primary login-gate__submit" id="signupSubmitBtn">
               Sign up &amp; start booking
             </button>

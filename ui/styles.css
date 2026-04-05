@@ -1161,6 +1161,11 @@ button {
   white-space: pre-wrap;
 }
 
+/* Gate errors use [hidden] + setError(); keep hidden when attribute set */
+.alert[hidden] {
+  display: none !important;
+}
+
 .alert.alert--success {
   color: #166534;
   background: #ecfdf5;

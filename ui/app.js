@@ -3651,13 +3651,64 @@ function closeBookingConfirmModal() {
 }
 
 function setError(el, msg) {
+  if (!el) return;
   el.textContent = msg;
   el.style.display = "block";
+  el.removeAttribute("hidden");
 }
 
 function clearError(el) {
+  if (!el) return;
   el.textContent = "";
   el.style.display = "none";
+  el.setAttribute("hidden", "");
+}
+
+/**
+ * Friendly copy for account login/signup API and client checks.
+ * @param {"login" | "signup"} kind
+ */
+function humanizeAuthError(rawMessage, httpStatus, kind) {
+  const msg = String(rawMessage || "").trim();
+  const low = msg.toLowerCase();
+  if (!msg) {
+    if (httpStatus === 0) {
+      return kind === "login"
+        ? "Cannot reach the sign-in service. Check your connection or that the account API is running (e.g. Docker)."
+        : "Cannot reach the sign-up service. Check your connection or that the account API is running (e.g. Docker).";
+    }
+    if (httpStatus === 401 && kind === "login") {
+      return "That email and password do not match. Check your password or create an account.";
+    }
+    if (httpStatus === 409 && kind === "signup") {
+      return "An account already uses this email. Sign in or use a different email.";
+    }
+    return kind === "login"
+      ? "Sign-in failed. Check your details and try again."
+      : "Sign up failed. Check your details and try again.";
+  }
+  if (low.includes("invalid email or password")) {
+    return "Wrong password or email for this account. Try again or use Sign up instead.";
+  }
+  if (low.includes("unknown email")) {
+    return "No account exists for that email yet. Use Sign up instead, or check the spelling.";
+  }
+  if (low.includes("password is required")) {
+    return "Please enter a password.";
+  }
+  if (low.includes("email is required")) {
+    return "Please enter your email address.";
+  }
+  if (low.includes("account is not active")) {
+    return "This account cannot sign in. Contact support if this is unexpected.";
+  }
+  if (low.includes("already exists")) {
+    return "That email is already registered. Sign in or pick another email.";
+  }
+  if (msg.includes("Non-JSON") || msg.includes("empty response")) {
+    return "Could not reach the account service. Is Docker running and the UI opened on the app port (e.g. :8080)?";
+  }
+  return msg;
 }
 
 async function updateLoyaltySummary(customerID) {
@@ -5504,6 +5555,7 @@ function initLoginAndSessionUI() {
   document.getElementById("signupForm")?.addEventListener("submit", onSignupSubmit);
 
   document.getElementById("showSignupBtn")?.addEventListener("click", () => {
+    clearError(document.getElementById("loginError"));
     const gateTitle = document.getElementById("loginGateTitle");
     const gateLead = document.querySelector(".login-gate__lede");
     const loginForm = document.getElementById("loginForm");
@@ -5533,6 +5585,7 @@ function initLoginAndSessionUI() {
   });
 
   document.getElementById("backToSigninBtn")?.addEventListener("click", () => {
+    clearError(document.getElementById("signupError"));
     const gateTitle = document.getElementById("loginGateTitle");
     const gateLead = document.querySelector(".login-gate__lede");
     const loginForm = document.getElementById("loginForm");
@@ -5562,31 +5615,42 @@ function initLoginAndSessionUI() {
 async function onLoginSubmit(e) {
   e.preventDefault();
   const errEl = document.getElementById("loginError");
+  const submitBtn = document.getElementById("loginSubmitBtn");
   const email = document.getElementById("loginEmail")?.value?.trim() || "";
   const password = document.getElementById("loginPassword")?.value ?? "";
-  if (errEl) {
-    errEl.hidden = true;
-    errEl.textContent = "";
+  clearError(errEl);
+
+  if (!email) {
+    setError(errEl, "Please enter your email address.");
+    return;
   }
-  const out = await fetchJson(`${ACCOUNT_BASE}/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  if (!String(password).trim()) {
+    setError(errEl, "Please enter your password.");
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+  let out;
+  try {
+    out = await fetchJson(`${ACCOUNT_BASE}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+
   if (out.networkError) {
-    if (errEl) {
-      errEl.textContent = out.errorMessage;
-      errEl.hidden = false;
-    }
+    setError(errEl, humanizeAuthError(out.errorMessage, 0, "login"));
     return;
   }
   const body = out.body;
   if (!out.ok || !body || Number(body.code) !== 200 || !body.data) {
-    if (errEl) {
-      errEl.textContent =
-        body?.message || `Sign-in failed (${out.status})`;
-      errEl.hidden = false;
-    }
+    setError(
+      errEl,
+      humanizeAuthError(body?.message, out.status, "login")
+    );
     return;
   }
   const d = body.data;
@@ -5605,6 +5669,7 @@ async function onLoginSubmit(e) {
 async function onSignupSubmit(e) {
   e.preventDefault();
   const errEl = document.getElementById("signupError");
+  const submitBtn = document.getElementById("signupSubmitBtn");
   const email = document.getElementById("signupEmail")?.value?.trim() || "";
   const password = document.getElementById("signupPassword")?.value ?? "";
   const firstName = document.getElementById("signupFirstName")?.value?.trim() || "";
@@ -5612,41 +5677,48 @@ async function onSignupSubmit(e) {
   const phoneNumber = document.getElementById("signupPhone")?.value?.trim() || "";
   const nationality = document.getElementById("signupNationality")?.value?.trim() || "";
   const dateOfBirth = document.getElementById("signupDob")?.value?.trim() || "";
-  if (errEl) {
-    errEl.hidden = true;
-    errEl.textContent = "";
-  }
+  clearError(errEl);
+
   if (!email) {
-    if (errEl) {
-      errEl.textContent = "Email is required to create an account.";
-      errEl.hidden = false;
-    }
+    setError(errEl, "Please enter your email address.");
+    return;
+  }
+  if (!String(password).trim()) {
+    setError(errEl, "Please choose a password.");
+    return;
+  }
+  if (String(password).trim().length < 6) {
+    setError(errEl, "Use at least 6 characters for your password.");
     return;
   }
   if (!phoneNumber) {
-    if (errEl) {
-      errEl.textContent = "Mobile number is required — we use it for booking SMS when Twilio is on.";
-      errEl.hidden = false;
-    }
+    setError(
+      errEl,
+      "Mobile number is required — we use it for booking SMS when Twilio is on."
+    );
     return;
   }
-  const out = await fetchJson(`${ACCOUNT_BASE}/signup`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, firstName, lastName, phoneNumber, nationality, dateOfBirth }),
-  });
+  if (submitBtn) submitBtn.disabled = true;
+  let out;
+  try {
+    out = await fetchJson(`${ACCOUNT_BASE}/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, firstName, lastName, phoneNumber, nationality, dateOfBirth }),
+    });
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+
   if (out.networkError) {
-    if (errEl) {
-      errEl.textContent = out.errorMessage;
-      errEl.hidden = false;
-    }
+    setError(errEl, humanizeAuthError(out.errorMessage, 0, "signup"));
     return;
   }
   if (!out.ok || !out.body?.data) {
-    if (errEl) {
-      errEl.textContent = out.body?.message || `Sign up failed (${out.status})`;
-      errEl.hidden = false;
-    }
+    setError(
+      errEl,
+      humanizeAuthError(out.body?.message, out.status, "signup")
+    );
     return;
   }
   const d = out.body.data;
@@ -6062,11 +6134,10 @@ async function loadMyAccount(customerID) {
       if (gate) gate.hidden = false;
       if (shell) shell.hidden = true;
       const errEl = document.getElementById("loginError");
-      if (errEl) {
-        errEl.hidden = false;
-        errEl.textContent =
-          "Your session no longer matches an account (e.g. after a container reset). Please sign in or sign up again.";
-      }
+      setError(
+        errEl,
+        "Your session no longer matches an account (e.g. after a container reset). Please sign in or sign up again."
+      );
     }
     return;
   }
