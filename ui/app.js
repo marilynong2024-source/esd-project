@@ -1241,9 +1241,15 @@ function updateBundleCardPriceLabels() {
 }
 
 async function refreshBundleCardPrices() {
-  const customerId = document.getElementById("customerID")?.value?.trim();
-  const travellers = document.getElementById("bundleNumberOfTravellers")?.value?.trim();
-  if (!customerId || !travellers) return;
+  const cidRaw = document.getElementById("customerID")?.value?.trim();
+  const customerId = cidRaw === undefined || cidRaw === "" ? "0" : cidRaw;
+  syncBundleTravellerTotals();
+  let travellers = document.getElementById("bundleNumberOfTravellers")?.value?.trim();
+  if (!travellers || !Number.isFinite(Number(travellers)) || Number(travellers) < 1) {
+    travellers = "1";
+    const nt = document.getElementById("bundleNumberOfTravellers");
+    if (nt) nt.value = travellers;
+  }
   const coinsInput = document.getElementById("coinsToSpendCents");
   const coins = Math.max(0, Number(coinsInput?.value || 0));
 
@@ -1398,19 +1404,20 @@ function populateTravellerCountSelect() {
   const adultsSel = document.getElementById("bundleAdults");
   const childrenSel = document.getElementById("bundleChildren");
   const infantsSel = document.getElementById("bundleInfants");
-  const fill = (sel, max, noun) => {
+  const fill = (sel, max, singular, plural) => {
     if (!sel || sel.tagName !== "SELECT") return;
     sel.replaceChildren();
     for (let n = 0; n <= max; n++) {
       const o = document.createElement("option");
       o.value = String(n);
-      o.textContent = `${n} ${noun}${n === 1 ? "" : "s"}`;
+      o.textContent =
+        n === 0 ? `0 ${plural}` : n === 1 ? `1 ${singular}` : `${n} ${plural}`;
       sel.appendChild(o);
     }
   };
-  fill(adultsSel, 12, "adult");
-  fill(childrenSel, 8, "child");
-  fill(infantsSel, 4, "infant");
+  fill(adultsSel, 12, "adult", "adults");
+  fill(childrenSel, 8, "child", "children");
+  fill(infantsSel, 4, "infant", "infants");
   if (adultsSel) adultsSel.value = "2";
   if (childrenSel) childrenSel.value = "0";
   if (infantsSel) infantsSel.value = "0";
@@ -3520,6 +3527,7 @@ function applyTravellerSelectionFromIds(preferredIds) {
   renderTravellerProfileList();
   refreshTripContactSummary();
   updateSeatGroupSummary();
+  syncTripPartySizeToPackageHeroAndBundlePricing();
 }
 
 /** Wallet balance for display: show points only (backend still redeems points toward SGD totals). */
@@ -4432,8 +4440,15 @@ async function onCreateBookingSubmit(e) {
     return;
   }
   const hotelRoomType = document.getElementById("hotelRoomType").value || "STD";
+  const bookCustomerEl = document.getElementById("customerID");
+  let customerID = Number(bookCustomerEl?.value || 0);
+  const sess = getSession();
+  if (sess?.mode === "member" && Number(sess.customerID) > 0 && !(customerID > 0)) {
+    customerID = Number(sess.customerID);
+    if (bookCustomerEl) bookCustomerEl.value = String(customerID);
+  }
   const payload = {
-    customerID: Number(document.getElementById("customerID").value),
+    customerID,
     passengerName,
     flightID: document.getElementById("flightID").value,
     hotelID: Number(document.getElementById("hotelID").value),
@@ -5173,20 +5188,21 @@ function populatePackageTravellerCountSelect() {
   const infantsSel = document.getElementById("packageInfants");
   if (!adultsSel || adultsSel.tagName !== "SELECT") return;
 
-  const fill = (sel, max, noun) => {
+  const fill = (sel, max, singular, plural) => {
     if (!sel || sel.tagName !== "SELECT") return;
     sel.replaceChildren();
     for (let n = 0; n <= max; n++) {
       const o = document.createElement("option");
       o.value = String(n);
-      o.textContent = `${n} ${noun}${n === 1 ? "" : "s"}`;
+      o.textContent =
+        n === 0 ? `0 ${plural}` : n === 1 ? `1 ${singular}` : `${n} ${plural}`;
       sel.appendChild(o);
     }
   };
 
-  fill(adultsSel, 12, "adult");
-  fill(childrenSel, 8, "child");
-  fill(infantsSel, 4, "infant");
+  fill(adultsSel, 12, "adult", "adults");
+  fill(childrenSel, 8, "child", "children");
+  fill(infantsSel, 4, "infant", "infants");
 
   adultsSel.value = "2";
   if (childrenSel) childrenSel.value = "0";
@@ -5276,17 +5292,7 @@ function runPackageSearch() {
   populateBundleFilterSelects(true);
   syncBundleGalleryCountryFromDestinationCity(bd);
   onBundleFiltersChanged();
-  const flex = document.getElementById("packageFlexibleDates")?.checked;
-  if (!flex) {
-    void searchBundlePricing();
-  } else {
-    const st = document.getElementById("bundleStatus");
-    if (st) {
-      st.textContent =
-        "Flexible dates on — browse packages below; change From, To, or dates in the search above, then Search flights + hotels to refresh.";
-    }
-    scheduleBundleCardPriceRefresh();
-  }
+  void searchBundlePricing();
   document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth", block: "start" });
   void refreshFlightDropdownFromRoute();
   void refreshHotelsForBundleDestination();
@@ -5352,6 +5358,7 @@ function setupPackageSearchUI() {
       syncTripWindowFromDateInputs();
       scheduleBundleCardPriceRefresh();
       onFineTuneDivergeFromPackage();
+      syncTripPartySizeToPackageHeroAndBundlePricing();
     });
   });
   document.getElementById("packageRooms")?.addEventListener("change", () => {
@@ -5368,8 +5375,24 @@ function setupPackageSearchUI() {
     }
     if (selectedBundlePresetId) void searchBundlePricing();
   });
+
+  const onPackagePaxOrCabinChanged = () => {
+    invalidateAppliedPromo();
+    updatePackageTripSummary();
+    applyPackageSearchToBundle();
+    syncTripWindowFromDateInputs();
+    scheduleBundleCardPriceRefresh();
+    onFineTuneDivergeFromPackage();
+    if (selectedHotel) {
+      defaultHotelRoomQuantitiesForSelection("STD");
+      syncHotelRoomTypeHiddenFromMix();
+      updateBreakfastAddonUI();
+      applyRoomMixToBundlePricing();
+    }
+    void searchBundlePricing();
+  };
   ["packageAdults", "packageChildren", "packageInfants", "packageCabin"].forEach((id) => {
-    document.getElementById(id)?.addEventListener("change", updatePackageTripSummary);
+    document.getElementById(id)?.addEventListener("change", onPackagePaxOrCabinChanged);
   });
 
   document.getElementById("packageSearchBtn")?.addEventListener("click", () => {
@@ -5571,17 +5594,31 @@ function getBookerTravellerProfileId(safeRows) {
 }
 
 /**
- * Headcount for pricing, seats, and validation: saved profiles ticked “On this trip”, plus the
- * signed-in member when they have a matching saved profile but forgot to tick themselves.
+ * Headcount for pricing, seats, and validation: ticked “On this trip” profiles, plus the signed-in
+ * member when they travel but aren’t in the ticked set (booker profile unticked, or no booker
+ * profile but only children/infants ticked — parent still travels).
  */
 function getEffectiveTripTravellerHeadcount() {
   const ticked = readTravellerProfileIdsFromInput();
   const n = ticked.length;
   const sess = getSession();
   if (!sess || sess.mode !== "member") return Math.min(12, n);
+  const depYmd = getHeroPackageDepartureYmd();
+  let { adults, children, infants, matched } = computeTickedProfileAgeCounts(
+    ticked,
+    latestTravellerRows,
+    depYmd
+  );
+  if (matched !== n) {
+    adults = n;
+    children = 0;
+    infants = 0;
+  }
+  const idSet = new Set(ticked);
   const bid = getBookerTravellerProfileId(latestTravellerRows);
-  if (!bid || ticked.includes(bid)) return Math.min(12, n);
-  return Math.min(12, n + 1);
+  if (bid > 0 && !idSet.has(bid)) return Math.min(12, n + 1);
+  if ((!bid || bid < 1) && adults === 0 && (children > 0 || infants > 0)) return Math.min(12, n + 1);
+  return Math.min(12, n);
 }
 
 /** Booking payload: include booker’s profile id when they’re counted but not ticked. */
@@ -5598,6 +5635,47 @@ function ensureBookerFirstInTripParty(safeRows) {
   const bid = getBookerTravellerProfileId(safeRows);
   if (!bid || !tripPartyOrderedIds.includes(bid)) return;
   tripPartyOrderedIds = [bid, ...tripPartyOrderedIds.filter((x) => x !== bid)];
+}
+
+/**
+ * True when every profile Id in the party is a child or infant at hero departure (not adult).
+ * Used to attach the member’s name-matched booker profile when only minors were selected.
+ */
+function tripPartyIsOnlyMinors(safeRows, partyIds, departureYmd) {
+  const seen = new Set();
+  const ids = [];
+  for (const raw of partyIds) {
+    const id = Number(raw);
+    if (!(id > 0) || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  if (!ids.length) return false;
+  for (const id of ids) {
+    const row = safeRows.find((r) => travellerRowNumericId(r) === id);
+    if (!row) return false;
+    if (travellerAgeBandForHeroPackage(row, departureYmd) === "adult") return false;
+  }
+  return true;
+}
+
+/**
+ * On list load / refresh (allowAutoFirst): if the signed-in member has a booker-matching saved
+ * profile but the trip party is only minors, add that profile so passport/details attach to the
+ * lead traveller and counts match (1 adult + children) without relying only on implicit adult logic.
+ */
+function ensureMemberBookerIncludedWithMinorParty(safeRows, opts) {
+  if (!Boolean(opts.allowAutoFirst)) return;
+  const sess = getSession();
+  if (!sess || sess.mode !== "member") return;
+  const bid = getBookerTravellerProfileId(safeRows);
+  if (!bid) return;
+  if (tripPartyOrderedIds.includes(bid)) return;
+  const party = dedupeTripPartyOrderedIds();
+  if (!party.length) return;
+  const depYmd = getHeroPackageDepartureYmd();
+  if (!tripPartyIsOnlyMinors(safeRows, party, depYmd)) return;
+  tripPartyOrderedIds = [bid, ...party.filter((x) => x !== bid)];
 }
 
 function normalizeTripPartyForRows(safeRows, opts = {}) {
@@ -5624,32 +5702,155 @@ function normalizeTripPartyForRows(safeRows, opts = {}) {
     if (pick) tripPartyOrderedIds = [pick];
   }
 
+  ensureMemberBookerIncludedWithMinorParty(safeRows, opts);
   ensureBookerFirstInTripParty(safeRows);
 }
 
+/** Y/M/D parts for age-at-departure (mirrors booking `_parse_isoish_date` / `_age_years_on`). */
+function parseTravellerYmdParts(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const head = s.includes("T") ? s.slice(0, 10) : s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) {
+    const [y, mo, d] = head.split("-").map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+    return { y, mo, d };
+  }
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    return { d: Number(m[1]), mo: Number(m[2]), y: Number(m[3]) };
+  }
+  const m2 = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (m2) {
+    return { y: Number(m2[1]), mo: Number(m2[2]), d: Number(m2[3]) };
+  }
+  return null;
+}
+
+function getHeroPackageDepartureYmd() {
+  const b = document.getElementById("bundleDepartDateTime")?.value?.trim();
+  if (b) {
+    const d10 = b.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d10)) return d10;
+  }
+  const p = document.getElementById("packageDepartDate")?.value?.trim();
+  if (p) {
+    const d10 = p.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d10)) return d10;
+  }
+  return new Date().toISOString().slice(0, 10);
+}
+
+function ageYearsOnDepartureYmd(dobRaw, departureYmd) {
+  const dep = parseTravellerYmdParts(departureYmd) || parseTravellerYmdParts(new Date().toISOString().slice(0, 10));
+  const dob = parseTravellerYmdParts(dobRaw);
+  if (!dob || !dep) return null;
+  let years = dep.y - dob.y;
+  if (dep.mo < dob.mo || (dep.mo === dob.mo && dep.d < dob.d)) years -= 1;
+  return Math.max(0, years);
+}
+
 /**
- * Saved profiles ticked "On this trip" drive the hero package pax: each counts as one adult
- * (children/infants cleared) so bundle pricing and the top summary stay aligned.
+ * Age bands match `booking/app.py` `_traveller_age_breakdown`: unknown DOB → adult; 12+ adult;
+ * 2–11 child; under 2 infant.
+ */
+function travellerAgeBandForHeroPackage(row, departureYmd) {
+  const dob = getOsField(row, ["DateOfBirth", "DOB", "dateOfBirth"]);
+  const age = ageYearsOnDepartureYmd(dob, departureYmd);
+  if (age === null || age >= 12) return "adult";
+  if (age >= 2) return "child";
+  return "infant";
+}
+
+function computeTickedProfileAgeCounts(tickedIds, safeRows, departureYmd) {
+  const idSet = new Set(tickedIds);
+  let adults = 0;
+  let children = 0;
+  let infants = 0;
+  let matched = 0;
+  for (const row of safeRows) {
+    const id = travellerRowNumericId(row);
+    if (!idSet.has(id)) continue;
+    matched += 1;
+    const band = travellerAgeBandForHeroPackage(row, departureYmd);
+    if (band === "adult") adults += 1;
+    else if (band === "child") children += 1;
+    else infants += 1;
+  }
+  return { adults, children, infants, matched };
+}
+
+/**
+ * Member travelling as lead: (1) booker profile exists but isn’t ticked → count them by DOB;
+ * (2) no name-matching booker profile but only children/infants are ticked → assume the signed-in
+ * parent is the other adult (common when only the kid has a saved profile).
+ */
+function applyImplicitMemberLeadToAgeCounts(counts, tickedIdSet, departureYmd, safeRows) {
+  const sess = getSession();
+  if (!sess || sess.mode !== "member") return;
+  const bid = getBookerTravellerProfileId(safeRows);
+  if (bid > 0 && !tickedIdSet.has(bid)) {
+    const bookerRow = safeRows.find((r) => travellerRowNumericId(r) === bid);
+    if (bookerRow) {
+      const band = travellerAgeBandForHeroPackage(bookerRow, departureYmd);
+      if (band === "adult") counts.adults += 1;
+      else if (band === "child") counts.children += 1;
+      else counts.infants += 1;
+    }
+    return;
+  }
+  if ((!bid || bid < 1) && counts.adults === 0 && (counts.children > 0 || counts.infants > 0)) {
+    counts.adults += 1;
+  }
+}
+
+/**
+ * Hero / bundle pax: ticked “On this trip” profiles (by DOB vs departure), plus implicit lead
+ * traveller when the signed-in member is travelling but isn’t represented in the ticked set.
  */
 function syncTripPartySizeToPackageHeroAndBundlePricing() {
-  const n = getEffectiveTripTravellerHeadcount();
+  const tickedIds = readTravellerProfileIdsFromInput();
+  const n = tickedIds.length;
   if (n < 1) return;
 
-  const cap = Math.min(n, 12);
+  const depYmd = getHeroPackageDepartureYmd();
+  const idSet = new Set(tickedIds);
+  let { adults, children, infants, matched } = computeTickedProfileAgeCounts(
+    tickedIds,
+    latestTravellerRows,
+    depYmd
+  );
+
+  if (matched !== n) {
+    adults = n;
+    children = 0;
+    infants = 0;
+  }
+
+  const pax = { adults, children, infants };
+  applyImplicitMemberLeadToAgeCounts(pax, idSet, depYmd, latestTravellerRows);
+  adults = pax.adults;
+  children = pax.children;
+  infants = pax.infants;
+
+  adults = Math.min(12, Math.max(0, adults));
+  children = Math.min(8, Math.max(0, children));
+  infants = Math.min(4, Math.max(0, infants));
+
   const adultsSel = document.getElementById("packageAdults");
   const childrenSel = document.getElementById("packageChildren");
   const infantsSel = document.getElementById("packageInfants");
-  if (adultsSel) adultsSel.value = String(cap);
-  if (childrenSel) childrenSel.value = "0";
-  if (infantsSel) infantsSel.value = "0";
+  if (adultsSel) adultsSel.value = String(adults);
+  if (childrenSel) childrenSel.value = String(children);
+  if (infantsSel) infantsSel.value = String(infants);
 
   const bundleAdultsEl = document.getElementById("bundleAdults");
   const bundleChildrenEl = document.getElementById("bundleChildren");
   const bundleInfantsEl = document.getElementById("bundleInfants");
   if (bundleAdultsEl && bundleAdultsEl.tagName === "SELECT") {
-    bundleAdultsEl.value = String(cap);
-    if (bundleChildrenEl) bundleChildrenEl.value = "0";
-    if (bundleInfantsEl) bundleInfantsEl.value = "0";
+    bundleAdultsEl.value = String(adults);
+    if (bundleChildrenEl) bundleChildrenEl.value = String(children);
+    if (bundleInfantsEl) bundleInfantsEl.value = String(infants);
     syncBundleTravellerTotals();
   }
 
@@ -5663,10 +5864,7 @@ function syncTripPartySizeToPackageHeroAndBundlePricing() {
     updateBreakfastAddonUI();
     applyRoomMixToBundlePricing();
   }
-  const flex = document.getElementById("packageFlexibleDates")?.checked;
-  if (!flex) {
-    void searchBundlePricing();
-  }
+  void searchBundlePricing();
 }
 
 function onToggleTripTraveller(id, checked) {
@@ -5735,6 +5933,34 @@ function renderTravellerProfileList() {
     `;
     listEl.appendChild(item);
   });
+  updateTravellerBookerProfileHint();
+}
+
+function updateTravellerBookerProfileHint() {
+  const el = document.getElementById("travellerBookerProfileHint");
+  if (!el) return;
+  const sess = getSession();
+  const cid = Number(document.getElementById("travellerCustomerID")?.value ?? 0);
+  const rows = latestTravellerRows;
+  if (
+    !sess ||
+    sess.mode !== "member" ||
+    cid < 1 ||
+    !travellerProfilesServiceAvailable ||
+    !rows.length
+  ) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  if (getBookerTravellerProfileId(rows) > 0) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent =
+    "Tip: add a saved profile with the same name as this member (see My profile) so your passport links to you as lead traveller. Until then, a travelling adult is still counted when only children are ticked “On this trip”.";
 }
 
 function populateTravellerSelectorsFromRows(rows, opts = {}) {
@@ -5820,6 +6046,11 @@ async function loadTravellerProfiles() {
     }
     if (listEl) listEl.textContent = "";
     resetTravellerEdit();
+    const bookerHint = document.getElementById("travellerBookerProfileHint");
+    if (bookerHint) {
+      bookerHint.hidden = true;
+      bookerHint.textContent = "";
+    }
     return;
   }
 
@@ -5836,6 +6067,7 @@ async function loadTravellerProfiles() {
     }
     if (listEl) listEl.textContent = "";
     resetTravellerEdit();
+    updateTravellerBookerProfileHint();
     return;
   }
 
@@ -5854,6 +6086,7 @@ async function loadTravellerProfiles() {
     if (listEl) listEl.textContent = "";
     populateTravellerSelectorsFromRows([], { allowAutoFirst: false });
     resetTravellerEdit();
+    updateTravellerBookerProfileHint();
     return;
   }
 
@@ -5887,11 +6120,13 @@ async function loadTravellerProfiles() {
         "Add passport and travel details with New profile below. They’re saved to your account for your next trip too.";
       emptyHint.hidden = false;
     }
+    updateTravellerBookerProfileHint();
     return;
   }
 
   populateTravellerSelectorsFromRows(latestTravellerRows, { allowAutoFirst: true });
   renderTravellerProfileList();
+  syncTripPartySizeToPackageHeroAndBundlePricing();
 }
 
 function resetTravellerEdit() {
@@ -6584,6 +6819,7 @@ function initAppShell() {
   document.getElementById("bundleDepartDateTime")?.addEventListener("change", () => {
     syncTripWindowFromDateInputs();
     void refreshFlightDropdownFromRoute();
+    syncTripPartySizeToPackageHeroAndBundlePricing();
   });
   document.getElementById("bundleReturnDateTime")?.addEventListener("change", () => {
     syncTripWindowFromDateInputs();

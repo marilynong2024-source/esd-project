@@ -425,22 +425,6 @@ body {
   min-width: 0;
 }
 
-.package-search__checkbox {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  font-size: 0.8125rem;
-  color: var(--muted);
-  cursor: pointer;
-  flex: 1 1 220px;
-  align-self: center;
-}
-
-.package-search__checkbox input {
-  margin-top: 3px;
-  accent-color: var(--package-blue);
-}
-
 .package-search__actions {
   display: flex;
   flex-wrap: wrap;

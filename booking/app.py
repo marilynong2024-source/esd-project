@@ -769,6 +769,15 @@ def create_booking():
         adult_count, child_count, infant_count = _traveller_age_breakdown(
             traveller_docs, departure_time
         )
+        # Align with UI: party may be child/infant-only in saved profiles while an adult still
+        # travels (account holder / lead). Count that adult even if customerID is missing or 0
+        # in the payload (stale UI) as long as at least one traveller profile row was resolved.
+        if (
+            (child_count > 0 or infant_count > 0)
+            and adult_count < 1
+            and traveller_docs
+        ):
+            adult_count = 1
         if (child_count > 0 or infant_count > 0) and adult_count < 1:
             return _bad_request(
                 "At least one adult traveller is required when children/infants are included"
