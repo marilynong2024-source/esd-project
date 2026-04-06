@@ -289,11 +289,13 @@ body {
   display: none;
   position: absolute;
   z-index: 80;
-  left: 50%;
+  /* Anchor to trigger’s start edge — centering (50% / -50%) clipped left inside .card (overflow-x: hidden). */
+  left: 0;
+  right: auto;
   top: calc(100% + 6px);
   bottom: auto;
-  transform: translateX(-50%);
-  min-width: min(18rem, calc(100vw - 32px));
+  transform: none;
+  min-width: min(16rem, calc(100vw - 32px));
   max-width: min(22rem, calc(100vw - 24px));
   padding: 10px 12px;
   border-radius: 10px;
@@ -307,6 +309,13 @@ body {
   text-align: left;
   text-transform: none;
   letter-spacing: normal;
+  box-sizing: border-box;
+}
+
+/* Trigger hugging the right edge (e.g. pay step row): grow panel leftward so it stays in view. */
+.info-popover--align-end .info-popover__panel {
+  left: auto;
+  right: 0;
 }
 
 .info-popover__panel--wide {
@@ -854,6 +863,12 @@ h2 {
   border: 1px solid var(--border);
   min-width: 0;
   overflow-x: hidden;
+}
+
+/* Let info tooltips extend past the card edge while open (popover is position:absolute). */
+.card:has(.info-popover:hover),
+.card:has(.info-popover:focus-within) {
+  overflow-x: visible;
 }
 
 .card--package {
