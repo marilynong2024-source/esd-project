@@ -13,6 +13,7 @@ Travel package booking demo built with microservices (Flask + Docker Compose).
 ### 2) Setup
 ```powershell
 Copy-Item .env.example .env
+# Optional: If traveller profile creation fails with 503, set TRAVELLER_PROFILE_LOCAL_DEMO=true in .env
 docker compose up --build
 ```
 
@@ -45,27 +46,12 @@ docker compose logs ui --tail 120
 docker compose logs graphql --tail 120
 ```
 
+#### Common Issues
+- **Traveller profile creation fails (503 Service Unavailable)**: The booking service calls an external OutSystems REST API. If unreachable, set `TRAVELLER_PROFILE_LOCAL_DEMO=true` in `.env` to use in-memory demo data instead.
+- **502 Bad Gateway**: Check if services are up with `docker compose ps`. Nginx may not reach containers.
+- **GraphQL queries fail**: Ensure `graphql` service is running; it aggregates REST calls to flight/hotel/loyalty.
+
 ---
-
-## Project requirements (IS213 checklist)
-
-Your **slides, report, video (`video.txt`), and eLearn zip** are still your team’s responsibility — this repo is the executable part. The implementation is intended to satisfy the course **minimum technical requirements**:
-
-| Requirement | How this project satisfies it |
-|-------------|-------------------------------|
-| ≥3 **interesting** user scenarios | Bundle search & price; book package (orchestration); cancel/refund + notifications. |
-| ≥3 atomic microservices, 3+ data entities | e.g. **booking** (+DB), **flight**, **hotel**, **loyalty**, **payment**, **discount**, **notification**, **account**, **bundle-pricing**, **graphql** — each with its own data/concerns. |
-| **OutSystems** | Traveller profiles integrated from booking service (see `TRAVELLER_PROFILE_*` env / OutSystems client). |
-| Service **reused** across scenarios | **Loyalty**, **payment**, **flight**, **hotel**, **notification** used in multiple flows. |
-| **External service** | **Twilio** (SMS, UI + saved config) is the main live hook; **payment** is simulated in Docker. |
-| ≥2 scenarios with **orchestration/choreography** | Booking orchestrates many HTTP calls; **RabbitMQ** `notify.user` (confirm) and `booking.cancelled` (cancel) to notification (+ optional Twilio). |
-| Exclusive **data store** per service where applicable | Booking → MySQL; account → JSON file; other demo services in-memory — document in report appendix. |
-| ≥1 service with a **DB** | **booking** + `booking-db` (MySQL in Compose). |
-| **HTTP** between services | Flask REST calls throughout. |
-| **Message-based** communication | RabbitMQ from booking → notification. |
-| **Web GUI** + **JSON** | `ui/` SPA-style form + JSON APIs. |
-| **Docker** + **Docker Compose** | `docker-compose.yml` (OutSystems excluded from Compose by design). |
-| **Beyond-the-labs** (for marks) | **GraphQL** gateway, **Kong** in compose, bundle composite, optional real Twilio, etc. — justify in report. |
 
 ## What Is Included
 
@@ -74,7 +60,8 @@ Your **slides, report, video (`video.txt`), and eLearn zip** are still your team
 - `payment`: payment/refund records (simulated)
 - `loyalty`: coins + tier logic
 - `notification`: RabbitMQ event consumer
-- `graphql`: aggregation layer on top of REST
+- `graphql_gateway`: GraphQL aggregation layer on top of REST services (flight, hotel, loyalty)
+- `kong`: API gateway for routing requests to all services
 - `ui` (nginx): web app + reverse-proxy under `/api/...`
 
 ---
@@ -155,10 +142,11 @@ See **`database/DATABASE_GUIDE.txt`** (full data-store map and keys) and **`data
 
 ## Notes for This Demo
 
-- Currency is fixed to **SGD** in UI flow.
 - Hotel search supports country/city/name and includes image + room types.
 - Seat map blocks already-reserved seats for supported airlines.
-- GraphQL is used as a BTL-friendly aggregation layer (REST remains primary architecture).
+- **Kong** serves as the API gateway, routing requests to microservices based on paths (e.g., `/account` to account service, `/graphql` to GraphQL gateway).
+- **GraphQL** provides a flexible query API for the UI, aggregating data from REST services (flight, hotel, loyalty) into single requests.
+- Traveller profiles use OutSystems REST by default; set `TRAVELLER_PROFILE_LOCAL_DEMO=true` in `.env` for in-memory demo mode if external service is unavailable.
 
 ---
 
