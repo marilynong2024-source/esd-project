@@ -66,7 +66,8 @@ def _narrow_flights_by_depart_date(results: list[dict], depart_raw: str, win: in
         win = int(win)
     except (TypeError, ValueError):
         win = 2
-    win = max(0, min(win, 14))
+    # Allow wider windows for bundle / preview callers; UI flight picker typically sends 0–2.
+    win = max(0, min(win, 60))
     filtered: list[dict] = []
     for f in results:
         fd = _flight_departure_date(f)

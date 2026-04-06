@@ -262,12 +262,12 @@
         <div class="package-search__route">
           <label class="package-search__field">
             <span class="package-search__label">From</span>
-            <select id="packageSearchFrom" class="package-search__control" aria-label="Origin city"></select>
+            <select id="packageSearchFrom" class="package-search__control" aria-label="Origin city (Anywhere = all origins)"></select>
           </label>
           <span class="package-search__plane" aria-hidden="true">✈</span>
           <label class="package-search__field">
             <span class="package-search__label">To</span>
-            <select id="packageSearchTo" class="package-search__control" aria-label="Destination city"></select>
+            <select id="packageSearchTo" class="package-search__control" aria-label="Destination city (Anywhere = all destinations)"></select>
           </label>
         </div>
         <p id="packageSameCityError" class="package-search__route-error" hidden role="alert"></p>
@@ -441,9 +441,6 @@
 
           <div id="bundlePackageSection">
           <div class="section-title section-title--spaced">Browse packages</div>
-          <p class="muted bundle-package-intro">
-            All matching packages are listed below — tap a card to choose. After <strong>Search flights + hotels</strong>, the gallery follows your route and trip length from the search bar.
-          </p>
           <div class="bundle-gallery-wrap">
             <button
               type="button"
@@ -1153,7 +1150,8 @@
 
   </div>
 
-  <script src="app.js?v=20260406-packages-inventory" defer></script>
+  <script src="bundle_catalog.js?v=20260406-11k" defer></script>
+  <script src="app.js?v=20260406-breakfast-addon" defer></script>
 </body>
 </html>
 

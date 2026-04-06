@@ -39,6 +39,29 @@ DISCOUNT_BASE = "http://discount:5112"
 
 HTTP_TIMEOUT_SECONDS = 8
 
+# Must match loyalty service: this many points = 1 currency unit off package total (100 → S$1 off).
+LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT = float(
+    os.environ.get("LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT", "100") or "100"
+)
+if LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT <= 0:
+    LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT = 100.0
+
+
+def _bundle_flight_date_window_days() -> int:
+    """
+    Curated package cards use many arbitrary outbound dates; the flight catalog is dense but not
+    every calendar day. Matching only the exact day (0) caused frequent 404s on /bundle-price.
+    Widen the window for bundle pricing only (main UI flight picker can stay strict via flight service).
+    Preset dates (e.g. early April) may sit weeks away from the nearest seeded flight (e.g. early May);
+    a small window still 404s. Flight search caps the window at 60 days.
+    """
+    raw = os.environ.get("BUNDLE_FLIGHT_DATE_WINDOW_DAYS", "30").strip()
+    try:
+        v = int(raw)
+    except ValueError:
+        v = 30
+    return max(0, min(60, v))
+
 
 def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
@@ -130,13 +153,14 @@ def _flight_ranked_options(
     travellers: int,
 ) -> list[tuple[float, str]]:
     """Sorted cheapest-first (economy, flightNum) with enough seats."""
+    win = _bundle_flight_date_window_days()
     body, terr = _http_get_json(
         f"{FLIGHT_ROOT}/flight/search",
         params={
             "originCity": origin.strip(),
             "destinationCity": destination.strip(),
             "departDate": depart_date,
-            "dateWindowDays": "0",
+            "dateWindowDays": str(win),
             "minSeats": str(travellers),
         },
     )
@@ -399,7 +423,7 @@ def bundle_price():
                 "origin": origin,
                 "destination": destination,
                 "departDate": depart_date,
-                "dateWindowDays": "0",
+                "dateWindowDays": str(_bundle_flight_date_window_days()),
             },
         )
         if fa_terr:
@@ -564,7 +588,9 @@ def bundle_price():
     if cid > 0 and loyalty_coins_to_spend_cents > 0 and loyalty_preview is not None:
         coins_available = max(0.0, _safe_float(loyalty_preview.get("coins"), 0.0))
         coins_spent = min(coins_available, loyalty_coins_to_spend_cents)
-        loyalty_used_dollars = round(coins_spent / 100.0, 2)
+        loyalty_used_dollars = round(
+            coins_spent / LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT, 2
+        )
 
     list_price_total = round(flight_total + hotel_total, 2)
     final_total = round(max(0.0, list_price_total - discount_amount - loyalty_used_dollars), 2)

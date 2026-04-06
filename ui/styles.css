@@ -485,14 +485,7 @@ body {
 .package-search__submit {
   min-width: 200px;
   padding: 12px 22px;
-  font-size: 1rem;
-  background: var(--package-blue);
   border: none;
-  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.35);
-}
-
-.package-search__submit:hover {
-  background: var(--package-blue-dark);
 }
 
 /* ——— Hero (legacy single column) ——— */
@@ -1069,6 +1062,17 @@ button {
   transform: scale(0.99);
 }
 
+/* Package hero: .btn-primary is defined above and was winning over .package-search__submit (teal vs intended blue). */
+.btn-primary.package-search__submit {
+  background: var(--package-blue);
+  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.35);
+  font-size: 1rem;
+}
+
+.btn-primary.package-search__submit:hover {
+  background: var(--package-blue-dark);
+}
+
 .btn-secondary {
   background: var(--card);
   color: var(--text);
@@ -1302,12 +1306,6 @@ button {
 .bundle-price__loading,
 .bundle-price__unavailable {
   font-size: 0.8125rem;
-}
-
-.bundle-package-intro {
-  margin: -6px 0 12px;
-  font-size: 0.8125rem;
-  line-height: 1.45;
 }
 
 .bundle-gallery-wrap {

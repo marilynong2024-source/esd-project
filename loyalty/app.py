@@ -21,17 +21,23 @@ Tiering rules (by completed booking count):
 - Platinum: >= 10 bookings
 
 Coins (loyalty balance):
-- Float "coins" (UI: points). Not a cash wallet: redemption stays 100 coins = 1 currency unit
-  off the package total at checkout (see bundle/checkout — same as before).
-- Earn: LOYALTY_COINS_PER_CURRENCY_UNIT points per 1 unit of booking totalPrice currency
-  (default 0.001). Tier labels still update from completed booking count; earn rate does not
-  vary by tier.
-Example: total 1,700 in booking currency at 0.001 → 1.7 points earned; 100 points still → 1.00
-off next trip. Demo seeds are illustrative floats.
+- Float "coins" (UI: points). Two rates (do not confuse them):
+  * **Earn:** LOYALTY_COINS_PER_CURRENCY_UNIT points per **1 unit of completed booking**
+    total (default **0.001**). e.g. S$1,000 booked → **1.0** point.
+  * **Redeem:** LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT points = **1 unit off** the package
+    total at checkout (default **100**). e.g. **900** points → **S$9.00** off.
+- Bundle pricing and the booking UI must use the same redeem divisor (see bundle_pricing).
 """
 
 # Points earned per 1.0 unit of booking amount (same currency as totalPrice).
 COINS_PER_CURRENCY_UNIT = float(os.environ.get("LOYALTY_COINS_PER_CURRENCY_UNIT", "0.001") or "0.001")
+
+# Points spent to get 1.0 currency unit off the charged package total (100 → S$1 off).
+REDEEM_POINTS_PER_CURRENCY_UNIT = float(
+    os.environ.get("LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT", "100") or "100"
+)
+if REDEEM_POINTS_PER_CURRENCY_UNIT <= 0:
+    REDEEM_POINTS_PER_CURRENCY_UNIT = 100.0
 
 LOYALTY = {
     1: {"coins": 11.2, "bookingCount": 3, "tier": "Silver"},
@@ -236,18 +242,22 @@ def redeem_points(customer_id: int):
     data = request.get_json(silent=True) or {}
     booking_id = data.get("bookingID")
     reason = data.get("reason") or "Redeem for pre-payment discount"
-    points_to_redeem = int(max(0, int(data.get("points", 0) or 0)))
+    try:
+        points_to_redeem = max(0.0, float(data.get("points", 0) or 0))
+    except (TypeError, ValueError):
+        points_to_redeem = 0.0
+    points_to_redeem = round(points_to_redeem, 6)
 
     record = get_record(customer_id)
-    current_coins = int(record.get("coins", 0) or 0)
-    redeemed = min(current_coins, points_to_redeem)
-    record["coins"] = current_coins - redeemed
+    current_coins = normalize_coins(record.get("coins"))
+    redeemed = round(min(current_coins, points_to_redeem), 6)
+    record["coins"] = normalize_coins(current_coins - redeemed)
     LOYALTY[customer_id] = record
 
     tx = _append_transaction(
         customer_id=customer_id,
         booking_id=booking_id,
-        points_changed=-int(redeemed),
+        points_changed=-redeemed,
         reason=str(reason),
     )
     return jsonify(

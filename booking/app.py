@@ -92,7 +92,7 @@ app = Flask(__name__)
 CORS(app)
 
 # In-memory tracking for the demo:
-# How many loyalty coins were spent per booking (100 coins = 1 currency unit off total).
+# Loyalty redeem divisor must match loyalty + bundle_pricing (default 100 coins = 1 unit off total).
 # Needed so cancellation can refund coins that were spent at payment time.
 COINS_SPENT_BY_BOOKING: Dict[int, float] = {}
 

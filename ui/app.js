@@ -9,8 +9,22 @@ const GRAPHQL_BASE = "/api/graphql/graphql";
 const FLIGHT_BASE = "/api/flight";
 const BUNDLE_PRICE_BASE = "/api/bundle-price";
 
-/** Points redeemed toward checkout; bundle uses `loyalty_used_dollars = points_spent / 100` (100 pts = 1 unit off total). */
-const LOYALTY_POINTS_PER_SGD = 100;
+/**
+ * Standard-room breakfast add-on (SGD per room per night). Deluxe room rates already include breakfast in catalog prices.
+ */
+const HOTEL_STD_BREAKFAST_ADDON_PER_ROOM_NIGHT_SGD = 35;
+
+/**
+ * Default redeem rate: this many points = S$1 off the package total (900 pts → S$9).
+ * Server may override via GET /loyalty/{id}/points → redeemPointsPerCurrencyUnit.
+ * Separate from earn: coinsPerCurrencyUnit (e.g. 0.001 pt per S$1 booked).
+ */
+const DEFAULT_LOYALTY_REDEEM_PTS_PER_UNIT = 100;
+
+function getLoyaltyRedeemPointsPerUnit() {
+  const r = Number(latestLoyalty?.redeemPointsPerCurrencyUnit);
+  return Number.isFinite(r) && r > 0 ? r : DEFAULT_LOYALTY_REDEEM_PTS_PER_UNIT;
+}
 
 const SESSION_STORAGE_KEY = "horizonPackagesSession";
 const DISPLAY_CURRENCY_STORAGE_KEY = "horizonDisplayCurrency";
@@ -85,739 +99,8 @@ const HOTEL_FALLBACK_IMAGE =
     </svg>`
   );
 
-/**
- * Curated packages — multiple hubs worldwide. `region` drives filter chips:
- * asia | europe | intercontinental
- */
-const BUNDLE_PRESETS = [
-  {
-    id: "tokyo",
-    title: "Tokyo city break",
-    route: "Singapore → Tokyo",
-    origin: "Singapore",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-05-01T10:00",
-    ret: "2026-05-06T11:00",
-    blurb:
-      "5 nights · Shibuya skyline, Tsukiji-style eats, day trip to Kamakura — curated for first-timers & repeat visitors.",
-    image: "https://picsum.photos/seed/pkg-tokyo/520/300",
-  },
-  {
-    id: "bangkok",
-    title: "Bangkok nights",
-    route: "Singapore → Bangkok",
-    origin: "Singapore",
-    destination: "Bangkok",
-    region: "asia",
-    depart: "2026-06-10T08:00",
-    ret: "2026-06-14T18:00",
-    blurb:
-      "4 nights · Riverside temples, Chatuchak market crawl, rooftop bars & Michelin street stalls in one long weekend.",
-    image: "https://picsum.photos/seed/pkg-bangkok/520/300",
-  },
-  {
-    id: "bali",
-    title: "Bali unwind",
-    route: "Singapore → Bali",
-    origin: "Singapore",
-    destination: "Bali",
-    region: "asia",
-    depart: "2026-07-05T09:00",
-    ret: "2026-07-12T10:00",
-    blurb:
-      "7 nights · Ubud rice terraces & spas, Seminyak dining, optional snorkel day — slow travel with pool time.",
-    image: "https://picsum.photos/seed/pkg-bali/520/300",
-  },
-  {
-    id: "sydney",
-    title: "Sydney harbour",
-    route: "Singapore → Sydney",
-    origin: "Singapore",
-    destination: "Sydney",
-    region: "asia",
-    depart: "2026-08-02T09:30",
-    ret: "2026-08-09T16:00",
-    blurb:
-      "7 nights · Harbour Bridge walk, Bondi to Coogee coastal path, Blue Mountains day — classic Australia intro.",
-    image: "https://picsum.photos/seed/pkg-sydney/520/300",
-  },
-  {
-    id: "london",
-    title: "London grand tour",
-    route: "Singapore → London",
-    origin: "Singapore",
-    destination: "London",
-    region: "intercontinental",
-    depart: "2026-05-20T23:55",
-    ret: "2026-05-28T11:00",
-    blurb:
-      "8 nights · West End shows, British Museum deep dive, day trips to Windsor or Cambridge — full city immersion.",
-    image: "https://picsum.photos/seed/pkg-london/520/300",
-  },
-  {
-    id: "lon-par",
-    title: "Paris art escape",
-    route: "London → Paris",
-    origin: "London",
-    destination: "Paris",
-    region: "europe",
-    depart: "2026-06-02T09:00",
-    ret: "2026-06-07T17:00",
-    blurb:
-      "5 nights · Eurostar-ready, Montmartre sunsets, pastry crawl in Le Marais — short Euro hop from London.",
-    image: "https://picsum.photos/seed/pkg-paris/520/300",
-  },
-  {
-    id: "par-lon",
-    title: "London from Paris",
-    route: "Paris → London",
-    origin: "Paris",
-    destination: "London",
-    region: "europe",
-    depart: "2026-06-10T10:00",
-    ret: "2026-06-16T20:00",
-    blurb:
-      "6 nights · Thames walks, Borough Market, West End shows — reverse hop with full English fuel.",
-    image: "https://picsum.photos/seed/pkg-london-par/520/300",
-  },
-  {
-    id: "lon-tyo",
-    title: "London to Tokyo",
-    route: "London → Tokyo",
-    origin: "London",
-    destination: "Tokyo",
-    region: "intercontinental",
-    depart: "2026-06-18T11:00",
-    ret: "2026-06-26T16:00",
-    blurb:
-      "8 nights · Jet-lag friendly pacing, Shibuya & Asakusa mix, day trip to Nikkō or Hakone.",
-    image: "https://picsum.photos/seed/pkg-lon-tok/520/300",
-  },
-  {
-    id: "syd-sin",
-    title: "Sydney to Singapore",
-    route: "Sydney → Singapore",
-    origin: "Sydney",
-    destination: "Singapore",
-    region: "asia",
-    depart: "2026-07-01T08:00",
-    ret: "2026-07-08T10:00",
-    blurb:
-      "7 nights · Hawker centres, Gardens by the Bay, Sentosa option — swap harbour cities in one week.",
-    image: "https://picsum.photos/seed/pkg-syd-sin/520/300",
-  },
-  {
-    id: "tyo-bkk",
-    title: "Tokyo to Bangkok",
-    route: "Tokyo → Bangkok",
-    origin: "Tokyo",
-    destination: "Bangkok",
-    region: "asia",
-    depart: "2026-08-01T11:00",
-    ret: "2026-08-07T09:00",
-    blurb:
-      "6 nights · Konbini mornings to night markets — two capitals, one appetite, maximum contrast.",
-    image: "https://picsum.photos/seed/pkg-tyo-bkk/520/300",
-  },
-  {
-    id: "bkk-dps",
-    title: "Bangkok to Bali",
-    route: "Bangkok → Bali",
-    origin: "Bangkok",
-    destination: "Bali",
-    region: "asia",
-    depart: "2026-09-03T10:00",
-    ret: "2026-09-10T14:00",
-    blurb: "7 nights · temples to surf",
-    image: "https://picsum.photos/seed/pkg-bkk-dps/520/300",
-  },
-  {
-    id: "paris-romance",
-    title: "Paris art & café week",
-    route: "Singapore → Paris",
-    origin: "Singapore",
-    destination: "Paris",
-    region: "intercontinental",
-    depart: "2026-04-22T09:30",
-    ret: "2026-04-29T18:00",
-    blurb:
-      "7 nights · Louvre & Orsay by day, Marais boutiques, Seine sunset walks — long-haul classic with pastry stops.",
-    image: "https://picsum.photos/seed/pkg-par-sin/520/300",
-  },
-  {
-    id: "bali-wellness",
-    title: "Bali slow wellness",
-    route: "Singapore → Bali",
-    origin: "Singapore",
-    destination: "Bali",
-    region: "asia",
-    depart: "2026-09-10T10:00",
-    ret: "2026-09-17T12:00",
-    blurb:
-      "7 nights · Morning yoga, spa afternoons, Jimbaran seafood sunset — same island, quieter rhythm than the surf pack.",
-    image: "https://picsum.photos/seed/pkg-bali-well/520/300",
-  },
-  {
-    id: "bkk-weekend",
-    title: "Bangkok long weekend",
-    route: "Singapore → Bangkok",
-    origin: "Singapore",
-    destination: "Bangkok",
-    region: "asia",
-    depart: "2026-12-04T07:00",
-    ret: "2026-12-08T20:00",
-    blurb:
-      "4 nights · Chao Phraya dinner cruise, Chatuchak Saturday, Thonglor café hopping — short break, maximum bites.",
-    image: "https://picsum.photos/seed/pkg-bkk-wknd/520/300",
-  },
-  {
-    id: "syd-spring",
-    title: "Sydney spring coastal",
-    route: "Singapore → Sydney",
-    origin: "Singapore",
-    destination: "Sydney",
-    region: "asia",
-    depart: "2026-10-22T08:30",
-    ret: "2026-10-29T17:00",
-    blurb:
-      "7 nights · Coastal walks, Barangaroo dining, optional Hunter Valley — spring light & longer daylight hours.",
-    image: "https://picsum.photos/seed/pkg-syd-spr/520/300",
-  },
-  {
-    id: "lon-festive",
-    title: "London winter lights",
-    route: "Singapore → London",
-    origin: "Singapore",
-    destination: "London",
-    region: "intercontinental",
-    depart: "2026-12-10T23:45",
-    ret: "2026-12-20T12:00",
-    blurb:
-      "10 nights · West End, South Bank markets, museum days — festive city glow with cosy pub stops.",
-    image: "https://picsum.photos/seed/pkg-lon-win/520/300",
-  },
-  {
-    id: "tyo-sakura",
-    title: "Tokyo spring dates",
-    route: "Singapore → Tokyo",
-    origin: "Singapore",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-03-28T09:00",
-    ret: "2026-04-02T16:00",
-    blurb:
-      "5 nights · Early sakura window, Ueno park picnics, day trip to Kawaguchiko — alternate Tokyo window vs city break.",
-    image: "https://picsum.photos/seed/pkg-tyo-sak/520/300",
-  },
-  {
-    id: "dxb-lon",
-    title: "Dubai to London",
-    route: "Dubai → London",
-    origin: "Dubai",
-    destination: "London",
-    region: "intercontinental",
-    depart: "2026-06-04T09:00",
-    ret: "2026-06-11T18:00",
-    blurb:
-      "7 nights · Skyline souks to West End — long-haul mix of desert glam and Thames-side walks.",
-    image: "https://picsum.photos/seed/pkg-dxb-lon/520/300",
-  },
-  {
-    id: "ams-lon",
-    title: "Amsterdam to London",
-    route: "Amsterdam → London",
-    origin: "Amsterdam",
-    destination: "London",
-    region: "europe",
-    depart: "2026-07-08T10:30",
-    ret: "2026-07-12T17:00",
-    blurb:
-      "4 nights · Canals, Rijksmuseum mornings, Eurostar-ready hop into theatre and markets.",
-    image: "https://picsum.photos/seed/pkg-ams-lon/520/300",
-  },
-  {
-    id: "ams-sin",
-    title: "Amsterdam to Singapore",
-    route: "Amsterdam → Singapore",
-    origin: "Amsterdam",
-    destination: "Singapore",
-    region: "intercontinental",
-    depart: "2026-08-15T13:00",
-    ret: "2026-08-24T11:00",
-    blurb:
-      "9 nights · Schiphol long-haul into hawker centres, heritage shophouses, and Gardens by the Bay.",
-    image: "https://picsum.photos/seed/pkg-ams-sin/520/300",
-  },
-  {
-    id: "sfo-sin",
-    title: "San Francisco to Singapore",
-    route: "San Francisco → Singapore",
-    origin: "San Francisco",
-    destination: "Singapore",
-    region: "intercontinental",
-    depart: "2026-09-02T01:00",
-    ret: "2026-09-12T23:00",
-    blurb:
-      "10 nights · Pacific crossing into tropical city rhythm — Marina Bay, Sentosa, and food courts.",
-    image: "https://picsum.photos/seed/pkg-sfo-sin/520/300",
-  },
-  {
-    id: "lax-tyo",
-    title: "Los Angeles to Tokyo",
-    route: "Los Angeles → Tokyo",
-    origin: "Los Angeles",
-    destination: "Tokyo",
-    region: "intercontinental",
-    depart: "2026-10-05T12:00",
-    ret: "2026-10-14T16:00",
-    blurb:
-      "9 nights · Transpacific into Shibuya nights, day trips to Kamakura or Disney — jet-lag friendly pacing.",
-    image: "https://picsum.photos/seed/pkg-lax-tyo/520/300",
-  },
-  {
-    id: "sgn-sin",
-    title: "Ho Chi Minh City to Singapore",
-    route: "Ho Chi Minh City → Singapore",
-    origin: "Ho Chi Minh City",
-    destination: "Singapore",
-    region: "asia",
-    depart: "2026-11-06T08:00",
-    ret: "2026-11-10T20:00",
-    blurb:
-      "4 nights · Saigon energy to orderly Lion City — short hop, maximum contrast in food and pace.",
-    image: "https://picsum.photos/seed/pkg-sgn-sin/520/300",
-  },
-  {
-    id: "han-bkk",
-    title: "Hanoi to Bangkok",
-    route: "Hanoi → Bangkok",
-    origin: "Hanoi",
-    destination: "Bangkok",
-    region: "asia",
-    depart: "2026-05-18T07:00",
-    ret: "2026-05-24T12:00",
-    blurb:
-      "6 nights · Old Quarter pho to Chao Phraya sunsets — two Southeast Asian capitals in one trip.",
-    image: "https://picsum.photos/seed/pkg-han-bkk/520/300",
-  },
-  {
-    id: "cgk-sin",
-    title: "Jakarta to Singapore",
-    route: "Jakarta → Singapore",
-    origin: "Jakarta",
-    destination: "Singapore",
-    region: "asia",
-    depart: "2026-04-12T09:00",
-    ret: "2026-04-15T18:00",
-    blurb:
-      "3 nights · Quick Java hop into hawker culture and rooftop bars — ideal add-on weekend.",
-    image: "https://picsum.photos/seed/pkg-cgk-sin/520/300",
-  },
-  {
-    id: "maa-sin",
-    title: "Chennai to Singapore",
-    route: "Chennai → Singapore",
-    origin: "Chennai",
-    destination: "Singapore",
-    region: "asia",
-    depart: "2026-07-22T06:00",
-    ret: "2026-07-27T22:00",
-    blurb:
-      "5 nights · Coromandel coast to equatorial city — spice routes meet modern Southeast Asia.",
-    image: "https://picsum.photos/seed/pkg-maa-sin/520/300",
-  },
-  {
-    id: "mnl-sin",
-    title: "Manila to Singapore",
-    route: "Manila → Singapore",
-    origin: "Manila",
-    destination: "Singapore",
-    region: "asia",
-    depart: "2026-08-20T10:00",
-    ret: "2026-08-26T09:00",
-    blurb:
-      "6 nights · Luzon gateway into Lion City dining, museums, and green corridors.",
-    image: "https://picsum.photos/seed/pkg-mnl-sin/520/300",
-  },
-  {
-    id: "fra-sin",
-    title: "Frankfurt to Singapore",
-    route: "Frankfurt → Singapore",
-    origin: "Frankfurt",
-    destination: "Singapore",
-    region: "intercontinental",
-    depart: "2026-12-01T14:00",
-    ret: "2026-12-10T11:00",
-    blurb:
-      "9 nights · Rhine-Main hub to tropical metropolis — fairs city to food-hall capital.",
-    image: "https://picsum.photos/seed/pkg-fra-sin/520/300",
-  },
-  {
-    id: "tyo-syd",
-    title: "Tokyo to Sydney",
-    route: "Tokyo → Sydney",
-    origin: "Tokyo",
-    destination: "Sydney",
-    region: "asia",
-    depart: "2026-06-20T11:00",
-    ret: "2026-06-28T09:00",
-    blurb:
-      "8 nights · Neon to surf — Pacific rim pairing with harbour walks and coastal days.",
-    image: "https://picsum.photos/seed/pkg-tyo-syd/520/300",
-  },
-  {
-    id: "lon-sin",
-    title: "London to Singapore",
-    route: "London → Singapore",
-    origin: "London",
-    destination: "Singapore",
-    region: "intercontinental",
-    depart: "2026-05-25T22:00",
-    ret: "2026-06-02T18:00",
-    blurb:
-      "8 nights · After theatre season, swap drizzle for equatorial nights and rooftop pools.",
-    image: "https://picsum.photos/seed/pkg-lon-sin/520/300",
-  },
-  {
-    id: "bkk-tyo",
-    title: "Bangkok to Tokyo",
-    route: "Bangkok → Tokyo",
-    origin: "Bangkok",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-09-08T08:00",
-    ret: "2026-09-15T17:00",
-    blurb:
-      "7 nights · Night markets to metro lines — temples, ramen alleys, and orderly Shibuya crossings.",
-    image: "https://picsum.photos/seed/pkg-bkk-tyo/520/300",
-  },
-  {
-    id: "par-tyo",
-    title: "Paris to Tokyo",
-    route: "Paris → Tokyo",
-    origin: "Paris",
-    destination: "Tokyo",
-    region: "intercontinental",
-    depart: "2026-10-12T13:00",
-    ret: "2026-10-21T11:00",
-    blurb:
-      "9 nights · Haussmann boulevards to Shinjuku skyscrapers — long-haul culture contrast.",
-    image: "https://picsum.photos/seed/pkg-par-tyo/520/300",
-  },
-  {
-    id: "tyo-autumn",
-    title: "Tokyo autumn colours",
-    route: "Singapore → Tokyo",
-    origin: "Singapore",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-11-08T09:30",
-    ret: "2026-11-14T17:00",
-    blurb:
-      "6 nights · Gingko avenues, Nikkō day trip, early onsen evenings — crisp air and seasonal kaiseki.",
-    image: "https://picsum.photos/seed/pkg-tyo-aut/520/300",
-  },
-  {
-    id: "tyo-food-crawl",
-    title: "Tokyo food & backstreets",
-    route: "Singapore → Tokyo",
-    origin: "Singapore",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-04-05T11:00",
-    ret: "2026-04-10T20:00",
-    blurb:
-      "5 nights · Tsukiji outer market, depachika feasts, standing bars in Yūrakuchō — eat-first itinerary.",
-    image: "https://picsum.photos/seed/pkg-tyo-food/520/300",
-  },
-  {
-    id: "tyo-family",
-    title: "Tokyo family week",
-    route: "Singapore → Tokyo",
-    origin: "Singapore",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-06-28T08:00",
-    ret: "2026-07-05T18:00",
-    blurb:
-      "7 nights · TeamLab, Ueno zoo, river cruise, kid-friendly ramen — paced days with downtime.",
-    image: "https://picsum.photos/seed/pkg-tyo-fam/520/300",
-  },
-  {
-    id: "tyo-design",
-    title: "Tokyo design & architecture",
-    route: "Singapore → Tokyo",
-    origin: "Singapore",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-09-18T10:00",
-    ret: "2026-09-24T16:00",
-    blurb:
-      "6 nights · Omotesandō facades, 21_21, Toyosu galleries, Daikanyama strolls — slow visual city read.",
-    image: "https://picsum.photos/seed/pkg-tyo-des/520/300",
-  },
-  {
-    id: "tyo-hakone",
-    title: "Tokyo + Hakone onsen",
-    route: "Singapore → Tokyo",
-    origin: "Singapore",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-05-12T09:00",
-    ret: "2026-05-19T15:00",
-    blurb:
-      "7 nights · Three metro days then mountain ryokan, ropeway views, and sulphur steam eggs.",
-    image: "https://picsum.photos/seed/pkg-tyo-hak/520/300",
-  },
-  {
-    id: "bkk-riverside",
-    title: "Bangkok riverside slow",
-    route: "Singapore → Bangkok",
-    origin: "Singapore",
-    destination: "Bangkok",
-    region: "asia",
-    depart: "2026-08-08T07:30",
-    ret: "2026-08-14T22:00",
-    blurb:
-      "6 nights · Wat Arun sunrises, Thonburi canals, Asiatique evenings — stay near the Chao Phraya curve.",
-    image: "https://picsum.photos/seed/pkg-bkk-riv/520/300",
-  },
-  {
-    id: "bkk-nightlife",
-    title: "Bangkok nights & rooftops",
-    route: "Singapore → Bangkok",
-    origin: "Singapore",
-    destination: "Bangkok",
-    region: "asia",
-    depart: "2026-10-03T09:00",
-    ret: "2026-10-07T23:00",
-    blurb:
-      "4 nights · Thonglor vinyl bars, Ekkamai cafés, Silom skyline decks — short trip, late hours.",
-    image: "https://picsum.photos/seed/pkg-bkk-night/520/300",
-  },
-  {
-    id: "bali-north",
-    title: "Bali north & snorkel",
-    route: "Singapore → Bali",
-    origin: "Singapore",
-    destination: "Bali",
-    region: "asia",
-    depart: "2026-06-14T10:00",
-    ret: "2026-06-21T11:00",
-    blurb:
-      "7 nights · Lovina dolphins, Munduk mist, reef mornings in Amed — less Seminyak, more coast.",
-    image: "https://picsum.photos/seed/pkg-bali-north/520/300",
-  },
-  {
-    id: "lon-theatre",
-    title: "London theatre long weekend",
-    route: "Singapore → London",
-    origin: "Singapore",
-    destination: "London",
-    region: "intercontinental",
-    depart: "2026-09-25T23:30",
-    ret: "2026-10-02T12:00",
-    blurb:
-      "6 nights · Matinee & evening shows, South Bank walks, Borough pit-stops — stage-centred city break.",
-    image: "https://picsum.photos/seed/pkg-lon-the/520/300",
-  },
-  {
-    id: "syd-harbour-plus",
-    title: "Sydney harbour deep dive",
-    route: "Singapore → Sydney",
-    origin: "Singapore",
-    destination: "Sydney",
-    region: "asia",
-    depart: "2026-05-05T09:00",
-    ret: "2026-05-12T17:30",
-    blurb:
-      "7 nights · Manly ferries, Barangaroo dining, Taronga sunset, Coogee coastal path — classic harbour loop.",
-    image: "https://picsum.photos/seed/pkg-syd-harb/520/300",
-  },
-  {
-    id: "sin-seoul",
-    title: "Singapore to Seoul week",
-    route: "Singapore → Seoul",
-    origin: "Singapore",
-    destination: "Seoul",
-    region: "asia",
-    depart: "2026-04-08T09:00",
-    ret: "2026-04-14T18:00",
-    blurb:
-      "6 nights · Palaces, Hongdae nights, DMZ or Nami optional — K-culture sampler with metro-easy days.",
-    image: "https://picsum.photos/seed/pkg-sin-icn/520/300",
-  },
-  {
-    id: "sin-hkg",
-    title: "Singapore to Hong Kong",
-    route: "Singapore → Hong Kong",
-    origin: "Singapore",
-    destination: "Hong Kong",
-    region: "asia",
-    depart: "2026-05-14T08:30",
-    ret: "2026-05-18T21:00",
-    blurb:
-      "4 nights · Star ferry, dim sum trail, Peak tram — compact city with harbour skylines.",
-    image: "https://picsum.photos/seed/pkg-sin-hkg/520/300",
-  },
-  {
-    id: "sin-tpe",
-    title: "Singapore to Taipei",
-    route: "Singapore → Taipei",
-    origin: "Singapore",
-    destination: "Taipei",
-    region: "asia",
-    depart: "2026-06-20T10:00",
-    ret: "2026-06-25T16:00",
-    blurb:
-      "5 nights · Night markets, hot springs day trip, tea hills — friendly, food-forward capital.",
-    image: "https://picsum.photos/seed/pkg-sin-tpe/520/300",
-  },
-  {
-    id: "sin-mel",
-    title: "Singapore to Melbourne",
-    route: "Singapore → Melbourne",
-    origin: "Singapore",
-    destination: "Melbourne",
-    region: "asia",
-    depart: "2026-07-12T09:00",
-    ret: "2026-07-19T11:00",
-    blurb:
-      "7 nights · Laneways, coffee arcades, Great Ocean Road option — southern cool vs tropical home.",
-    image: "https://picsum.photos/seed/pkg-sin-mel/520/300",
-  },
-  {
-    id: "sin-kl",
-    title: "Singapore to KL short break",
-    route: "Singapore → Kuala Lumpur",
-    origin: "Singapore",
-    destination: "Kuala Lumpur",
-    region: "asia",
-    depart: "2026-08-02T07:00",
-    ret: "2026-08-05T20:00",
-    blurb:
-      "3 nights · Petronas, Batu Caves, Jalan Alor supper — quick neighbour hop with big-city scale.",
-    image: "https://picsum.photos/seed/pkg-sin-kul/520/300",
-  },
-  {
-    id: "sin-hkt",
-    title: "Singapore to Phuket",
-    route: "Singapore → Phuket",
-    origin: "Singapore",
-    destination: "Phuket",
-    region: "asia",
-    depart: "2026-09-15T11:00",
-    ret: "2026-09-20T14:00",
-    blurb:
-      "5 nights · West-coast beaches, old town cafés, long-tail island hops — sand-first reset.",
-    image: "https://picsum.photos/seed/pkg-sin-hkt/520/300",
-  },
-  {
-    id: "sin-akl",
-    title: "Singapore to Auckland",
-    route: "Singapore → Auckland",
-    origin: "Singapore",
-    destination: "Auckland",
-    region: "asia",
-    depart: "2026-10-10T23:30",
-    ret: "2026-10-19T10:00",
-    blurb:
-      "8 nights · Viaduct dining, Waiheke wine, Hobbiton day — Pacific gateway with green escapes.",
-    image: "https://picsum.photos/seed/pkg-sin-akl/520/300",
-  },
-  {
-    id: "sin-jfk",
-    title: "Singapore to New York",
-    route: "Singapore → New York",
-    origin: "Singapore",
-    destination: "New York",
-    region: "intercontinental",
-    depart: "2026-11-02T00:15",
-    ret: "2026-11-12T14:00",
-    blurb:
-      "10 nights · Cross-Pacific into Broadway, museums, and borough food crawls — long-haul city immersion.",
-    image: "https://picsum.photos/seed/pkg-sin-jfk/520/300",
-  },
-  {
-    id: "sin-per",
-    title: "Singapore to Perth",
-    route: "Singapore → Perth",
-    origin: "Singapore",
-    destination: "Perth",
-    region: "asia",
-    depart: "2026-12-05T09:00",
-    ret: "2026-12-10T17:00",
-    blurb:
-      "5 nights · Swan River, Fremantle, Rottnest day — same timezone band, different coast rhythm.",
-    image: "https://picsum.photos/seed/pkg-sin-per/520/300",
-  },
-  {
-    id: "icn-tyo",
-    title: "Seoul to Tokyo hop",
-    route: "Seoul → Tokyo",
-    origin: "Seoul",
-    destination: "Tokyo",
-    region: "asia",
-    depart: "2026-05-22T10:00",
-    ret: "2026-05-27T19:00",
-    blurb:
-      "5 nights · Two capitals — palaces and hanbok snaps to Shibuya crossings and late konbini runs.",
-    image: "https://picsum.photos/seed/pkg-icn-tyo/520/300",
-  },
-  {
-    id: "hkg-bkk",
-    title: "Hong Kong to Bangkok",
-    route: "Hong Kong → Bangkok",
-    origin: "Hong Kong",
-    destination: "Bangkok",
-    region: "asia",
-    depart: "2026-06-05T14:00",
-    ret: "2026-06-10T11:00",
-    blurb:
-      "5 nights · Harbour density to river temples and night markets — humidity and appetite both rise.",
-    image: "https://picsum.photos/seed/pkg-hkg-bkk/520/300",
-  },
-  {
-    id: "mel-syd",
-    title: "Melbourne to Sydney",
-    route: "Melbourne → Sydney",
-    origin: "Melbourne",
-    destination: "Sydney",
-    region: "asia",
-    depart: "2026-07-28T08:00",
-    ret: "2026-08-01T18:00",
-    blurb:
-      "4 nights · Coffee capital to harbour icons — short domestic hop, two Australian moods.",
-    image: "https://picsum.photos/seed/pkg-mel-syd/520/300",
-  },
-  {
-    id: "rom-par",
-    title: "Rome to Paris",
-    route: "Rome → Paris",
-    origin: "Rome",
-    destination: "Paris",
-    region: "europe",
-    depart: "2026-09-12T11:00",
-    ret: "2026-09-18T16:00",
-    blurb:
-      "6 nights · Ancient forums to Seine strolls — pasta to pastry by train or short hop.",
-    image: "https://picsum.photos/seed/pkg-rom-par/520/300",
-  },
-  {
-    id: "mad-bcn",
-    title: "Madrid to Barcelona",
-    route: "Madrid → Barcelona",
-    origin: "Madrid",
-    destination: "Barcelona",
-    region: "europe",
-    depart: "2026-10-18T09:30",
-    ret: "2026-10-23T12:00",
-    blurb:
-      "5 nights · Prado mornings to Gaudí afternoons — tapas trail through two Spanish rhythms.",
-    image: "https://picsum.photos/seed/pkg-mad-bcn/520/300",
-  },
-];
+// BUNDLE_PRESETS is assigned on window in bundle_catalog.js (see index.html).
+const BUNDLE_PRESETS = window.BUNDLE_PRESETS;
 
 const BUNDLE_REGION_OPTIONS = [
   { value: "all", label: "All regions" },
@@ -1061,6 +344,23 @@ async function refreshHotelsForBundleDestination() {
     renderHotelResults([]);
     return;
   }
+  if (!d) {
+    const selectedHintEl = document.getElementById("hotelSelectedHint");
+    const resultsEl = document.getElementById("hotelResults");
+    if (selectedHintEl) {
+      selectedHintEl.classList.remove("section-hint--warn");
+      selectedHintEl.textContent =
+        "Set To (destination) or pick a package — hotels load for the destination city.";
+    }
+    if (resultsEl) resultsEl.textContent = "";
+    latestHotelRows = [];
+    destinationHasHotels = false;
+    routeHotelsInventoryChecked = false;
+    latestHotelHoldsSummary = {};
+    renderHotelResults([]);
+    syncRouteInventoryToPackageUI();
+    return;
+  }
   applyBundleDestinationToHotelSearchInputs();
   await searchHotels();
 }
@@ -1093,18 +393,156 @@ const TRIP_WINDOW_OPTIONS = [
 ];
 
 /**
- * Packages shown in the gallery and package dropdown: all curated trips for the route, narrowed by
- * hero trip nights when set — not by fine-tune From/To until a card is chosen.
+ * Packages for the gallery: current From → To, optional destination country, hero outbound window,
+ * and (for return trips) exact trip length vs catalog rows.
  */
+/** Preset outbound day must fall within ±N calendar days of the hero depart date (search bar). */
+const BUNDLE_HERO_DEPART_DAY_WINDOW = 14;
+/** Cap gallery + parallel bundle-price fetches (full catalog stays in BUNDLE_PRESETS). */
+/** Priced + rendered at once (large catalog is capped here for network/UI). */
+const MAX_BUNDLE_GALLERY_CARDS = 200;
+
+function parseYMDLocal(ymd) {
+  if (!ymd || ymd.length < 10) return null;
+  const s = ymd.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function calendarDaysBetweenYMD(a, b) {
+  const da = parseYMDLocal(a);
+  const db = parseYMDLocal(b);
+  if (!da || !db) return Infinity;
+  return Math.round(Math.abs(db - da) / 86400000);
+}
+
+/** Hero outbound calendar day from package search or bundle datetime (YYYY-MM-DD). */
+function getHeroOutboundYMD() {
+  const pd = document.getElementById("packageDepartDate")?.value?.trim();
+  if (pd && /^\d{4}-\d{2}-\d{2}$/.test(pd)) return pd;
+  const b = document.getElementById("bundleDepartDateTime")?.value?.trim();
+  if (b && /^\d{4}-\d{2}-\d{2}/.test(b)) return b.slice(0, 10);
+  return "";
+}
+
+/** Current fine-tune trip window for bundle pricing (same as main search when synced). */
+function getBundleTripWindowForPricing() {
+  const dep = document.getElementById("bundleDepartDateTime")?.value?.trim() || "";
+  const ret = document.getElementById("bundleReturnDateTime")?.value?.trim() || "";
+  if (!dep || !ret) return null;
+  const depTs = Date.parse(dep);
+  const retTs = Date.parse(ret);
+  if (!Number.isFinite(depTs) || !Number.isFinite(retTs) || retTs <= depTs) return null;
+  return { depart: dep, ret };
+}
+
+/**
+ * Align hotel stay with the bundle / search trip: check-in on the **outbound** calendar day
+ * (typical arrival afternoon), check-out on the **return** day — so they track Depart / Return above.
+ */
+function syncHotelStayFromBundleTripWindow() {
+  const depEl = document.getElementById("bundleDepartDateTime");
+  const retEl = document.getElementById("bundleReturnDateTime");
+  const inEl = document.getElementById("hotelCheckInTime");
+  const outEl = document.getElementById("hotelCheckOutTime");
+  if (!inEl || !outEl) return;
+  const dep = String(depEl?.value || "").trim();
+  const ret = String(retEl?.value || "").trim();
+  const depDay =
+    dep.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(dep) ? dep.slice(0, 10) : "";
+  const retDay =
+    ret.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(ret) ? ret.slice(0, 10) : "";
+  if (!depDay) return;
+  inEl.value = `${depDay}T15:00`;
+  if (!retDay) return;
+  const d0 = parseYMDLocal(depDay);
+  const d1 = parseYMDLocal(retDay);
+  if (!d0 || !d1 || d1 <= d0) return;
+  outEl.value = `${retDay}T11:00`;
+}
+
+function nightsFromLocalDatetimeRange(depStr, retStr) {
+  const d0 = sliceDateFromLocal(depStr);
+  const d1 = sliceDateFromLocal(retStr);
+  if (!d0 || !d1) return null;
+  const a = new Date(`${d0}T12:00:00`);
+  const b = new Date(`${d1}T12:00:00`);
+  if (!(b > a)) return null;
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+
+/** Card blurb: use the active search trip window when set so copy matches pricing. */
+function bundleCardMetaLine(p) {
+  const tw = getBundleTripWindowForPricing();
+  if (tw) {
+    const n = nightsFromLocalDatetimeRange(tw.depart, tw.ret);
+    const fmtShort = (dt) => {
+      const d = sliceDateFromLocal(dt);
+      if (!d) return "—";
+      const x = new Date(`${d}T12:00:00`);
+      return Number.isNaN(x.getTime()) ? d : x.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    };
+    const nStr = n != null ? `${n} night${n === 1 ? "" : "s"}` : "Trip";
+    const theme = String(p.title || "").includes("—")
+      ? String(p.title)
+          .split("—")
+          .slice(1)
+          .join("—")
+          .trim()
+      : String(p.title || "").trim();
+    return `${nStr} · ${p.route} · ${fmtShort(tw.depart)} → ${fmtShort(tw.ret)} · ${theme || "Curated package"}.`;
+  }
+  return p.blurb;
+}
+
+function capBundleGalleryList(presets) {
+  if (!presets || presets.length <= MAX_BUNDLE_GALLERY_CARDS) return presets;
+  const heroDep = getHeroOutboundYMD();
+  const closeness = (p) => {
+    if (!heroDep) return 0;
+    const pd = sliceDateFromLocal(p.depart);
+    if (!pd) return 9999;
+    return calendarDaysBetweenYMD(pd, heroDep);
+  };
+  return [...presets]
+    .sort((a, b) => {
+      const ca = closeness(a);
+      const cb = closeness(b);
+      if (ca !== cb) return ca - cb;
+      return String(a.depart).localeCompare(String(b.depart)) || String(a.id).localeCompare(String(b.id));
+    })
+    .slice(0, MAX_BUNDLE_GALLERY_CARDS);
+}
+
 function getBundleGalleryPresets() {
   let list = [...BUNDLE_PRESETS];
-  const country = getBundleGalleryCountrySlug();
-  if (country !== "all") {
-    list = list.filter((p) => CITY_COUNTRY_SLUG[p.destination] === country);
-  }
   const wantNights = getHeroSearchTripNights();
   if (wantNights != null) {
-    list = list.filter((p) => presetNights(p) === wantNights);
+    list = list.filter((p) => {
+      const n = presetNights(p);
+      return n != null && n === wantNights;
+    });
+  }
+  const heroDep = getHeroOutboundYMD();
+  if (heroDep) {
+    list = list.filter((p) => {
+      const pd = sliceDateFromLocal(p.depart);
+      if (!pd) return false;
+      return calendarDaysBetweenYMD(pd, heroDep) <= BUNDLE_HERO_DEPART_DAY_WINDOW;
+    });
+  }
+  const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const d = document.getElementById("bundleDestination")?.value?.trim() || "";
+  if (o && d && isSameCityRoute(o, d)) {
+    return [];
+  }
+  if (o && d) {
+    list = list.filter((p) => p.origin === o && p.destination === d);
+  } else if (o) {
+    list = list.filter((p) => p.origin === o);
+  } else if (d) {
+    list = list.filter((p) => p.destination === d);
   }
   return list;
 }
@@ -1113,12 +551,17 @@ function getFilteredPresets() {
   return getBundleGalleryPresets();
 }
 
+/** Cards to show: full capped list; badges show Pricing… / From $X / — per card (no post-filter hide). */
+function getBundleGalleryPresetsForDisplay() {
+  return capBundleGalleryList(getFilteredPresets());
+}
+
 /**
  * 0-based index for bundle-pricing cardIndex. Uses the visible gallery list from getBundleGalleryPresets().
  */
 function bundlePresetIndexInCurrentGallery(presetId) {
   if (!presetId) return 0;
-  const list = getBundleGalleryPresets();
+  const list = capBundleGalleryList(getFilteredPresets());
   const i = list.findIndex((x) => x.id === presetId);
   return i >= 0 ? i : 0;
 }
@@ -1132,41 +575,6 @@ function populateBundleFilterSelects() {
   // Intentionally empty.
 }
 
-/** Country slug from the optional gallery filter, or `"all"` if the control is absent. */
-function getBundleGalleryCountrySlug() {
-  const sel = document.getElementById("bundleGalleryCountryFilter");
-  if (!sel || sel.tagName !== "SELECT") return "all";
-  return String(sel.value || "all").trim() || "all";
-}
-
-/** Fills `#bundleGalleryCountryFilter` when present; no-op if that UI was removed. */
-function populateBundleGalleryCountryFilter() {
-  const sel = document.getElementById("bundleGalleryCountryFilter");
-  if (!sel || sel.tagName !== "SELECT") return;
-  const keep = String(sel.value || "").trim() || "all";
-  const slugs = new Set();
-  for (const p of BUNDLE_PRESETS) {
-    const s = CITY_COUNTRY_SLUG[p.destination];
-    if (s) slugs.add(s);
-  }
-  const ordered = [...slugs].sort((a, b) =>
-    String(BUNDLE_COUNTRY_LABEL[a] || a).localeCompare(String(BUNDLE_COUNTRY_LABEL[b] || b))
-  );
-  sel.replaceChildren();
-  const allOpt = document.createElement("option");
-  allOpt.value = "all";
-  allOpt.textContent = "All countries";
-  sel.appendChild(allOpt);
-  for (const slug of ordered) {
-    const o = document.createElement("option");
-    o.value = slug;
-    o.textContent = BUNDLE_COUNTRY_LABEL[slug] || slug;
-    sel.appendChild(o);
-  }
-  const valid = keep === "all" || ordered.includes(keep);
-  sel.value = valid ? keep : "all";
-}
-
 /**
  * Rebuild "Flying to" options from curated packages for the current "Flying from"
  * so you never see impossible pairs (e.g. Singapore → Singapore from inbound-only routes).
@@ -1178,24 +586,36 @@ function syncBundleDestinationSelectToOrigin() {
 
   const origin = String(oSel.value || "").trim();
   const prevDest = String(dSel.value || "").trim();
-  let dests = [
-    ...new Set(
-      BUNDLE_PRESETS.filter((p) => p.origin === origin).map((p) => p.destination)
-    ),
-  ].sort();
-  if (!dests.length && origin) {
-    dests = [...new Set(BUNDLE_PRESETS.map((p) => p.destination))]
-      .filter((c) => !isSameCityRoute(origin, c))
-      .sort();
+
+  let dests;
+  if (!origin) {
+    dests = [...new Set(BUNDLE_PRESETS.map((p) => p.destination))].sort();
+  } else {
+    dests = [
+      ...new Set(
+        BUNDLE_PRESETS.filter((p) => p.origin === origin).map((p) => p.destination)
+      ),
+    ].sort();
+    if (!dests.length) {
+      dests = [...new Set(BUNDLE_PRESETS.map((p) => p.destination))]
+        .filter((c) => !isSameCityRoute(origin, c))
+        .sort();
+    }
   }
 
   dSel.replaceChildren();
+  dSel.appendChild(new Option("Anywhere", ""));
   for (const city of dests) {
     dSel.appendChild(new Option(city, city));
   }
-  if (dests.includes(prevDest)) dSel.value = prevDest;
-  else if (dests.includes("Tokyo")) dSel.value = "Tokyo";
-  else if (dests.length) dSel.value = dests[0];
+
+  if (prevDest === "") {
+    dSel.value = "";
+  } else if (dests.includes(prevDest)) {
+    dSel.value = prevDest;
+  } else {
+    dSel.value = "";
+  }
 
   syncSameCityRouteUI();
 }
@@ -1205,14 +625,11 @@ function populateBundleRouteSelectsFromPresets() {
   const oSel = document.getElementById("bundleOrigin");
   if (oSel && oSel.tagName === "SELECT") {
     oSel.replaceChildren();
+    oSel.appendChild(new Option("Anywhere", ""));
     for (const city of origins) {
-      const opt = document.createElement("option");
-      opt.value = city;
-      opt.textContent = city;
-      oSel.appendChild(opt);
+      oSel.appendChild(new Option(city, city));
     }
-    if (origins.includes("Singapore")) oSel.value = "Singapore";
-    else if (origins.length) oSel.value = origins[0];
+    oSel.value = "";
   }
   syncBundleDestinationSelectToOrigin();
 }
@@ -1417,19 +834,21 @@ async function refreshBundleCardPrices() {
   const coinsInput = document.getElementById("coinsToSpendCents");
   const coins = Math.max(0, Number(coinsInput?.value || 0));
 
-  const presetsForPricing = getFilteredPresets();
+  const presetsForPricing = capBundleGalleryList(getFilteredPresets());
   for (const p of presetsForPricing) {
     bundleCardPriceCache.set(p.id, { loading: true });
   }
   updateBundleCardPriceLabels();
+
+  const tripWin = getBundleTripWindowForPricing();
 
   await Promise.all(
     presetsForPricing.map(async (p) => {
       const qs = new URLSearchParams();
       qs.set("origin", p.origin);
       qs.set("destination", p.destination);
-      qs.set("departDate", p.depart);
-      qs.set("returnDate", p.ret);
+      qs.set("departDate", tripWin ? tripWin.depart : p.depart);
+      qs.set("returnDate", tripWin ? tripWin.ret : p.ret);
       qs.set("numberOfTravellers", travellers);
       qs.set("customerId", customerId);
       qs.set("loyaltyCoinsToUseCents", String(coins));
@@ -1466,6 +885,17 @@ async function refreshBundleCardPrices() {
     })
   );
   updateBundleCardPriceLabels();
+  const visible = getBundleGalleryPresetsForDisplay();
+  const visIds = new Set(visible.map((p) => p.id));
+  if (selectedBundlePresetId && !visIds.has(selectedBundlePresetId)) {
+    clearBundleSelectionState();
+    const st = document.getElementById("bundleStatus");
+    if (st) {
+      st.textContent =
+        "That package could not be priced for this trip — pick another card, or adjust dates and search again.";
+    }
+  }
+  renderBundleGallery();
 }
 
 function scheduleBundleCardPriceRefresh() {
@@ -1617,6 +1047,7 @@ function applyTripWindowFromSelect() {
   if (pd && depEl?.value) pd.value = sliceDateFromLocal(depEl.value);
   if (pr && retEl?.value) pr.value = sliceDateFromLocal(retEl.value);
   updatePackageNightsHint();
+  syncHotelStayFromBundleTripWindow();
 }
 
 function syncTripWindowFromDateInputs() {
@@ -1627,6 +1058,7 @@ function syncTripWindowFromDateInputs() {
   const ret = String(retEl.value || "").trim();
   if (!depart || !ret) return;
   ensureTripWindowOption(depart, ret);
+  syncHotelStayFromBundleTripWindow();
 }
 
 function ensureTripWindowOption(depart, ret) {
@@ -1646,21 +1078,9 @@ function ensureTripWindowOption(depart, ret) {
 /** When true, Fine-tune origin/dest changes came from picking a package — do not clear selection. */
 let suppressBundleRouteDiverge = false;
 
-/**
- * Curated package cards only when the stack has both outbound flights and destination hotels
- * for the current Fine-tune route (after searches complete).
- */
+/** Curated gallery when the catalog has packages for current filters (inventory hints are non-blocking). */
 function curatedPackagesAllowedForCurrentRoute() {
-  const presets = getBundleGalleryPresets();
-  if (!presets.length) return false;
-
-  const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
-  const d = document.getElementById("bundleDestination")?.value?.trim() || "";
-  if (!o || !d) return true;
-
-  if (!routeFlightsInventoryChecked || !routeHotelsInventoryChecked) return true;
-
-  return routeHasOutboundFlights && destinationHasHotels;
+  return getBundleGalleryPresets().length > 0;
 }
 
 function syncRouteInventoryToPackageUI() {
@@ -1672,41 +1092,43 @@ function populateBundlePackageSelect() {
   updateBundlePackageSectionVisibility();
 }
 
-/** Hide curated packages when there are none for the route, or when flight/hotel inventory is missing. */
+/** Show curated packages whenever the catalog lists any; surface flight/hotel hints without hiding the gallery. */
 function updateBundlePackageSectionVisibility() {
   const section = document.getElementById("bundlePackageSection");
   const presetRoutes = getBundleGalleryPresets();
   const hasPresetRoutes = presetRoutes.length > 0;
   const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
   const d = document.getElementById("bundleDestination")?.value?.trim() || "";
-  const galleryMatchesFineTune =
-    Boolean(o && d) && presetRoutes.some((p) => p.origin === o && p.destination === d);
+  const galleryMatchesFineTune = presetRoutes.some(
+    (p) => (!o || p.origin === o) && (!d || p.destination === d)
+  );
+  const fullRoute = Boolean(o && d && !isSameCityRoute(o, d));
 
-  let inventoryBlocked = false;
-  let inventoryMsg = "";
+  let inventoryHint = "";
   if (
     hasPresetRoutes &&
-    o &&
-    d &&
     galleryMatchesFineTune &&
     routeFlightsInventoryChecked &&
     routeHotelsInventoryChecked
   ) {
     const noF = !routeHasOutboundFlights;
     const noH = !destinationHasHotels;
-    if (noF && noH) {
-      inventoryBlocked = true;
-      inventoryMsg = `No packages for this trip — no outbound flights with enough seats for these dates, and no hotels in ${d}. Try other dates or cities.`;
-    } else if (noF) {
-      inventoryBlocked = true;
-      inventoryMsg = `No packages for this trip — no outbound flights for ${o} → ${d} with enough seats on these dates. Try different dates or another route.`;
-    } else if (noH) {
-      inventoryBlocked = true;
-      inventoryMsg = `No packages for this trip — no hotels available in ${d} for this search. Try another destination or adjust the hotel search.`;
+    if (fullRoute) {
+      if (noF && noH) {
+        inventoryHint = `Heads-up: no outbound flights matched your departure date in the picker, and no hotels showed for ${d} — you can still browse packages; adjust dates if a quote fails.`;
+      } else if (noF) {
+        inventoryHint = `Heads-up: no outbound flights for ${o} → ${d} on your departure day in the flight picker — browse packages below; widen dates or pick another flight if needed.`;
+      } else if (noH) {
+        inventoryHint = `Heads-up: hotel search returned nothing for ${d} — packages may still price; try the hotel search or another city.`;
+      }
+    } else if (o && !d && noF) {
+      inventoryHint = `Heads-up: no outbound flights from ${o} on your departure day in the picker — try another date or set To to narrow the route.`;
+    } else if (!o && d && noH) {
+      inventoryHint = `Heads-up: hotel search returned nothing for ${d} — try another city or widen the hotel search.`;
     }
   }
 
-  const showPackageUi = hasPresetRoutes && !inventoryBlocked;
+  const showPackageUi = hasPresetRoutes;
 
   const pricingActions = document.getElementById("bundlePricingActions");
   const noPkgMsg = document.getElementById("bundleNoPackagesMsg");
@@ -1716,21 +1138,21 @@ function updateBundlePackageSectionVisibility() {
     if (pricingActions) pricingActions.hidden = true;
     if (noPkgMsg) {
       noPkgMsg.hidden = false;
-      const want = getHeroSearchTripNights();
-      const nightsMsg =
-        want != null && isNightsFilterBlockingPackages()
-          ? `No packages for ${formatNightsLabel(want)} on this route. Change your return date or pick another destination.`
-          : "";
-      noPkgMsg.textContent = !hasPresetRoutes
-        ? nightsMsg || "No packages available."
-        : inventoryMsg || "No packages available.";
+      const filterMsg = isHeroPackageFiltersBlockingOnRoute()
+        ? "No catalog packages match your route plus current filters (trip length and ±14-day departure window). Loosen dates or adjust From / To."
+        : "";
+      noPkgMsg.textContent = filterMsg || "No packages available.";
     }
-    if (st && inventoryBlocked) st.textContent = "";
+    if (st) st.textContent = "";
   } else {
     if (pricingActions) pricingActions.hidden = false;
     if (noPkgMsg) {
       noPkgMsg.hidden = true;
       noPkgMsg.textContent = "No packages available.";
+    }
+    if (st) {
+      if (inventoryHint) st.textContent = inventoryHint;
+      else if (String(st.textContent || "").startsWith("Heads-up:")) st.textContent = "";
     }
   }
 
@@ -1947,6 +1369,17 @@ function getHotelStayNightsForPricing() {
   return Math.max(1, Math.round((d1 - d0) / 86400000));
 }
 
+/** Extra hotel line item for “Add breakfast” on Standard rooms only (Deluxe prices already include breakfast). */
+function getStandardBreakfastAddonTotalSgd() {
+  const mix = getHotelRoomMixFromUI();
+  const std = Math.max(0, Number(mix.STD) || 0);
+  if (std < 1) return 0;
+  const cb = document.getElementById("hotelIncludesBreakfast");
+  if (!cb?.checked) return 0;
+  const nights = getHotelStayNightsForPricing();
+  return Math.round(std * nights * HOTEL_STD_BREAKFAST_ADDON_PER_ROOM_NIGHT_SGD * 100) / 100;
+}
+
 function applyRoomMixToBundlePricing() {
   if (!latestBundlePricing || typeof latestBundlePricing !== "object" || !selectedHotel) return;
   const nights = getHotelStayNightsForPricing();
@@ -1963,6 +1396,7 @@ function applyRoomMixToBundlePricing() {
       newHotel += qty * Number(rt.pricePerNight) * nights;
     }
   }
+  newHotel += getStandardBreakfastAddonTotalSgd();
   newHotel = Math.round(newHotel * 100) / 100;
 
   const flight = Number(latestBundlePricing.flightPrice || 0);
@@ -2232,7 +1666,7 @@ function computeFinalPriceBreakdown(basePriceOverride) {
       Number(document.getElementById("coinsToSpendCents").value || 0)
     );
     coinsToSpendCents = Math.min(coinsAvailableCents, coinsToSpendRequestedCents);
-    coinsOffsetDollars = coinsToSpendCents / LOYALTY_POINTS_PER_SGD;
+    coinsOffsetDollars = coinsToSpendCents / getLoyaltyRedeemPointsPerUnit();
   }
   const finalPaid = Math.max(0, afterCode - coinsOffsetDollars);
 
@@ -2500,8 +1934,8 @@ async function applyBundlePricingResult(bundle, inputsForThisCall) {
   if (hid > 0) {
     void initHotelSelectionById(hid).then(() => {
       defaultHotelRoomQuantitiesForSelection(chosenRoomType || "STD");
-      applyRoomMixToBundlePricing();
       updateBreakfastAddonUI();
+      applyRoomMixToBundlePricing();
       refreshPricePreview();
     });
   } else {
@@ -2525,10 +1959,16 @@ async function searchBundlePricing(loyaltyCoinsToUseCentsOverride = null) {
   const customerId = customerIdRaw || "0";
 
   const statusEl = document.getElementById("bundleStatus");
+
+  if (!origin || !destination) {
+    if (statusEl) statusEl.textContent = "";
+    return;
+  }
+
   if (statusEl) statusEl.textContent = "Calculating bundle price…";
 
-  if (!origin || !destination || !departDate || !returnDate || !travellers) {
-    if (statusEl) statusEl.textContent = "Please fill origin, destination, dates, and travellers.";
+  if (!departDate || !returnDate || !travellers) {
+    if (statusEl) statusEl.textContent = "Please fill dates and travellers for bundle pricing.";
     return;
   }
   const depTs = Date.parse(departDate);
@@ -2672,20 +2112,31 @@ function renderBundleGallery() {
     return;
   }
   track.replaceChildren();
-  const list = getFilteredPresets();
-  if (!list.length) {
+  const rawList = getFilteredPresets();
+  if (!rawList.length) {
     const empty = document.createElement("p");
     empty.className = "muted bundle-gallery__empty";
     const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
     const d = document.getElementById("bundleDestination")?.value?.trim() || "";
-    const want = getHeroSearchTripNights();
-    if (want != null && isNightsFilterBlockingPackages()) {
-      empty.textContent = `No packages for ${formatNightsLabel(want)} on ${o} → ${d}. Adjust your return date or try another route.`;
-    } else if (o && d) {
-      empty.textContent = `No curated packages for ${o} → ${d}. Change From/To above and search again, or pick another route.`;
+    const routeLabel =
+      o && d ? `${o} → ${d}` : o ? `from ${o}` : d ? `to ${d}` : "your filters";
+    if ((o || d) && isHeroPackageFiltersBlockingOnRoute()) {
+      empty.textContent = `No packages for ${routeLabel} match your trip length or departure window (±${BUNDLE_HERO_DEPART_DAY_WINDOW} days). Loosen filters or adjust dates.`;
+    } else if (o || d) {
+      empty.textContent = `No curated packages for ${routeLabel} with current dates and filters. Try Search flights + hotels or change From / To.`;
     } else {
-      empty.textContent = "No packages match the current filters. Adjust dates above.";
+      empty.textContent =
+        "No packages match your trip length or departure window. Set dates, use Anywhere for From/To to browse all, or loosen filters.";
     }
+    track.appendChild(empty);
+    return;
+  }
+  const list = getBundleGalleryPresetsForDisplay();
+  if (!list.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted bundle-gallery__empty";
+    empty.textContent =
+      "No packages could be priced for these dates and travellers (flights or hotels did not match). Use Search flights + hotels or change dates, then try again.";
     track.appendChild(empty);
     return;
   }
@@ -2703,7 +2154,7 @@ function renderBundleGallery() {
       <span class="bundle-card__body">
         <span class="bundle-card__route">${escapeHtml(p.route)}</span>
         <span class="bundle-card__title">${escapeHtml(p.title)}</span>
-        <span class="bundle-card__meta">${escapeHtml(p.blurb)}</span>
+        <span class="bundle-card__meta">${escapeHtml(bundleCardMetaLine(p))}</span>
       </span>
     `;
     btn.addEventListener("click", () => selectBundlePreset(p.id));
@@ -2745,10 +2196,11 @@ function updateBundleSelectionSummaryUI() {
   if (titleEl) titleEl.textContent = `You selected: ${p.title}`;
   if (detailEl) {
     detailEl.replaceChildren();
-    const nights = presetNights(p);
+    const tw = getBundleTripWindowForPricing();
+    let nights = tw ? nightsFromLocalDatetimeRange(tw.depart, tw.ret) : presetNights(p);
+    let dep = tw ? sliceDateFromLocal(tw.depart) : sliceDateFromLocal(p.depart);
+    let ret = tw ? sliceDateFromLocal(tw.ret) : sliceDateFromLocal(p.ret);
     const nStr = nights != null ? `${nights} night${nights === 1 ? "" : "s"}` : "Trip length from your dates";
-    const dep = sliceDateFromLocal(p.depart);
-    const ret = sliceDateFromLocal(p.ret);
     const fmt = (d) => {
       if (!d) return "—";
       const x = new Date(`${d}T12:00:00`);
@@ -2776,6 +2228,11 @@ function selectBundlePreset(presetId) {
   if (!preset) return;
   invalidateAppliedPromo();
   selectedBundlePresetId = presetId;
+  clearError(document.getElementById("createError"));
+
+  const tripKeep = getBundleTripWindowForPricing();
+  const prevO = document.getElementById("bundleOrigin")?.value?.trim() || "";
+  const prevD = document.getElementById("bundleDestination")?.value?.trim() || "";
 
   const o = document.getElementById("bundleOrigin");
   const d = document.getElementById("bundleDestination");
@@ -2794,8 +2251,20 @@ function selectBundlePreset(presetId) {
   populatePackageSearchSelects();
   syncPackageSearchFromBundleFields();
 
-  ensureTripWindowOption(preset.depart, preset.ret);
-  applyTripWindowFromSelect();
+  const sameRouteAsBefore =
+    preset.origin === prevO && preset.destination === prevD && tripKeep;
+  if (sameRouteAsBefore) {
+    const depEl = document.getElementById("bundleDepartDateTime");
+    const retEl = document.getElementById("bundleReturnDateTime");
+    if (depEl) depEl.value = tripKeep.depart;
+    if (retEl) retEl.value = tripKeep.ret;
+    ensureTripWindowOption(tripKeep.depart, tripKeep.ret);
+    applyTripWindowFromSelect();
+    syncPackageSearchFromBundleFields();
+  } else {
+    ensureTripWindowOption(preset.depart, preset.ret);
+    applyTripWindowFromSelect();
+  }
 
   renderBundleGallery();
   document.querySelectorAll(".bundle-card").forEach((el) => {
@@ -3422,19 +2891,10 @@ async function refreshFlightDropdownFromRoute() {
   const ph = document.createElement("option");
   ph.value = "";
   ph.textContent =
-    origin && dest
+    origin || dest
       ? "— Choose a flight (with seats) —"
-      : "— Set From and To in the trip search first —";
+      : "— Pick From and/or To, then a departure date —";
   sel.appendChild(ph);
-
-  if (!origin || !dest) {
-    sel.disabled = true;
-    routeFlightsInventoryChecked = false;
-    routeHasOutboundFlights = false;
-    updateSeatSelectionUI();
-    syncRouteInventoryToPackageUI();
-    return;
-  }
 
   if (isSameCityRoute(origin, dest)) {
     sel.disabled = true;
@@ -3449,12 +2909,6 @@ async function refreshFlightDropdownFromRoute() {
   routeFlightsInventoryChecked = false;
   syncRouteInventoryToPackageUI();
 
-  sel.disabled = false;
-  const qs = new URLSearchParams();
-  qs.set("originCity", origin);
-  qs.set("destinationCity", dest);
-  const pax = Number(document.getElementById("bundleNumberOfTravellers")?.value || 1);
-  qs.set("minSeats", String(Math.max(1, Number.isFinite(pax) ? pax : 1)));
   const depD = getOutboundDepartDateForFlightSearch();
   if (!depD) {
     ph.textContent = "— Set your trip departure date first —";
@@ -3465,12 +2919,30 @@ async function refreshFlightDropdownFromRoute() {
     syncRouteInventoryToPackageUI();
     return;
   }
+
+  sel.disabled = false;
+  const qs = new URLSearchParams();
+  if (origin) qs.set("originCity", origin);
+  if (dest) qs.set("destinationCity", dest);
+  const pax = Number(document.getElementById("bundleNumberOfTravellers")?.value || 1);
+  qs.set("minSeats", String(Math.max(1, Number.isFinite(pax) ? pax : 1)));
   qs.set("departDate", depD);
   // Same calendar day only (no other months / random catalogue dates).
   qs.set("dateWindowDays", "0");
 
+  if (!origin && !dest) {
+    ph.textContent = "— All routes on your departure day —";
+  }
+
   try {
-    const out = await fetchJson(`${FLIGHT_BASE}/flight/search?${qs.toString()}`);
+    const q = qs.toString();
+    // Use /flight/search under /api/flight/ so nginx rewrites to upstream /flight/search.
+    // /api/flight/search alone depends on nginx exact rewrite; /api/flight/search with a broken
+    // second-stage rewrite becomes upstream /search and Flask returns 404.
+    let out = await fetchJson(`${FLIGHT_BASE}/flight/search?${q}`);
+    if ((out.status === 404 || !out.ok) && !out.networkError) {
+      out = await fetchJson(`${FLIGHT_BASE}/search?${q}`);
+    }
 
     if (out.networkError || !out.ok || !Array.isArray(out.body?.data)) {
       ph.textContent = "— No flight (could not load) —";
@@ -3502,7 +2974,10 @@ async function refreshFlightDropdownFromRoute() {
     }
 
     if (sel.options.length <= 1) {
-      ph.textContent = "— No flight for this route —";
+      ph.textContent =
+        origin && dest
+          ? "— No flight for this route —"
+          : "— No flights for these filters on this day —";
       routeHasOutboundFlights = false;
     } else {
       routeHasOutboundFlights = true;
@@ -3724,7 +3199,7 @@ function formatLoyaltyPointsLabel(coins) {
   const n = Number(coins);
   if (!Number.isFinite(n) || n < 0) return "0 points";
   if (n === 0) return "0 points";
-  const sgdOff = n / LOYALTY_POINTS_PER_SGD;
+  const sgdOff = n / getLoyaltyRedeemPointsPerUnit();
   const approx = formatMoneyDisplayFromSgd(sgdOff, { minFrac: 2, maxFrac: 2 });
   const sameAsDue =
     displayFx.code === "SGD"
@@ -3744,10 +3219,12 @@ function updatePayStepLoyaltyFootnote() {
   }
   const rate = Number(latestLoyalty?.coinsPerCurrencyUnit);
   const earn = Number.isFinite(rate) && rate > 0 ? rate : 0.001;
+  const redeemPts = getLoyaltyRedeemPointsPerUnit();
   el.hidden = false;
   el.textContent =
     `Loyalty is tracked in points. We charge the package in SGD; your “Amount due” may show another currency for reference only. ` +
-    `You earn about ${earn} points per S$1 of a completed booking — a large balance on a demo account is usually a preset sample, not that formula alone.`;
+    `You earn about ${earn} points per S$1 of a completed booking; ${redeemPts} points reduce the package total by S$1.00 (e.g. 900 points → S$9 off). ` +
+    `Demo balances are often preset samples, not only from the earn formula.`;
 }
 
 function updateCoinsOffsetUI() {
@@ -4152,6 +3629,7 @@ async function initHotelSelectionById(hotelId) {
   if (out.networkError || !out.ok || !out.body?.data) return;
 
   setHotelSelection(out.body.data);
+  syncHotelStayFromBundleTripWindow();
 }
 
 async function setManualDefaults() {
@@ -4206,8 +3684,7 @@ async function setManualDefaults() {
   document.getElementById("flightDepartureTime").value = "2026-05-01T10:00";
   document.getElementById("flightArrivalTime").value = "2026-05-01T15:30";
   document.getElementById("departureTime").value = "2026-05-01T10:00";
-  document.getElementById("hotelCheckInTime").value = "2026-05-01T15:00";
-  document.getElementById("hotelCheckOutTime").value = "2026-05-05T11:00";
+  syncHotelStayFromBundleTripWindow();
   document.getElementById("totalPrice").value = 1200;
   document.getElementById("currency").value = "SGD";
   document.getElementById("discountCode").value = "";
@@ -4313,12 +3790,15 @@ function fillAccountLoyaltyFromData(data) {
   if (balEl) balEl.textContent = Number.isFinite(cents) ? formatLoyaltyPointsLabel(cents) : "-";
     if (balHint) {
     const rate = Number(data.coinsPerCurrencyUnit);
+    const redeemPts = Number(data.redeemPointsPerCurrencyUnit);
+    const rpu =
+      Number.isFinite(redeemPts) && redeemPts > 0 ? redeemPts : DEFAULT_LOYALTY_REDEEM_PTS_PER_UNIT;
     const earnLine =
       Number.isFinite(rate) && rate > 0
         ? `Earn ${rate} points per 1 unit you spend on a completed booking (booking currency).`
         : `Earn 0.001 points per 1 unit you spend on a completed booking (booking currency).`;
     balHint.textContent = Number.isFinite(cents)
-      ? `Not a cash balance: ${earnLine} Redeem 100 points = 1 unit off your next package total. Refunds may adjust your balance.`
+      ? `Not a cash balance: ${earnLine} Redeem ${rpu} points = 1 unit off your next package total. Refunds may adjust your balance.`
       : "";
   }
   if (tierEl) tierEl.textContent = tier;
@@ -5258,11 +4738,13 @@ function setupBookingFlowTabs() {
       document.getElementById("createBtn")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
+    const createErrorEl = document.getElementById("createError");
     const stepValidationError = validateBookingStepBeforeNext(activeBookingStepIndex);
     if (stepValidationError) {
-      setError(document.getElementById("createError"), stepValidationError);
+      setError(createErrorEl, stepValidationError);
       return;
     }
+    clearError(createErrorEl);
     const currentPanel = steps[activeBookingStepIndex]?.panelId;
     if (currentPanel === "bookingStep3Panel") {
       const seatPol = getSeatPolicy(document.getElementById("flightID")?.value || "");
@@ -5372,16 +4854,28 @@ function formatNightsLabel(n) {
   return n === 1 ? "1 night" : `${n} nights`;
 }
 
-/** Route has presets but none match the selected trip length. */
-function isNightsFilterBlockingPackages() {
-  const want = getHeroSearchTripNights();
-  if (want == null) return false;
+/** True when the current route + hero nights + hero depart window eliminate every catalog row. */
+function isHeroPackageFiltersBlockingOnRoute() {
   const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
   const d = document.getElementById("bundleDestination")?.value?.trim() || "";
-  if (!o || !d) return false;
-  const routeList = BUNDLE_PRESETS.filter((p) => p.origin === o && p.destination === d);
-  if (!routeList.length) return false;
-  return !routeList.some((p) => presetNights(p) === want);
+  if (isSameCityRoute(o, d)) return false;
+  if (!o && !d) return false;
+  let list = BUNDLE_PRESETS.filter((p) => (!o || p.origin === o) && (!d || p.destination === d));
+  const wantNights = getHeroSearchTripNights();
+  if (wantNights != null) {
+    list = list.filter((p) => {
+      const n = presetNights(p);
+      return n != null && n === wantNights;
+    });
+  }
+  const heroDep = getHeroOutboundYMD();
+  if (heroDep) {
+    list = list.filter((p) => {
+      const pd = sliceDateFromLocal(p.depart);
+      return pd && calendarDaysBetweenYMD(pd, heroDep) <= BUNDLE_HERO_DEPART_DAY_WINDOW;
+    });
+  }
+  return list.length === 0;
 }
 
 function updatePackageNightsHint() {
@@ -5458,11 +4952,19 @@ function applyPackageSearchToBundle() {
   const toS = document.getElementById("packageSearchTo");
   const bo = document.getElementById("bundleOrigin");
   const bd = document.getElementById("bundleDestination");
-  const wantTo = toS?.value?.trim() || "";
-  if (bo && fromS) bo.value = fromS.value;
+  const wantFrom = fromS?.value?.trim() ?? "";
+  const wantTo = toS?.value?.trim() ?? "";
+  if (bo && fromS) {
+    bo.value = wantFrom;
+    if (![...bo.options].some((o) => o.value === wantFrom)) bo.value = "";
+  }
   syncBundleDestinationSelectToOrigin();
-  if (bd && wantTo && [...bd.options].some((o) => o.value === wantTo)) {
-    bd.value = wantTo;
+  if (bd) {
+    if (wantTo && [...bd.options].some((o) => o.value === wantTo)) {
+      bd.value = wantTo;
+    } else if (!wantTo) {
+      bd.value = "";
+    }
   }
 
   const dep = document.getElementById("packageDepartDate")?.value;
@@ -5492,6 +4994,7 @@ function applyPackageSearchToBundle() {
   if (childrenSel) childrenSel.value = String(children);
   if (infantsSel) infantsSel.value = String(infants);
   syncBundleTravellerTotals();
+  syncHotelStayFromBundleTripWindow();
 }
 
 function runPackageSearch() {
@@ -5522,7 +5025,18 @@ function runPackageSearch() {
   if (bft && toS) bft.value = toS.value;
   populateBundleFilterSelects(true);
   onBundleFiltersChanged();
-  void searchBundlePricing();
+  if (bo && bd) {
+    void searchBundlePricing();
+  } else {
+    latestBundlePricing = null;
+    lastBundleParams = null;
+    setBundleResultVisible(false);
+    const st = document.getElementById("bundleStatus");
+    if (st) {
+      st.textContent =
+        "Browsing packages — set both From and To for a top-of-form bundle quote, or tap a card to price that trip.";
+    }
+  }
   document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth", block: "start" });
   void refreshFlightDropdownFromRoute();
   void refreshHotelsForBundleDestination();
@@ -5533,11 +5047,15 @@ function syncPackageSearchFromBundleFields() {
   const bd = document.getElementById("bundleDestination");
   const fromS = document.getElementById("packageSearchFrom");
   const toS = document.getElementById("packageSearchTo");
-  if (fromS && bo && [...fromS.options].some((o) => o.value === bo.value)) {
-    fromS.value = bo.value;
+  if (fromS && bo) {
+    const v = String(bo.value ?? "");
+    if ([...fromS.options].some((o) => o.value === v)) fromS.value = v;
+    else fromS.value = "";
   }
-  if (toS && bd && [...toS.options].some((o) => o.value === bd.value)) {
-    toS.value = bd.value;
+  if (toS && bd) {
+    const v = String(bd.value ?? "");
+    if ([...toS.options].some((o) => o.value === v)) toS.value = v;
+    else toS.value = "";
   }
   const depEl = document.getElementById("bundleDepartDateTime");
   const retEl = document.getElementById("bundleReturnDateTime");
@@ -7004,7 +6522,6 @@ function initAppShell() {
   populateTravellerCountSelect();
   populateBundleFilterSelects(false);
   populateBundleRouteSelectsFromPresets();
-  populateBundleGalleryCountryFilter();
   setupHotelSearchLocationSelects();
   populateTripWindowSelect();
   applyTripWindowFromSelect();
@@ -7059,6 +6576,10 @@ function initAppShell() {
     document.getElementById(id)?.addEventListener("input", onHotelRoomMixInputsChanged);
     document.getElementById(id)?.addEventListener("change", onHotelRoomMixInputsChanged);
   }
+  document.getElementById("hotelIncludesBreakfast")?.addEventListener("change", () => {
+    updateHotelRoomDetailsUI();
+    applyRoomMixToBundlePricing();
+  });
   document.getElementById("hotelCheckInTime")?.addEventListener("change", () => {
     applyRoomMixToBundlePricing();
     updateHotelRoomDetailsUI();

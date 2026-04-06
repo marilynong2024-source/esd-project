@@ -87,6 +87,8 @@ services:
       - .env
     environment:
       LOYALTY_COINS_PER_CURRENCY_UNIT: ${LOYALTY_COINS_PER_CURRENCY_UNIT:-0.001}
+      # Redeem: this many points = 1 unit off package total (default 100 → 900 pts = 9 off).
+      LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT: ${LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT:-100}
 
   graphql:
     build: ./graphql_gateway
@@ -120,6 +122,9 @@ services:
       # HTTP roots (no /flight or /hotel suffix); bundle_pricing app appends /flight/search, etc.
       FLIGHT_SERVICE_URL: http://flight:5102
       HOTEL_SERVICE_URL: http://hotel:5103
+      # Match curated card dates to nearby catalog flights (flight service max 60).
+      BUNDLE_FLIGHT_DATE_WINDOW_DAYS: ${BUNDLE_FLIGHT_DATE_WINDOW_DAYS:-30}
+      LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT: ${LOYALTY_REDEEM_POINTS_PER_CURRENCY_UNIT:-100}
     depends_on:
       - account
       - flight
