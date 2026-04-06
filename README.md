@@ -2,6 +2,8 @@
 
 Travel package booking demo built with microservices (Flask + Docker Compose).
 
+**Full reference:** see **[PROJECT_GUIDE.md](./PROJECT_GUIDE.md)** (architecture, services, ports, nginx paths, RabbitMQ, data stores, flows, troubleshooting).
+
 ## Quick Start (Easy Install + Working Web UI)
 
 ### 1) Prerequisites

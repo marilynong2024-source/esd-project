@@ -89,7 +89,21 @@
               />
             </label>
             <label class="login-gate__field">
-              <span>Password</span>
+              <span class="login-gate__field-label-row">
+                <span>Password</span>
+                <span class="info-popover">
+                  <button
+                    type="button"
+                    class="info-popover__btn"
+                    aria-label="Password requirements"
+                  >
+                    i
+                  </button>
+                  <div class="info-popover__panel" role="tooltip">
+                    At least 10 characters, with upper &amp; lower case, a number, and a symbol (e.g. ! @ # $ %).
+                  </div>
+                </span>
+              </span>
               <input
                 type="password"
                 id="signupPassword"
@@ -100,7 +114,7 @@
                 required
                 aria-describedby="signupPasswordHint"
               />
-              <span id="signupPasswordHint" class="login-gate__hint muted">
+              <span id="signupPasswordHint" class="visually-hidden">
                 At least 10 characters, with upper &amp; lower case, a number, and a symbol (e.g. ! @ # $ %).
               </span>
             </label>
@@ -180,7 +194,7 @@
         <span id="sessionBadge" class="session-badge" aria-live="polite"></span>
         <label class="site-header__fx muted">
           <span class="site-header__fx-label">Prices in</span>
-          <select id="displayCurrencySelect" class="site-header__fx-select" aria-label="Display currency" title="Prices shown in this currency; you are charged in SGD">
+          <select id="displayCurrencySelect" class="site-header__fx-select" aria-label="Display currency">
             <option value="SGD">SGD</option>
             <option value="USD">USD</option>
             <option value="EUR">EUR</option>
@@ -197,6 +211,12 @@
             <option value="HKD">HKD</option>
             <option value="NZD">NZD</option>
           </select>
+          <span class="info-popover site-header__fx-info">
+            <button type="button" class="info-popover__btn" aria-label="About display currency">i</button>
+            <div class="info-popover__panel" role="tooltip">
+              Prices are shown in this currency for reference. Packages are charged in Singapore dollars (SGD).
+            </div>
+          </span>
         </label>
         <div class="site-nav__cluster" role="group" aria-label="Booking and account">
           <button
@@ -822,7 +842,15 @@
 
           <div id="panelPayment" class="segment-panel pay-step" role="region" aria-label="Discounts, rewards, and payment">
             <div class="pay-step__rewards" id="coinsOffsetWrap">
-              <div class="section-title section-title--flush">Use points (optional)</div>
+              <div class="section-title section-title--flush pay-step__rewards-head">
+                <span>Use points (optional)</span>
+                <span class="info-popover">
+                  <button type="button" class="info-popover__btn" aria-label="How loyalty points work">i</button>
+                  <div class="info-popover__panel info-popover__panel--wide" id="payStepPointsInfoPanel" role="tooltip">
+                    <span id="payStepPointsInfoBody"></span>
+                  </div>
+                </span>
+              </div>
               <label class="pay-step__coins-field">
                 Points to apply
                 <input
@@ -835,23 +863,28 @@
               </label>
               <div class="coins-meta">
                 You have: <strong id="coinsAvailableCents">-</strong>
-                <span class="muted coins-meta__sgd" id="coinsAvailableSgd"></span>
               </div>
-              <p class="muted field-hint pay-step__loyalty-foot" id="payStepLoyaltyFootnote" hidden></p>
               <div class="coins-quick-actions">
                 <button type="button" class="btn-secondary" id="coinsUseNoneBtn">Clear rewards</button>
                 <button type="button" class="btn-secondary" id="coinsUseAllBtn">Use maximum</button>
               </div>
             </div>
 
-            <details class="pay-step__due-details">
-              <summary class="pay-step__due-summary">
-                <span class="pay-step__due-label">Amount due today</span>
-                <strong id="computedTotalPrice" class="pay-step__due-value">-</strong>
-                <span class="muted pay-step__due-currency">SGD</span>
-              </summary>
-            </details>
-            <p class="muted field-hint" id="payStepFxFootnote" hidden></p>
+            <div class="pay-step__due-row">
+              <details class="pay-step__due-details">
+                <summary class="pay-step__due-summary">
+                  <span class="pay-step__due-label">Amount due today</span>
+                  <strong id="computedTotalPrice" class="pay-step__due-value">-</strong>
+                  <span class="muted pay-step__due-currency">SGD</span>
+                </summary>
+              </details>
+              <span class="info-popover pay-step__fx-info" id="payStepFxInfoWrap" hidden>
+                <button type="button" class="info-popover__btn" aria-label="About converted prices">i</button>
+                <div class="info-popover__panel" id="payStepFxInfoPanel" role="tooltip">
+                  <span id="payStepFxInfoBody"></span>
+                </div>
+              </span>
+            </div>
             <div id="seatHoldTimerPayWrap" class="hold-banner hold-banner--pay pay-step__hold-timer" role="status" hidden>
               <div class="hold-banner__title" id="seatHoldTimerPayTitle"></div>
             </div>
@@ -910,15 +943,20 @@
           </button>
         </div>
 
-        <details class="cancel-policy-details muted muted--compact-top">
-          <summary>Refund &amp; cancellation policy (summary)</summary>
-          <ul class="cancel-policy-details__list">
-            <li><strong>Customer:</strong> Approved refunds processed within 30 days. Standard flight cancellations: flat S$300 fee on the estimated flight portion. No refund for no-shows (separate no-show fees may apply).</li>
-            <li><strong>Flights:</strong> Budget / small-carrier flights are non-refundable. Major airlines: fare less airline cancellation charges (optional fee in API estimate). Airline cancels: 100% refund.</li>
-            <li><strong>Hotels:</strong> 100% of estimated hotel portion if you cancel ≥7 days before check-in (we use departure date as proxy); inside 7 days that portion is non-refundable. Hotel cancels: 100% refund; loyalty coins used are restored.</li>
-            <li><strong>Packages:</strong> If the airline cancels but the hotel stay could continue, we seek a comparable alternative; if you decline or none is suitable, you receive a full package refund (use &ldquo;Airline&rdquo; as cancel source in this demo).</li>
-          </ul>
-        </details>
+        <div class="cancel-policy-bar muted muted--compact-top">
+          <span>Refund &amp; cancellation policy</span>
+          <span class="info-popover">
+            <button type="button" class="info-popover__btn" aria-label="Refund and cancellation policy details">i</button>
+            <div class="info-popover__panel info-popover__panel--wide" role="tooltip">
+              <ul class="cancel-policy-details__list">
+                <li><strong>Customer:</strong> Approved refunds processed within 30 days. Standard flight cancellations: flat S$300 fee on the estimated flight portion. No refund for no-shows (separate no-show fees may apply).</li>
+                <li><strong>Flights:</strong> Budget / small-carrier flights are non-refundable. Major airlines: fare less airline cancellation charges (optional fee in API estimate). Airline cancels: 100% refund.</li>
+                <li><strong>Hotels:</strong> 100% of estimated hotel portion if you cancel ≥7 days before check-in (we use departure date as proxy); inside 7 days that portion is non-refundable. Hotel cancels: 100% refund; loyalty coins used are restored.</li>
+                <li><strong>Packages:</strong> If the airline cancels but the hotel stay could continue, we seek a comparable alternative; if you decline or none is suitable, you receive a full package refund (use &ldquo;Airline&rdquo; as cancel source in this demo).</li>
+              </ul>
+            </div>
+          </span>
+        </div>
 
         <form id="cancelForm" class="form-grid-1col">
           <label>
@@ -1151,7 +1189,7 @@
   </div>
 
   <script src="bundle_catalog.js?v=20260406-11k" defer></script>
-  <script src="app.js?v=20260406-breakfast-addon" defer></script>
+  <script src="app.js?v=20260406-info-popovers" defer></script>
 </body>
 </html>
 

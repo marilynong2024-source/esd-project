@@ -728,14 +728,15 @@ function updatePayStepCurrencyLabels() {
   if (el) {
     el.textContent = displayFx.code === "SGD" ? "SGD" : displayFx.code;
   }
-  const foot = document.getElementById("payStepFxFootnote");
-  if (foot) {
+  const wrap = document.getElementById("payStepFxInfoWrap");
+  const body = document.getElementById("payStepFxInfoBody");
+  if (wrap && body) {
     if (displayFx.code === "SGD") {
-      foot.hidden = true;
-      foot.textContent = "";
+      wrap.hidden = true;
+      body.textContent = "";
     } else {
-      foot.hidden = false;
-      foot.textContent = "Converted for display only. You are charged in SGD.";
+      wrap.hidden = false;
+      body.textContent = "Converted for display only. You are charged in SGD.";
     }
   }
 }
@@ -3208,23 +3209,36 @@ function formatLoyaltyPointsLabel(coins) {
   return `${formatWalletPointsAmount(coins)} points (${sameAsDue})`;
 }
 
-function updatePayStepLoyaltyFootnote() {
-  const el = document.getElementById("payStepLoyaltyFootnote");
-  if (!el) return;
+/** Balance line on the pay step (full earn/redeem copy lives in the ⓘ popover). */
+function formatLoyaltyPointsBalanceShort(coins) {
+  const n = Number(coins);
+  if (!Number.isFinite(n) || n < 0) return "0 points";
+  return `${formatWalletPointsAmount(n)} points`;
+}
+
+function updatePayStepPointsInfoPanel() {
+  const body = document.getElementById("payStepPointsInfoBody");
+  if (!body) return;
   const cid = Number(document.getElementById("customerID")?.value || 0);
   if (!hasAccountCustomerId(cid)) {
-    el.hidden = true;
-    el.textContent = "";
+    body.textContent = "";
     return;
   }
   const rate = Number(latestLoyalty?.coinsPerCurrencyUnit);
   const earn = Number.isFinite(rate) && rate > 0 ? rate : 0.001;
   const redeemPts = getLoyaltyRedeemPointsPerUnit();
-  el.hidden = false;
-  el.textContent =
+  const perSgd = formatMoneyDisplayFromSgd(1, { minFrac: 2, maxFrac: 2 });
+  const fxClarify =
+    displayFx.code === "SGD"
+      ? ""
+      : ` At today’s display rate, 100 points ≈ ${perSgd} in ${displayFx.code} for reference only.`;
+  const earnLead = Number.isFinite(rate) && rate > 0 ? "" : " (default rate)";
+  body.textContent =
     `Loyalty is tracked in points. We charge the package in SGD; your “Amount due” may show another currency for reference only. ` +
-    `You earn about ${earn} points per S$1 of a completed booking; ${redeemPts} points reduce the package total by S$1.00 (e.g. 900 points → S$9 off). ` +
-    `Demo balances are often preset samples, not only from the earn formula.`;
+    `You earn about ${earn} points per S$1 of a completed booking${earnLead}. ` +
+    `${redeemPts} points reduce the package total by S$1.00 (e.g. 900 points → S$9 off).` +
+    fxClarify +
+    ` Demo balances are often preset samples, not only from the earn formula.`;
 }
 
 function updateCoinsOffsetUI() {
@@ -3240,8 +3254,6 @@ function updateCoinsOffsetUI() {
     input.value = "0";
     input.disabled = true;
     if (availEl) availEl.textContent = "-";
-    const sgdHint = document.getElementById("coinsAvailableSgd");
-    if (sgdHint) sgdHint.textContent = "";
     if (btnNone) btnNone.disabled = true;
     if (btnAll) btnAll.disabled = true;
   } else {
@@ -3250,22 +3262,8 @@ function updateCoinsOffsetUI() {
 
     const coinsAvailableCents = Number(latestLoyalty?.coins ?? 0);
     if (availEl) {
-      availEl.textContent = formatLoyaltyPointsLabel(coinsAvailableCents);
+      availEl.textContent = formatLoyaltyPointsBalanceShort(coinsAvailableCents);
       availEl.title = "";
-    }
-    const sgdHint = document.getElementById("coinsAvailableSgd");
-    const earnRate = Number(latestLoyalty?.coinsPerCurrencyUnit);
-    const earnBit =
-      Number.isFinite(earnRate) && earnRate > 0
-        ? ` Earn ${earnRate} points per 1 unit of booking total.`
-        : " Earn 0.001 points per 1 unit of booking total (default).";
-    if (sgdHint) {
-      const perSgd = formatMoneyDisplayFromSgd(1, { minFrac: 2, maxFrac: 2 });
-      const fxClarify =
-        displayFx.code === "SGD"
-          ? ""
-          : ` At today’s rate, 100 pts ≈ ${perSgd} in ${displayFx.code} for display only.`;
-      sgdHint.textContent = `· ${LOYALTY_POINTS_PER_SGD} points = S$1.00 off the SGD total we charge.${fxClarify}${earnBit}`;
     }
     if (btnNone) btnNone.disabled = !(coinsAvailableCents > 0);
     if (btnAll) btnAll.disabled = !(coinsAvailableCents > 0);
@@ -3280,7 +3278,7 @@ function updateCoinsOffsetUI() {
     }
   }
 
-  updatePayStepLoyaltyFootnote();
+  updatePayStepPointsInfoPanel();
   refreshPricePreview();
 }
 
