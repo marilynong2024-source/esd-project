@@ -89,11 +89,7 @@ docker compose logs graphql --tail 120
 
 ---
 
-## Databases (diagram vs Docker runtime)
-
-**What your ERD / course diagram shows:** several logical databases (**FlightDB**, **HotelDB**, **CustomerDB**, **travel_booking** / package bookings, **LoyaltyDB**, **TravellerDB**). Those schemas and seed rows are defined together in **`init_db.sql`** at the repo root — use that file so your report matches the diagram.
-
-**What actually runs in `docker compose up`:**
+## Databases
 
 | Store | Technology | Env / compose keys | Notes |
 |--------|------------|--------------------|--------|
@@ -124,8 +120,6 @@ docker compose logs graphql --tail 120
 
 - **bookings** / **PackageBookings** (same shape): `id`, `customerID`, `flightID`, `hotelID`, `hotelRoomType`, `hotelIncludesBreakfast`, `departureTime`, `totalPrice`, `currency`, `fareType`, `loyaltyTier`, `status`, `noOfRooms`, `refundPercentage`, `refundAmount`, `cancellationPolicyID`, `cancellationTimestamp`, `seatNumber`, `travellerProfileId`, `travellerDisplayName`, `travellerProfileIdsJson`, `adultCount`, `childCount`, `infantCount`, `passengerName`, `passengerEmail`, `passengerPhone`
 - **BundleCatalog:** `bundleCode`, `title`, `originCity`, `destinationCity`, `defaultNights`, `highlight`, `displayOrder`
-
-On first startup, the booking app may add **`seatNumbersJson`** via `ensure_booking_columns()` if the column is missing (ORM uses it; add it to your diagram notes if you show a physical schema).
 
 **LoyaltyDB**
 
