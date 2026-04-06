@@ -11,13 +11,29 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 
-# Internal service URLs (Docker network DNS)
-# Note: flight/hotel bundle helpers are exposed at the service root as:
-# - flight: /availability, /price
-# - hotel: /availability, /price
+# Internal service URLs (Docker network DNS). Optional env overrides for local / Kong setups.
+# Accept either http://flight:5102 or http://flight:5102/flight — we normalize to the HTTP root.
 ACCOUNT_BASE = os.environ.get("ACCOUNT_SERVICE_URL", "http://account:5100").rstrip("/")
-FLIGHT_BASE = "http://flight:5102"
-HOTEL_BASE = "http://hotel:5103"
+
+
+def _atomic_service_root(raw: str, suffix: str, default: str) -> str:
+    base = (raw or default).strip().rstrip("/")
+    low, suf = base.lower(), suffix.lower()
+    if low.endswith(suf):
+        return base[: len(base) - len(suffix)]
+    return base
+
+
+FLIGHT_ROOT = _atomic_service_root(
+    os.environ.get("FLIGHT_SERVICE_URL", ""),
+    "/flight",
+    "http://flight:5102",
+)
+HOTEL_ROOT = _atomic_service_root(
+    os.environ.get("HOTEL_SERVICE_URL", ""),
+    "/hotel",
+    "http://hotel:5103",
+)
 LOYALTY_BASE = "http://loyalty:5105/loyalty"
 DISCOUNT_BASE = "http://discount:5112"
 
@@ -46,6 +62,13 @@ def _parse_int(value: str | None, default: int = 0) -> int:
         return int(value)
     except Exception:
         return int(default)
+
+
+def _parse_float_q(value: str | None, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
 
 
 def _safe_int(value: object, default: int = 0) -> int:
@@ -108,11 +131,12 @@ def _flight_ranked_options(
 ) -> list[tuple[float, str]]:
     """Sorted cheapest-first (economy, flightNum) with enough seats."""
     body, terr = _http_get_json(
-        f"{FLIGHT_BASE}/flight/search",
+        f"{FLIGHT_ROOT}/flight/search",
         params={
             "originCity": origin.strip(),
             "destinationCity": destination.strip(),
             "departDate": depart_date,
+            "dateWindowDays": "0",
             "minSeats": str(travellers),
         },
     )
@@ -151,7 +175,7 @@ def _hotel_ranked_options(
     forced_room: '' → prefer STD then DLX per hotel; 'STD'|'DLX' → only that code.
     """
     body, terr = _http_get_json(
-        f"{HOTEL_BASE}/hotel/search",
+        f"{HOTEL_ROOT}/hotel/search",
         params={"city": destination_city.strip()},
     )
     if terr or not body or body.get("code") != 200:
@@ -307,9 +331,12 @@ def bundle_price():
     if room_type not in ("STD", "DLX"):
         room_type = ""  # will choose based on availability (value: STD before DLX)
 
-    loyalty_coins_to_spend_cents = _parse_int(
-        request.args.get("loyaltyCoinsToUseCents") or request.args.get("coinsToSpendCents"),
-        0,
+    loyalty_coins_to_spend_cents = max(
+        0.0,
+        _parse_float_q(
+            request.args.get("loyaltyCoinsToUseCents") or request.args.get("coinsToSpendCents"),
+            0.0,
+        ),
     )
     promo_code = (request.args.get("promoCode") or request.args.get("discountCode") or "").strip()
     package_id = (request.args.get("packageId") or "").strip()
@@ -367,8 +394,13 @@ def bundle_price():
     else:
         # Fallback: single cheapest via /availability (search empty or transport issue).
         flight_avail, fa_terr = _http_get_json(
-            f"{FLIGHT_BASE}/availability",
-            params={"origin": origin, "destination": destination, "departDate": depart_date},
+            f"{FLIGHT_ROOT}/availability",
+            params={
+                "origin": origin,
+                "destination": destination,
+                "departDate": depart_date,
+                "dateWindowDays": "0",
+            },
         )
         if fa_terr:
             return jsonify({"code": 503, "message": f"Flight service: {fa_terr}"}), 503
@@ -398,7 +430,7 @@ def bundle_price():
         hotel_last_terr: str | None = None
         for rt in candidate_room_types:
             hotel_avail, ha_terr = _http_get_json(
-                f"{HOTEL_BASE}/availability",
+                f"{HOTEL_ROOT}/availability",
                 params={
                     "city": destination,
                     "roomType": rt,
@@ -448,7 +480,7 @@ def bundle_price():
         return jsonify({"code": 404, "message": "No hotel available for bundle"}), 404
 
     flight_price_out, fp_terr = _http_get_json(
-        f"{FLIGHT_BASE}/flights/price",
+        f"{FLIGHT_ROOT}/flights/price",
         params={"flightNum": flight_num},
     )
     if fp_terr:
@@ -468,7 +500,7 @@ def bundle_price():
     flight_total = round(flight_price * travellers, 2)
 
     hotel_price_out, hp_terr = _http_get_json(
-        f"{HOTEL_BASE}/hotels/price",
+        f"{HOTEL_ROOT}/hotels/price",
         params={"hotelID": hotel_id, "roomType": chosen_room_type},
     )
     if hp_terr:
@@ -530,8 +562,8 @@ def bundle_price():
     # Optional coin offset (reuse loyalty snapshot from diagram steps 4–5 when cid > 0)
     loyalty_used_dollars = 0.0
     if cid > 0 and loyalty_coins_to_spend_cents > 0 and loyalty_preview is not None:
-        coins_available_cents = _safe_int(loyalty_preview.get("coins"))
-        coins_spent = min(coins_available_cents, loyalty_coins_to_spend_cents)
+        coins_available = max(0.0, _safe_float(loyalty_preview.get("coins"), 0.0))
+        coins_spent = min(coins_available, loyalty_coins_to_spend_cents)
         loyalty_used_dollars = round(coins_spent / 100.0, 2)
 
     list_price_total = round(flight_total + hotel_total, 2)
@@ -556,7 +588,9 @@ def bundle_price():
     if loyalty_preview:
         out_data["tier"] = loyalty_preview.get("tier")
         out_data["bookingCount"] = loyalty_preview.get("bookingCount")
-        out_data["coinBalanceCents"] = _safe_int(loyalty_preview.get("coins"))
+        out_data["coinBalanceCents"] = round(
+            max(0.0, _safe_float(loyalty_preview.get("coins"), 0.0)), 6
+        )
 
     return jsonify({"code": 200, "data": out_data})
 

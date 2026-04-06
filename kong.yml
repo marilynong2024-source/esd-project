@@ -26,13 +26,15 @@ services:
           - /traveller
         strip_path: false
 
+  # strip_path: true so /flight/release-seat → upstream /release-seat (Flask routes are mostly
+  # at service root; /flight/flight/SQ001 → /flight/SQ001 for catalog GET).
   - name: flight
     url: http://flight:5102
     routes:
       - name: flight-route
         paths:
           - /flight
-        strip_path: false
+        strip_path: true
 
   - name: hotel
     url: http://hotel:5103

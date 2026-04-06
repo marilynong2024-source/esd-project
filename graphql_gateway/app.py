@@ -13,8 +13,21 @@ def _base(name: str, default: str) -> str:
     return os.environ.get(name, default).strip().rstrip("/")
 
 
-FLIGHT_BASE = _base("GRAPHQL_FLIGHT_BASE", "http://flight:5102/flight")
-HOTEL_BASE = _base("GRAPHQL_HOTEL_BASE", "http://hotel:5103/hotel")
+def _ensure_api_segment(url: str, segment: str) -> str:
+    """Allow http://flight:5102 or http://flight:5102/flight when calling /flight/<id>."""
+    u = url.strip().rstrip("/")
+    suf = f"/{segment}"
+    if u.lower().endswith(suf):
+        return u
+    return u + suf
+
+
+FLIGHT_BASE = _ensure_api_segment(
+    _base("GRAPHQL_FLIGHT_BASE", "http://flight:5102/flight"), "flight"
+)
+HOTEL_BASE = _ensure_api_segment(
+    _base("GRAPHQL_HOTEL_BASE", "http://hotel:5103/hotel"), "hotel"
+)
 LOYALTY_BASE = _base("GRAPHQL_LOYALTY_BASE", "http://loyalty:5105/loyalty")
 HTTP_TIMEOUT_SECONDS = int(os.environ.get("GRAPHQL_HTTP_TIMEOUT_SECONDS", "8"))
 
@@ -118,7 +131,7 @@ class FlightType(graphene.ObjectType):
 
 class LoyaltyType(graphene.ObjectType):
     customer_id = graphene.Int(name="customerID")
-    coins = graphene.Int()
+    coins = graphene.Float()
     booking_count = graphene.Int(name="bookingCount")
     tier = graphene.String()
 

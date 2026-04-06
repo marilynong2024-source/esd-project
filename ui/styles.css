@@ -765,6 +765,28 @@ h2 {
   gap: 10px 14px;
 }
 
+.cancel-policy-details {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.cancel-policy-details summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ocean-dark);
+}
+
+.cancel-policy-details__list {
+  margin: 10px 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
 .payment-estimate {
   display: flex;
   align-items: baseline;
@@ -1331,6 +1353,40 @@ button {
 .bundle-gallery__nav:hover {
   background: rgba(13, 148, 136, 0.08);
   border-color: rgba(13, 148, 136, 0.35);
+}
+
+.bundle-selection-summary {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(13, 148, 136, 0.06);
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.05);
+}
+
+.bundle-selection-summary__title {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ocean-dark);
+}
+
+.bundle-selection-summary__body {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.bundle-selection-summary__body p {
+  margin: 0 0 6px;
+}
+
+.bundle-selection-summary__body p:last-child {
+  margin-bottom: 0;
+}
+
+.bundle-selection-summary__actions {
+  margin-top: 12px;
 }
 
 .bundle-card {

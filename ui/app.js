@@ -9,7 +9,7 @@ const GRAPHQL_BASE = "/api/graphql/graphql";
 const FLIGHT_BASE = "/api/flight";
 const BUNDLE_PRICE_BASE = "/api/bundle-price";
 
-/** Points redeemed toward checkout; same divisor as bundle_pricing `loyalty_used_dollars = coins_spent / 100`. */
+/** Points redeemed toward checkout; bundle uses `loyalty_used_dollars = points_spent / 100` (100 pts = 1 unit off total). */
 const LOYALTY_POINTS_PER_SGD = 100;
 
 const SESSION_STORAGE_KEY = "horizonPackagesSession";
@@ -635,6 +635,188 @@ const BUNDLE_PRESETS = [
       "7 nights · Manly ferries, Barangaroo dining, Taronga sunset, Coogee coastal path — classic harbour loop.",
     image: "https://picsum.photos/seed/pkg-syd-harb/520/300",
   },
+  {
+    id: "sin-seoul",
+    title: "Singapore to Seoul week",
+    route: "Singapore → Seoul",
+    origin: "Singapore",
+    destination: "Seoul",
+    region: "asia",
+    depart: "2026-04-08T09:00",
+    ret: "2026-04-14T18:00",
+    blurb:
+      "6 nights · Palaces, Hongdae nights, DMZ or Nami optional — K-culture sampler with metro-easy days.",
+    image: "https://picsum.photos/seed/pkg-sin-icn/520/300",
+  },
+  {
+    id: "sin-hkg",
+    title: "Singapore to Hong Kong",
+    route: "Singapore → Hong Kong",
+    origin: "Singapore",
+    destination: "Hong Kong",
+    region: "asia",
+    depart: "2026-05-14T08:30",
+    ret: "2026-05-18T21:00",
+    blurb:
+      "4 nights · Star ferry, dim sum trail, Peak tram — compact city with harbour skylines.",
+    image: "https://picsum.photos/seed/pkg-sin-hkg/520/300",
+  },
+  {
+    id: "sin-tpe",
+    title: "Singapore to Taipei",
+    route: "Singapore → Taipei",
+    origin: "Singapore",
+    destination: "Taipei",
+    region: "asia",
+    depart: "2026-06-20T10:00",
+    ret: "2026-06-25T16:00",
+    blurb:
+      "5 nights · Night markets, hot springs day trip, tea hills — friendly, food-forward capital.",
+    image: "https://picsum.photos/seed/pkg-sin-tpe/520/300",
+  },
+  {
+    id: "sin-mel",
+    title: "Singapore to Melbourne",
+    route: "Singapore → Melbourne",
+    origin: "Singapore",
+    destination: "Melbourne",
+    region: "asia",
+    depart: "2026-07-12T09:00",
+    ret: "2026-07-19T11:00",
+    blurb:
+      "7 nights · Laneways, coffee arcades, Great Ocean Road option — southern cool vs tropical home.",
+    image: "https://picsum.photos/seed/pkg-sin-mel/520/300",
+  },
+  {
+    id: "sin-kl",
+    title: "Singapore to KL short break",
+    route: "Singapore → Kuala Lumpur",
+    origin: "Singapore",
+    destination: "Kuala Lumpur",
+    region: "asia",
+    depart: "2026-08-02T07:00",
+    ret: "2026-08-05T20:00",
+    blurb:
+      "3 nights · Petronas, Batu Caves, Jalan Alor supper — quick neighbour hop with big-city scale.",
+    image: "https://picsum.photos/seed/pkg-sin-kul/520/300",
+  },
+  {
+    id: "sin-hkt",
+    title: "Singapore to Phuket",
+    route: "Singapore → Phuket",
+    origin: "Singapore",
+    destination: "Phuket",
+    region: "asia",
+    depart: "2026-09-15T11:00",
+    ret: "2026-09-20T14:00",
+    blurb:
+      "5 nights · West-coast beaches, old town cafés, long-tail island hops — sand-first reset.",
+    image: "https://picsum.photos/seed/pkg-sin-hkt/520/300",
+  },
+  {
+    id: "sin-akl",
+    title: "Singapore to Auckland",
+    route: "Singapore → Auckland",
+    origin: "Singapore",
+    destination: "Auckland",
+    region: "asia",
+    depart: "2026-10-10T23:30",
+    ret: "2026-10-19T10:00",
+    blurb:
+      "8 nights · Viaduct dining, Waiheke wine, Hobbiton day — Pacific gateway with green escapes.",
+    image: "https://picsum.photos/seed/pkg-sin-akl/520/300",
+  },
+  {
+    id: "sin-jfk",
+    title: "Singapore to New York",
+    route: "Singapore → New York",
+    origin: "Singapore",
+    destination: "New York",
+    region: "intercontinental",
+    depart: "2026-11-02T00:15",
+    ret: "2026-11-12T14:00",
+    blurb:
+      "10 nights · Cross-Pacific into Broadway, museums, and borough food crawls — long-haul city immersion.",
+    image: "https://picsum.photos/seed/pkg-sin-jfk/520/300",
+  },
+  {
+    id: "sin-per",
+    title: "Singapore to Perth",
+    route: "Singapore → Perth",
+    origin: "Singapore",
+    destination: "Perth",
+    region: "asia",
+    depart: "2026-12-05T09:00",
+    ret: "2026-12-10T17:00",
+    blurb:
+      "5 nights · Swan River, Fremantle, Rottnest day — same timezone band, different coast rhythm.",
+    image: "https://picsum.photos/seed/pkg-sin-per/520/300",
+  },
+  {
+    id: "icn-tyo",
+    title: "Seoul to Tokyo hop",
+    route: "Seoul → Tokyo",
+    origin: "Seoul",
+    destination: "Tokyo",
+    region: "asia",
+    depart: "2026-05-22T10:00",
+    ret: "2026-05-27T19:00",
+    blurb:
+      "5 nights · Two capitals — palaces and hanbok snaps to Shibuya crossings and late konbini runs.",
+    image: "https://picsum.photos/seed/pkg-icn-tyo/520/300",
+  },
+  {
+    id: "hkg-bkk",
+    title: "Hong Kong to Bangkok",
+    route: "Hong Kong → Bangkok",
+    origin: "Hong Kong",
+    destination: "Bangkok",
+    region: "asia",
+    depart: "2026-06-05T14:00",
+    ret: "2026-06-10T11:00",
+    blurb:
+      "5 nights · Harbour density to river temples and night markets — humidity and appetite both rise.",
+    image: "https://picsum.photos/seed/pkg-hkg-bkk/520/300",
+  },
+  {
+    id: "mel-syd",
+    title: "Melbourne to Sydney",
+    route: "Melbourne → Sydney",
+    origin: "Melbourne",
+    destination: "Sydney",
+    region: "asia",
+    depart: "2026-07-28T08:00",
+    ret: "2026-08-01T18:00",
+    blurb:
+      "4 nights · Coffee capital to harbour icons — short domestic hop, two Australian moods.",
+    image: "https://picsum.photos/seed/pkg-mel-syd/520/300",
+  },
+  {
+    id: "rom-par",
+    title: "Rome to Paris",
+    route: "Rome → Paris",
+    origin: "Rome",
+    destination: "Paris",
+    region: "europe",
+    depart: "2026-09-12T11:00",
+    ret: "2026-09-18T16:00",
+    blurb:
+      "6 nights · Ancient forums to Seine strolls — pasta to pastry by train or short hop.",
+    image: "https://picsum.photos/seed/pkg-rom-par/520/300",
+  },
+  {
+    id: "mad-bcn",
+    title: "Madrid to Barcelona",
+    route: "Madrid → Barcelona",
+    origin: "Madrid",
+    destination: "Barcelona",
+    region: "europe",
+    depart: "2026-10-18T09:30",
+    ret: "2026-10-23T12:00",
+    blurb:
+      "5 nights · Prado mornings to Gaudí afternoons — tapas trail through two Spanish rhythms.",
+    image: "https://picsum.photos/seed/pkg-mad-bcn/520/300",
+  },
 ];
 
 const BUNDLE_REGION_OPTIONS = [
@@ -672,6 +854,9 @@ const CITY_COUNTRY_SLUG = {
   Phuket: "thailand",
   Perth: "australia",
   "New York": "usa",
+  Rome: "italy",
+  Madrid: "spain",
+  Barcelona: "spain",
 };
 
 const BUNDLE_COUNTRY_LABEL = {
@@ -694,6 +879,8 @@ const BUNDLE_COUNTRY_LABEL = {
   usa: "USA",
   "new zealand": "New Zealand",
   vietnam: "Vietnam",
+  italy: "Italy",
+  spain: "Spain",
 };
 
 function countryLabelForBundleDestinationCity(destCity) {
@@ -905,19 +1092,9 @@ const TRIP_WINDOW_OPTIONS = [
   { value: "2026-11-10T10:00|||2026-11-17T12:00", label: "10 Nov – 17 Nov 2026 · 7 nights" },
 ];
 
-function getPackageDropdownSelectionId() {
-  const sel = document.getElementById("bundlePackageSelect");
-  if (!sel || sel.tagName !== "SELECT") return "";
-  return String(sel.value || "").trim();
-}
-
-function getBundleGalleryCountrySlug() {
-  return String(document.getElementById("bundleGalleryCountryFilter")?.value || "all").trim() || "all";
-}
-
 /**
- * Packages shown in the gallery and package dropdown: all curated trips by default, optionally
- * narrowed by destination country and hero trip nights — not by fine-tune From/To until a card is chosen.
+ * Packages shown in the gallery and package dropdown: all curated trips for the route, narrowed by
+ * hero trip nights when set — not by fine-tune From/To until a card is chosen.
  */
 function getBundleGalleryPresets() {
   let list = [...BUNDLE_PRESETS];
@@ -933,17 +1110,11 @@ function getBundleGalleryPresets() {
 }
 
 function getFilteredPresets() {
-  const baseList = getBundleGalleryPresets();
-  const only = getPackageDropdownSelectionId();
-  if (!only) return baseList;
-  const hit = baseList.find((x) => x.id === only);
-  return hit ? [hit] : baseList;
+  return getBundleGalleryPresets();
 }
 
 /**
- * 0-based index for bundle-pricing cardIndex. Uses the visible gallery list — not getFilteredPresets(),
- * because choosing a package sets the dropdown and getFilteredPresets() collapses to one item (index always 0),
- * which would remap the quote to the wrong flight/hotel vs the price shown on the card.
+ * 0-based index for bundle-pricing cardIndex. Uses the visible gallery list from getBundleGalleryPresets().
  */
 function bundlePresetIndexInCurrentGallery(presetId) {
   if (!presetId) return 0;
@@ -961,6 +1132,14 @@ function populateBundleFilterSelects() {
   // Intentionally empty.
 }
 
+/** Country slug from the optional gallery filter, or `"all"` if the control is absent. */
+function getBundleGalleryCountrySlug() {
+  const sel = document.getElementById("bundleGalleryCountryFilter");
+  if (!sel || sel.tagName !== "SELECT") return "all";
+  return String(sel.value || "all").trim() || "all";
+}
+
+/** Fills `#bundleGalleryCountryFilter` when present; no-op if that UI was removed. */
 function populateBundleGalleryCountryFilter() {
   const sel = document.getElementById("bundleGalleryCountryFilter");
   if (!sel || sel.tagName !== "SELECT") return;
@@ -986,16 +1165,6 @@ function populateBundleGalleryCountryFilter() {
   }
   const valid = keep === "all" || ordered.includes(keep);
   sel.value = valid ? keep : "all";
-}
-
-function onBundleGalleryCountryFilterChanged() {
-  const visible = new Set(getBundleGalleryPresets().map((p) => p.id));
-  if (selectedBundlePresetId && !visible.has(selectedBundlePresetId)) {
-    clearBundleSelectionState();
-  }
-  populateBundlePackageSelect();
-  renderBundleGallery();
-  scheduleBundleCardPriceRefresh();
 }
 
 /**
@@ -1169,11 +1338,6 @@ function refreshAllDisplayedPrices() {
   }
   updateHotelRoomDetailsUI();
   updateCoinsOffsetUI();
-  const statusEl = document.getElementById("bundleStatus");
-  if (statusEl && latestBundlePricing && Number.isFinite(Number(latestBundlePricing.finalTotal))) {
-    const t = Number(latestBundlePricing.finalTotal);
-    statusEl.textContent = `Total ${formatMoneyDisplayFromSgd(t, { minFrac: 2, maxFrac: 2 })}`;
-  }
   if (lastMyBookingsCustomerId) {
     void loadMyBookings(lastMyBookingsCustomerId);
   }
@@ -1496,11 +1660,6 @@ function curatedPackagesAllowedForCurrentRoute() {
 
   if (!routeFlightsInventoryChecked || !routeHotelsInventoryChecked) return true;
 
-  if (getBundleGalleryCountrySlug() === "all") return true;
-
-  const galleryMatchesFineTune = presets.some((p) => p.origin === o && p.destination === d);
-  if (!galleryMatchesFineTune) return true;
-
   return routeHasOutboundFlights && destinationHasHotels;
 }
 
@@ -1510,23 +1669,6 @@ function syncRouteInventoryToPackageUI() {
 }
 
 function populateBundlePackageSelect() {
-  const sel = document.getElementById("bundlePackageSelect");
-  if (!sel) return;
-  const keep = sel.value;
-  sel.replaceChildren();
-  const ph = document.createElement("option");
-  ph.value = "";
-  ph.textContent = "— Select a package —";
-  sel.appendChild(ph);
-  const source = curatedPackagesAllowedForCurrentRoute() ? getBundleGalleryPresets() : [];
-  for (const p of source) {
-    const o = document.createElement("option");
-    o.value = p.id;
-    o.textContent = `${p.title} (${p.route})`;
-    sel.appendChild(o);
-  }
-  const valid = keep && Array.from(sel.options).some((o) => o.value === keep);
-  sel.value = valid ? keep : "";
   updateBundlePackageSectionVisibility();
 }
 
@@ -1537,14 +1679,12 @@ function updateBundlePackageSectionVisibility() {
   const hasPresetRoutes = presetRoutes.length > 0;
   const o = document.getElementById("bundleOrigin")?.value?.trim() || "";
   const d = document.getElementById("bundleDestination")?.value?.trim() || "";
-  const browseAllCountries = getBundleGalleryCountrySlug() === "all";
   const galleryMatchesFineTune =
     Boolean(o && d) && presetRoutes.some((p) => p.origin === o && p.destination === d);
 
   let inventoryBlocked = false;
   let inventoryMsg = "";
   if (
-    !browseAllCountries &&
     hasPresetRoutes &&
     o &&
     d &&
@@ -1599,14 +1739,13 @@ function updateBundlePackageSectionVisibility() {
 
   if (!showPackageUi) {
     selectedBundlePresetId = null;
-    const pkg = document.getElementById("bundlePackageSelect");
-    if (pkg) pkg.value = "";
     document.querySelectorAll(".bundle-card").forEach((b) => {
       b.classList.remove("bundle-card--selected");
       b.setAttribute("aria-pressed", "false");
     });
     const track = document.getElementById("bundleGalleryTrack");
     if (track) track.replaceChildren();
+    updateBundleSelectionSummaryUI();
   }
 }
 
@@ -1614,8 +1753,6 @@ function onFineTuneDivergeFromPackage() {
   if (suppressBundleRouteDiverge) return;
   invalidateAppliedPromo();
   selectedBundlePresetId = null;
-  const pkg = document.getElementById("bundlePackageSelect");
-  if (pkg) pkg.value = "";
   document.querySelectorAll(".bundle-card").forEach((b) => {
     b.classList.remove("bundle-card--selected");
     b.setAttribute("aria-pressed", "false");
@@ -1633,6 +1770,7 @@ function onFineTuneDivergeFromPackage() {
   populateBundlePackageSelect();
   renderBundleGallery();
   scheduleBundleCardPriceRefresh();
+  updateBundleSelectionSummaryUI();
 }
 
 function setupBundleFineTuneListeners() {
@@ -1651,19 +1789,6 @@ function setupBundleFineTuneListeners() {
     onFineTuneDivergeFromPackage();
     void refreshFlightDropdownFromRoute();
     void refreshHotelsForBundleDestination();
-  });
-  document.getElementById("bundleGalleryCountryFilter")?.addEventListener("change", () => {
-    onBundleGalleryCountryFilterChanged();
-  });
-  document.getElementById("bundlePackageSelect")?.addEventListener("change", (e) => {
-    const v = e.target.value;
-    if (!v) {
-      clearBundleSelectionState();
-      renderBundleGallery();
-      scheduleBundleCardPriceRefresh();
-      return;
-    }
-    selectBundlePreset(v);
   });
 }
 
@@ -2260,10 +2385,13 @@ async function applyPaymentVoucher() {
 function validateBookingStepBeforeNext(stepIndex) {
   if (stepIndex === 0) {
     const cid = Number(document.getElementById("customerID")?.value || 0);
-    const pkg = String(document.getElementById("bundlePackageSelect")?.value || "").trim();
     if (cid < 1) return "Please sign in and select who this booking is for.";
-    if (curatedPackagesAllowedForCurrentRoute() && getBundleGalleryPresets().length > 0 && !pkg) {
-      return "Choose a bundle package before continuing.";
+    if (
+      curatedPackagesAllowedForCurrentRoute() &&
+      getBundleGalleryPresets().length > 0 &&
+      !String(selectedBundlePresetId || "").trim()
+    ) {
+      return "Choose a package from the gallery (tap a card) before continuing.";
     }
     return "";
   }
@@ -2320,12 +2448,7 @@ async function applyBundlePricingResult(bundle, inputsForThisCall) {
   lastBundleParams = inputsForThisCall || lastBundleParams;
 
   const statusEl = document.getElementById("bundleStatus");
-  if (statusEl) {
-    const t = bundle.finalTotal;
-    statusEl.textContent = Number.isFinite(Number(t))
-      ? `Total ${formatMoneyDisplayFromSgd(Number(t), { minFrac: 2, maxFrac: 2 })}`
-      : "";
-  }
+  if (statusEl) statusEl.textContent = "";
 
   if (selectedBundlePresetId) {
     bundleCardPriceCache.set(selectedBundlePresetId, {
@@ -2526,8 +2649,6 @@ async function refreshBundleForCoins() {
 
 function clearBundleSelectionState() {
   selectedBundlePresetId = null;
-  const pkg = document.getElementById("bundlePackageSelect");
-  if (pkg) pkg.value = "";
   latestBundlePricing = null;
   lastBundleParams = null;
   appliedPromoCode = "";
@@ -2540,6 +2661,7 @@ function clearBundleSelectionState() {
     b.classList.remove("bundle-card--selected");
     b.setAttribute("aria-pressed", "false");
   });
+  updateBundleSelectionSummaryUI();
 }
 
 function renderBundleGallery() {
@@ -2559,13 +2681,10 @@ function renderBundleGallery() {
     const want = getHeroSearchTripNights();
     if (want != null && isNightsFilterBlockingPackages()) {
       empty.textContent = `No packages for ${formatNightsLabel(want)} on ${o} → ${d}. Adjust your return date or try another route.`;
-    } else if (getBundleGalleryCountrySlug() !== "all") {
-      empty.textContent =
-        "No packages for this destination country with the current trip length. Set Destination country to All countries or adjust dates in the search above.";
     } else if (o && d) {
       empty.textContent = `No curated packages for ${o} → ${d}. Change From/To above and search again, or pick another route.`;
     } else {
-      empty.textContent = "No packages match the current filters. Adjust dates or country above.";
+      empty.textContent = "No packages match the current filters. Adjust dates above.";
     }
     track.appendChild(empty);
     return;
@@ -2600,6 +2719,56 @@ function setupBundleGalleryNav() {
   const step = () => Math.min(360, Math.floor(gal.clientWidth * 0.88) || 320);
   prev.addEventListener("click", () => gal.scrollBy({ left: -step(), behavior: "smooth" }));
   next.addEventListener("click", () => gal.scrollBy({ left: step(), behavior: "smooth" }));
+  document.getElementById("bundleChangePackageBtn")?.addEventListener("click", () => {
+    focusBundleGalleryForRepick();
+  });
+}
+
+function updateBundleSelectionSummaryUI() {
+  const box = document.getElementById("bundleSelectionSummary");
+  if (!box) return;
+  const titleEl = document.getElementById("bundleSelectionSummaryTitle");
+  const detailEl = document.getElementById("bundleSelectionSummaryDetail");
+  const pid = String(selectedBundlePresetId || "").trim();
+  if (!pid) {
+    box.hidden = true;
+    if (detailEl) detailEl.replaceChildren();
+    return;
+  }
+  const p = BUNDLE_PRESETS.find((x) => x.id === pid);
+  if (!p) {
+    box.hidden = true;
+    if (detailEl) detailEl.replaceChildren();
+    return;
+  }
+  box.hidden = false;
+  if (titleEl) titleEl.textContent = `You selected: ${p.title}`;
+  if (detailEl) {
+    detailEl.replaceChildren();
+    const nights = presetNights(p);
+    const nStr = nights != null ? `${nights} night${nights === 1 ? "" : "s"}` : "Trip length from your dates";
+    const dep = sliceDateFromLocal(p.depart);
+    const ret = sliceDateFromLocal(p.ret);
+    const fmt = (d) => {
+      if (!d) return "—";
+      const x = new Date(`${d}T12:00:00`);
+      if (Number.isNaN(x.getTime())) return d;
+      return x.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    };
+    const p1 = document.createElement("p");
+    p1.textContent = `Route: ${p.route}`;
+    const p2 = document.createElement("p");
+    p2.textContent = `Dates: ${fmt(dep)} → ${fmt(ret)} · ${nStr}`;
+    const p3 = document.createElement("p");
+    p3.className = "muted";
+    p3.textContent = p.blurb || "";
+    detailEl.append(p1, p2, p3);
+  }
+}
+
+function focusBundleGalleryForRepick() {
+  document.getElementById("bundleGallery")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  document.getElementById("bundleGalleryPrev")?.focus({ preventScroll: true });
 }
 
 function selectBundlePreset(presetId) {
@@ -2608,7 +2777,6 @@ function selectBundlePreset(presetId) {
   invalidateAppliedPromo();
   selectedBundlePresetId = presetId;
 
-  const pkg = document.getElementById("bundlePackageSelect");
   const o = document.getElementById("bundleOrigin");
   const d = document.getElementById("bundleDestination");
 
@@ -2622,7 +2790,6 @@ function selectBundlePreset(presetId) {
   }
 
   populateBundlePackageSelect();
-  if (pkg) pkg.value = presetId;
 
   populatePackageSearchSelects();
   syncPackageSearchFromBundleFields();
@@ -2640,6 +2807,7 @@ function selectBundlePreset(presetId) {
   void refreshHotelsForBundleDestination();
   void searchBundlePricing();
   scheduleBundleCardPriceRefresh();
+  updateBundleSelectionSummaryUI();
 }
 
 function extractAirlineCode(flightId) {
@@ -3288,10 +3456,18 @@ async function refreshFlightDropdownFromRoute() {
   const pax = Number(document.getElementById("bundleNumberOfTravellers")?.value || 1);
   qs.set("minSeats", String(Math.max(1, Number.isFinite(pax) ? pax : 1)));
   const depD = getOutboundDepartDateForFlightSearch();
-  if (depD) {
-    qs.set("departDate", depD);
-    qs.set("dateWindowDays", "2");
+  if (!depD) {
+    ph.textContent = "— Set your trip departure date first —";
+    sel.disabled = true;
+    routeHasOutboundFlights = false;
+    routeFlightsInventoryChecked = true;
+    updateSeatSelectionUI();
+    syncRouteInventoryToPackageUI();
+    return;
   }
+  qs.set("departDate", depD);
+  // Same calendar day only (no other months / random catalogue dates).
+  qs.set("dateWindowDays", "0");
 
   try {
     const out = await fetchJson(`${FLIGHT_BASE}/flight/search?${qs.toString()}`);
@@ -3530,12 +3706,48 @@ function applyTravellerSelectionFromIds(preferredIds) {
   syncTripPartySizeToPackageHeroAndBundlePricing();
 }
 
-/** Wallet balance for display: show points only (backend still redeems points toward SGD totals). */
+/** Pretty-print point balance (may be fractional; earn is 0.001 pt per $1 booking currency by default). */
+function formatWalletPointsAmount(coins) {
+  let n = Number(coins);
+  if (!Number.isFinite(n) || n < 0) return "0";
+  n = Math.round(n * 1e6) / 1e6;
+  if (Number.isInteger(n)) return n.toLocaleString();
+  const t = n.toFixed(6).replace(/\.?0+$/, "");
+  return t || "0";
+}
+
+/**
+ * Wallet balance. Redemption is always against the SGD package total (100 pts = S$1 off that total).
+ * The “≈ … off” figure uses your selected display currency when it isn’t SGD, so it lines up with “Amount due”.
+ */
 function formatLoyaltyPointsLabel(coins) {
-  const n = Math.floor(Number(coins));
+  const n = Number(coins);
   if (!Number.isFinite(n) || n < 0) return "0 points";
   if (n === 0) return "0 points";
-  return `${n.toLocaleString()} points`;
+  const sgdOff = n / LOYALTY_POINTS_PER_SGD;
+  const approx = formatMoneyDisplayFromSgd(sgdOff, { minFrac: 2, maxFrac: 2 });
+  const sameAsDue =
+    displayFx.code === "SGD"
+      ? `≈ ${approx} off the SGD total`
+      : `≈ ${approx} off (same FX basis as amount due; charged in SGD)`;
+  return `${formatWalletPointsAmount(coins)} points (${sameAsDue})`;
+}
+
+function updatePayStepLoyaltyFootnote() {
+  const el = document.getElementById("payStepLoyaltyFootnote");
+  if (!el) return;
+  const cid = Number(document.getElementById("customerID")?.value || 0);
+  if (!hasAccountCustomerId(cid)) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const rate = Number(latestLoyalty?.coinsPerCurrencyUnit);
+  const earn = Number.isFinite(rate) && rate > 0 ? rate : 0.001;
+  el.hidden = false;
+  el.textContent =
+    `Loyalty is tracked in points. We charge the package in SGD; your “Amount due” may show another currency for reference only. ` +
+    `You earn about ${earn} points per S$1 of a completed booking — a large balance on a demo account is usually a preset sample, not that formula alone.`;
 }
 
 function updateCoinsOffsetUI() {
@@ -3565,11 +3777,21 @@ function updateCoinsOffsetUI() {
       availEl.title = "";
     }
     const sgdHint = document.getElementById("coinsAvailableSgd");
+    const earnRate = Number(latestLoyalty?.coinsPerCurrencyUnit);
+    const earnBit =
+      Number.isFinite(earnRate) && earnRate > 0
+        ? ` Earn ${earnRate} points per 1 unit of booking total.`
+        : " Earn 0.001 points per 1 unit of booking total (default).";
     if (sgdHint) {
-      sgdHint.textContent = `· ${LOYALTY_POINTS_PER_SGD.toLocaleString()} points = S$1.00 off your total — use at most your current balance.`;
+      const perSgd = formatMoneyDisplayFromSgd(1, { minFrac: 2, maxFrac: 2 });
+      const fxClarify =
+        displayFx.code === "SGD"
+          ? ""
+          : ` At today’s rate, 100 pts ≈ ${perSgd} in ${displayFx.code} for display only.`;
+      sgdHint.textContent = `· ${LOYALTY_POINTS_PER_SGD} points = S$1.00 off the SGD total we charge.${fxClarify}${earnBit}`;
     }
-    if (btnNone) btnNone.disabled = coinsAvailableCents <= 0;
-    if (btnAll) btnAll.disabled = coinsAvailableCents <= 0;
+    if (btnNone) btnNone.disabled = !(coinsAvailableCents > 0);
+    if (btnAll) btnAll.disabled = !(coinsAvailableCents > 0);
 
     // Keep input capped to available coins for a predictable UX.
     const requested = Number(input.value || 0);
@@ -3581,6 +3803,7 @@ function updateCoinsOffsetUI() {
     }
   }
 
+  updatePayStepLoyaltyFootnote();
   refreshPricePreview();
 }
 
@@ -3589,7 +3812,7 @@ function setCoinsToSpendCents(value) {
   if (!input) return;
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) input.value = "0";
-  else input.value = String(Math.floor(n));
+  else input.value = String(Math.round(n * 1e6) / 1e6);
   refreshPricePreview();
   if (lastBundleParams) void refreshBundleForCoins();
 }
@@ -3967,8 +4190,6 @@ async function setManualDefaults() {
   if (bfc) bfc.value = "all";
   if (bff) bff.value = "all";
   if (bft) bft.value = "all";
-  const bgc = document.getElementById("bundleGalleryCountryFilter");
-  if (bgc) bgc.value = "all";
   populateBundleFilterSelects(true);
   populateBundlePackageSelect();
   renderBundleGallery();
@@ -4090,9 +4311,14 @@ function fillAccountLoyaltyFromData(data) {
   const tierHint = document.getElementById("accountPageTierHint");
   const nextEl = document.getElementById("accountPageNextTier");
   if (balEl) balEl.textContent = Number.isFinite(cents) ? formatLoyaltyPointsLabel(cents) : "-";
-  if (balHint) {
+    if (balHint) {
+    const rate = Number(data.coinsPerCurrencyUnit);
+    const earnLine =
+      Number.isFinite(rate) && rate > 0
+        ? `Earn ${rate} points per 1 unit you spend on a completed booking (booking currency).`
+        : `Earn 0.001 points per 1 unit you spend on a completed booking (booking currency).`;
     balHint.textContent = Number.isFinite(cents)
-      ? `${Math.floor(cents).toLocaleString()} points. Redeem at payment; refunds may adjust your balance.`
+      ? `Not a cash balance: ${earnLine} Redeem 100 points = 1 unit off your next package total. Refunds may adjust your balance.`
       : "";
   }
   if (tierEl) tierEl.textContent = tier;
@@ -4249,7 +4475,7 @@ async function updateLoyaltySummary(customerID) {
   const cents = Number(centsRaw);
   const walletLabel = Number.isFinite(cents) ? formatLoyaltyPointsLabel(cents) : "-";
   const walletTitle = Number.isFinite(cents)
-    ? `${Math.floor(cents).toLocaleString()} points — apply at checkout`
+    ? `${formatWalletPointsAmount(cents)} points — apply at checkout`
     : "";
 
   const lc = document.getElementById("loyaltyCoins");
@@ -4634,7 +4860,11 @@ async function refreshCancelRefundEstimate() {
   const refundShown = Number.isFinite(refundNum)
     ? formatMoneyDisplayFromSgd(refundNum)
     : String(d.refundAmount ?? "—");
-  el.textContent = `Estimate (${srcLabel}): ~${refundShown} (${d.refundPercentage}% of package total). Policy ${d.cancellationPolicyID}. About ${days} day(s) before departure.`;
+  const feeNote =
+    Number(d.airlineImposedFeeSgd) > 0
+      ? ` Airline fee S$${Number(d.airlineImposedFeeSgd).toFixed(2)} included in model.`
+      : "";
+  el.textContent = `Estimate (${srcLabel}): ~${refundShown} (${d.refundPercentage}% of package). Policy ${d.cancellationPolicyID}. About ${days} day(s) before departure.${feeNote}`;
 }
 
 function scheduleCancelRefundEstimate() {
@@ -5216,11 +5446,11 @@ function populatePackageTravellerCountSelect() {
   fill(childrenSel, 8, "child", "children");
   fill(infantsSel, 4, "infant", "infants");
 
-  adultsSel.value = "2";
+  adultsSel.value = "1";
   if (childrenSel) childrenSel.value = "0";
   if (infantsSel) infantsSel.value = "0";
 
-  updatePackageTotalTravellers(2, 0, 0);
+  updatePackageTotalTravellers(1, 0, 0);
 }
 
 function applyPackageSearchToBundle() {
@@ -5264,17 +5494,6 @@ function applyPackageSearchToBundle() {
   syncBundleTravellerTotals();
 }
 
-/** After hero search, narrow the package gallery to the destination country (user can set All countries again). */
-function syncBundleGalleryCountryFromDestinationCity(destCity) {
-  const sel = document.getElementById("bundleGalleryCountryFilter");
-  if (!sel || sel.tagName !== "SELECT") return;
-  const slug = CITY_COUNTRY_SLUG[String(destCity || "").trim()];
-  if (!slug) return;
-  if ([...sel.options].some((o) => o.value === slug)) {
-    sel.value = slug;
-  }
-}
-
 function runPackageSearch() {
   invalidateAppliedPromo();
   applyPackageSearchToBundle();
@@ -5302,7 +5521,6 @@ function runPackageSearch() {
   if (bff && fromS) bff.value = fromS.value;
   if (bft && toS) bft.value = toS.value;
   populateBundleFilterSelects(true);
-  syncBundleGalleryCountryFromDestinationCity(bd);
   onBundleFiltersChanged();
   void searchBundlePricing();
   document.getElementById("step-book")?.scrollIntoView({ behavior: "smooth", block: "start" });

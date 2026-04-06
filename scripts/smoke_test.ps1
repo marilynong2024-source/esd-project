@@ -27,6 +27,9 @@ $hotel = Invoke-RestMethod "$baseHotel/hotel/search?country=Singapore" -Method G
 Assert-Ok ($hotel.code -eq 200) "Hotel search failed"
 Assert-Ok ($hotel.data.Count -gt 0) "Hotel search returned no rows"
 
+$flightHealth = Invoke-RestMethod "$baseFlight/health" -Method GET
+Assert-Ok ($flightHealth.code -eq 200) "Flight /health failed"
+
 $flight = Invoke-RestMethod "$baseFlight/flight/SQ001" -Method GET
 Assert-Ok ($flight.code -eq 200) "Flight fetch failed"
 

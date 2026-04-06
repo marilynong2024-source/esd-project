@@ -18,6 +18,7 @@ _CITIES: list[tuple[str, str, str]] = [
     ("Hanoi", "Vietnam", "Hoan Kiem, Hang Bai"),
     ("Jakarta", "Indonesia", "Thamrin, Central Jakarta"),
     ("Kuala Lumpur", "Malaysia", "KLCC, Jalan Ampang"),
+    ("Hong Kong", "Hong Kong SAR", "Tsim Sha Tsui, Nathan Road"),
     ("Taipei", "Taiwan", "Xinyi District, Songren Rd"),
     ("Auckland", "New Zealand", "Waterfront, Viaduct Harbour"),
     ("Melbourne", "Australia", "CBD, Collins Street"),

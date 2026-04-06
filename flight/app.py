@@ -6,8 +6,6 @@ import threading
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from aviationstack_client import aviationstack_health, live_enrichment_for_catalog_flight
-
 app = Flask(__name__)
 CORS(app)
 
@@ -52,26 +50,29 @@ def _flight_departure_date(f: dict) -> date | None:
 
 
 def _narrow_flights_by_depart_date(results: list[dict], depart_raw: str, win: int) -> list[dict]:
-    """Keep flights whose departure calendar day is within ±win days of depart_raw (YYYY-MM-DD)."""
+    """
+    Keep flights whose departure calendar day is within ±win days of depart_raw (YYYY-MM-DD).
+
+    When depart_raw is provided, this never falls back to showing other months: if nothing matches,
+    returns []. (Callers that omit departDate get the unfiltered list — same as before.)
+    """
     if not results or not depart_raw or len(str(depart_raw).strip()) < 10:
         return results
     try:
         target_d = datetime.strptime(str(depart_raw).strip()[:10], "%Y-%m-%d").date()
     except ValueError:
         return results
-    win = max(0, min(int(win), 14))
-    windows = [win]
-    if win < 5:
-        windows.extend([5, 10, 14])
-    for w in windows:
-        filtered: list[dict] = []
-        for f in results:
-            fd = _flight_departure_date(f)
-            if fd is not None and abs((fd - target_d).days) <= w:
-                filtered.append(f)
-        if filtered:
-            return filtered
-    return results
+    try:
+        win = int(win)
+    except (TypeError, ValueError):
+        win = 2
+    win = max(0, min(win, 14))
+    filtered: list[dict] = []
+    for f in results:
+        fd = _flight_departure_date(f)
+        if fd is not None and abs((fd - target_d).days) <= win:
+            filtered.append(f)
+    return filtered
 
 
 def _purge_expired_holds():
@@ -99,6 +100,22 @@ def _sorted_seat_key(seat_nos: list[str]) -> tuple[str, ...]:
 def _online_seat_selection(flight_num: str) -> bool:
     """Demo: all flights use the same interactive seat map + hold flow."""
     return bool(str(flight_num or "").strip())
+
+
+def budget_carrier_from_flight_row(row: dict) -> bool:
+    """
+    Used for cancellation/refund rules: budget / LCC-style carriers are non-refundable
+    on customer-initiated cancellation in the booking service.
+    """
+    airline = str(row.get("airline") or "").lower()
+    for token in ("airasia", "scoot", "jetstar"):
+        if token in airline:
+            return True
+    fn = str(row.get("flightNum") or row.get("flightNumber") or "").strip().upper()
+    for prefix in ("AK", "TR", "3K", "5J"):
+        if fn.startswith(prefix):
+            return True
+    return False
 
 
 FLIGHTS = {
@@ -405,6 +422,18 @@ def _carriers_for_route(origin_city: str, dest_city: str) -> list[tuple[str, str
             extra.extend([("Garuda Indonesia", "GA"), ("AirAsia", "AK")])
         if "Chennai" in (oc, dc):
             extra.append(("AirAsia", "AK"))
+        if "Hong Kong" in (oc, dc):
+            extra.extend([("Cathay Pacific", "CX"), ("Singapore Airlines", "SQ")])
+        if "Taipei" in (oc, dc):
+            extra.extend([("China Airlines", "CI"), ("EVA Air", "BR"), ("Singapore Airlines", "SQ")])
+        if "Phuket" in (oc, dc):
+            extra.extend([("Thai Airways", "TG"), ("Bangkok Airways", "PG"), ("AirAsia", "AK")])
+        if "Perth" in (oc, dc) or "Auckland" in (oc, dc):
+            extra.extend([("Qantas", "QF"), ("Singapore Airlines", "SQ")])
+        if "New York" in (oc, dc):
+            extra.extend([("Singapore Airlines", "SQ"), ("United Airlines", "UA")])
+        if "Rome" in (oc, dc) or "Madrid" in (oc, dc) or "Barcelona" in (oc, dc):
+            extra.extend([("Lufthansa", "LH"), ("ITA Airways", "AZ"), ("Iberia", "IB")])
         return _merge(extra)
 
     return [("Singapore Airlines", "SQ"), ("Scoot", "TR")]
@@ -452,6 +481,15 @@ def _merge_programmatic_catalog() -> None:
         ("Hanoi", "Bangkok", "HAN", "BKK", 110, 145),
         ("Jakarta", "Singapore", "CGK", "SIN", 100, 125),
         ("Chennai", "Singapore", "MAA", "SIN", 240, 280),
+        ("Singapore", "Hong Kong", "SIN", "HKG", 230, 310),
+        ("Singapore", "Taipei", "SIN", "TPE", 280, 340),
+        ("Singapore", "Phuket", "SIN", "HKT", 100, 165),
+        ("Singapore", "Perth", "SIN", "PER", 300, 360),
+        ("Singapore", "Auckland", "SIN", "AKL", 600, 520),
+        ("Singapore", "New York", "SIN", "JFK", 990, 880),
+        ("Hong Kong", "Bangkok", "HKG", "BKK", 155, 220),
+        ("Rome", "Paris", "FCO", "CDG", 125, 180),
+        ("Madrid", "Barcelona", "MAD", "BCN", 85, 95),
     ]
     dep_slots = ["06:20", "08:55", "11:30", "14:15", "17:40", "20:25", "23:10"]
     carriers: list[tuple[str, str]] = [
@@ -474,65 +512,82 @@ def _merge_programmatic_catalog() -> None:
         ("Delta Air Lines", "DL"),
         ("Lufthansa", "LH"),
         ("KLM", "KL"),
+        ("China Airlines", "CI"),
+        ("EVA Air", "BR"),
+        ("Bangkok Airways", "PG"),
+        ("ITA Airways", "AZ"),
+        ("Iberia", "IB"),
     ]
-    base_day0 = datetime(2026, 5, 1, tzinfo=None)
+    # Weekly departures across 2026 so UI dateWindowDays=0 (exact day) still finds flights for any bundle preset.
+    base_start = datetime(2026, 1, 1)
+    last_day = date(2026, 12, 31)
 
     for rxi, (oc, dc, apio, apd, dur_mins, price_mid) in enumerate(route_specs):
         for si, hhmm in enumerate(dep_slots):
-            airline, prefix = carriers[(rxi + si * 3) % len(carriers)]
-            flight_num = _next_flight_num(prefix)
             h, m = (int(hhmm[:2]), int(hhmm[3:]))
-            # Cluster around early May 2026 so hero / bundle date filters still surface options.
-            dep_dt = base_day0 + timedelta(days=min(3, (rxi + si) % 4), hours=h, minutes=m)
-            arr_dt = dep_dt + timedelta(minutes=int(dur_mins))
-            dep_s = dep_dt.strftime("%Y-%m-%dT%H:%M")
-            arr_s = arr_dt.strftime("%Y-%m-%dT%H:%M")
-            jitter = ((rxi * 17 + si * 31) % 90) - 45
-            economy = max(59.0, float(price_mid) + jitter * 0.4)
-            biz = (
-                round(economy * 2.8, 2)
-                if prefix in ("SQ", "BA", "JL", "NH", "QF", "EK", "KE", "LH", "KL")
-                else None
-            )
-            seats = max(24, 320 - (rxi * 9 + si * 11) % 260)
-            online = _online_seat_selection(flight_num)
-            FLIGHTS[flight_num] = {
-                "flightNum": flight_num,
-                "flightNumber": flight_num,
-                "airline": airline,
-                "origin": apio,
-                "destination": apd,
-                "originCity": oc,
-                "destinationCity": dc,
-                "departureTime": dep_s,
-                "arrivalTime": arr_s,
-                "durationMins": int(dur_mins),
-                "economyPrice": round(economy, 2),
-                "businessPrice": biz,
-                "availableSeats": int(seats),
-                "onlineSeatSelection": online,
-                "seatNote": (
-                    "Standard online seat map (demo)."
-                    if online
-                    else "Seat assignment at check-in/airport (demo)."
-                ),
-                "imageUrl": f"https://picsum.photos/seed/{flight_num}/400/200",
-            }
+            for week_i in range(53):
+                day_off = week_i * 7 + ((rxi * 2 + si) % 7)
+                dep_dt = base_start + timedelta(days=day_off, hours=h, minutes=m)
+                if dep_dt.date() > last_day:
+                    continue
+                airline, prefix = carriers[(rxi + si + week_i) % len(carriers)]
+                flight_num = _next_flight_num(prefix)
+                arr_dt = dep_dt + timedelta(minutes=int(dur_mins))
+                dep_s = dep_dt.strftime("%Y-%m-%dT%H:%M")
+                arr_s = arr_dt.strftime("%Y-%m-%dT%H:%M")
+                jitter = ((rxi * 17 + si * 31 + week_i) % 90) - 45
+                economy = max(59.0, float(price_mid) + jitter * 0.4)
+                biz = (
+                    round(economy * 2.8, 2)
+                    if prefix in ("SQ", "BA", "JL", "NH", "QF", "EK", "KE", "LH", "KL")
+                    else None
+                )
+                seats = max(24, 320 - (rxi * 9 + si * 11 + week_i) % 260)
+                online = _online_seat_selection(flight_num)
+                FLIGHTS[flight_num] = {
+                    "flightNum": flight_num,
+                    "flightNumber": flight_num,
+                    "airline": airline,
+                    "origin": apio,
+                    "destination": apd,
+                    "originCity": oc,
+                    "destinationCity": dc,
+                    "departureTime": dep_s,
+                    "arrivalTime": arr_s,
+                    "durationMins": int(dur_mins),
+                    "economyPrice": round(economy, 2),
+                    "businessPrice": biz,
+                    "availableSeats": int(seats),
+                    "onlineSeatSelection": online,
+                    "seatNote": (
+                        "Standard online seat map (demo)."
+                        if online
+                        else "Seat assignment at check-in/airport (demo)."
+                    ),
+                    "imageUrl": f"https://picsum.photos/seed/{flight_num}/400/200",
+                }
 
 
 _merge_programmatic_catalog()
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    """Minimal liveness probe (load balancers / compose healthchecks)."""
+    return jsonify({"code": 200, "service": "flight"}), 200
+
+
 @app.route("/integrations/health", methods=["GET"])
 def integrations_health():
-    """Stack check: external flight data (Aviationstack) configuration."""
+    """Stack check: flight catalog is served from the local database / in-process merge only."""
     return (
         jsonify(
             {
                 "code": 200,
                 "data": {
                     "service": "flight",
-                    "aviationstack": aviationstack_health(),
+                    "externalFlightApis": "none",
+                    "note": "Demo flights use FlightDB seed data; no third-party flight status API.",
                 },
             }
         ),
@@ -548,10 +603,7 @@ def get_flight(flight_num: str):
     # Backward-compatible keys for current booking UI:
     flight.setdefault("flightNum", flight.get("flightNumber", flight_num.upper()))
     flight_out = dict(flight)
-    if request.args.get("live") in ("1", "true", "yes", "on"):
-        ext = live_enrichment_for_catalog_flight(flight_out)
-        if ext is not None:
-            flight_out["aviationstackLive"] = ext
+    flight_out["budgetCarrier"] = budget_carrier_from_flight_row(flight_out)
     return jsonify({"code": 200, "data": flight_out}), 200
 
 
@@ -594,6 +646,15 @@ def search_flights():
         "hanoi": "vietnam",
         "jakarta": "indonesia",
         "chennai": "india",
+        "hong kong": "hong kong",
+        "taipei": "taiwan",
+        "phuket": "thailand",
+        "perth": "australia",
+        "auckland": "new zealand",
+        "new york": "usa",
+        "rome": "italy",
+        "madrid": "spain",
+        "barcelona": "spain",
     }
 
     min_seats = int(request.args.get("minSeats") or "0")

@@ -285,7 +285,7 @@
         </div>
 
         <div class="package-search__meta" id="packageTripSummary">
-          <span id="packageTripSummaryText">1 room · 2 adults · Economy</span>
+          <span id="packageTripSummaryText">1 room · 1 adult · 0 children · 0 infants · Economy</span>
         </div>
 
         <div class="package-search__pax package-search__pax-grid">
@@ -322,7 +322,7 @@
               type="number"
               id="packageTotalTravellers"
               class="package-search__control"
-              value="2"
+              value="1"
               readonly
               aria-label="Total travellers"
             />
@@ -440,22 +440,10 @@
           <input type="hidden" id="customerID" name="customerID" value="0" />
 
           <div id="bundlePackageSection">
-          <div class="section-title section-title--spaced">Package</div>
+          <div class="section-title section-title--spaced">Browse packages</div>
           <p class="muted bundle-package-intro">
-            Browse all trips, or pick a destination country above. After Search flights + hotels, the gallery matches your “To” country (Tokyo → Japan). Choose All countries anytime to see every package again.
+            All matching packages are listed below — tap a card to choose. After <strong>Search flights + hotels</strong>, the gallery follows your route and trip length from the search bar.
           </p>
-          <label class="form-grid-1col">
-            Destination country
-            <select id="bundleGalleryCountryFilter" aria-label="Filter packages by destination country">
-              <option value="all">All countries</option>
-            </select>
-          </label>
-          <label class="form-grid-1col">
-            Package
-            <select id="bundlePackageSelect" aria-label="Choose travel package">
-              <option value="">— Select a package —</option>
-            </select>
-          </label>
           <div class="bundle-gallery-wrap">
             <button
               type="button"
@@ -476,6 +464,15 @@
             >
               ›
             </button>
+          </div>
+          <div id="bundleSelectionSummary" class="bundle-selection-summary" hidden>
+            <h3 class="bundle-selection-summary__title" id="bundleSelectionSummaryTitle">Package selected</h3>
+            <div class="bundle-selection-summary__body" id="bundleSelectionSummaryDetail"></div>
+            <div class="bundle-selection-summary__actions">
+              <button type="button" class="btn-secondary" id="bundleChangePackageBtn">
+                Choose a different package
+              </button>
+            </div>
           </div>
           </div>
 
@@ -836,13 +833,14 @@
                   id="coinsToSpendCents"
                   value="0"
                   min="0"
-                  step="1"
+                  step="any"
                 />
               </label>
               <div class="coins-meta">
                 You have: <strong id="coinsAvailableCents">-</strong>
                 <span class="muted coins-meta__sgd" id="coinsAvailableSgd"></span>
               </div>
+              <p class="muted field-hint pay-step__loyalty-foot" id="payStepLoyaltyFootnote" hidden></p>
               <div class="coins-quick-actions">
                 <button type="button" class="btn-secondary" id="coinsUseNoneBtn">Clear rewards</button>
                 <button type="button" class="btn-secondary" id="coinsUseAllBtn">Use maximum</button>
@@ -914,6 +912,16 @@
             ← Back to booking
           </button>
         </div>
+
+        <details class="cancel-policy-details muted muted--compact-top">
+          <summary>Refund &amp; cancellation policy (summary)</summary>
+          <ul class="cancel-policy-details__list">
+            <li><strong>Customer:</strong> Approved refunds processed within 30 days. Standard flight cancellations: flat S$300 fee on the estimated flight portion. No refund for no-shows (separate no-show fees may apply).</li>
+            <li><strong>Flights:</strong> Budget / small-carrier flights are non-refundable. Major airlines: fare less airline cancellation charges (optional fee in API estimate). Airline cancels: 100% refund.</li>
+            <li><strong>Hotels:</strong> 100% of estimated hotel portion if you cancel ≥7 days before check-in (we use departure date as proxy); inside 7 days that portion is non-refundable. Hotel cancels: 100% refund; loyalty coins used are restored.</li>
+            <li><strong>Packages:</strong> If the airline cancels but the hotel stay could continue, we seek a comparable alternative; if you decline or none is suitable, you receive a full package refund (use &ldquo;Airline&rdquo; as cancel source in this demo).</li>
+          </ul>
+        </details>
 
         <form id="cancelForm" class="form-grid-1col">
           <label>
@@ -1145,7 +1153,7 @@
 
   </div>
 
-  <script src="app.js?v=20260404-loyalty-id" defer></script>
+  <script src="app.js?v=20260406-packages-inventory" defer></script>
 </body>
 </html>
 

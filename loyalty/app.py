@@ -1,4 +1,6 @@
 from datetime import datetime
+import os
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -18,29 +20,32 @@ Tiering rules (by completed booking count):
 - Gold: 5-9 bookings
 - Platinum: >= 10 bookings
 
-Coins:
-- Coins are spendable cents earned from booking amount.
-- Coins earn rate depends on the tier AFTER completing the booking.
-  - Bronze: 1 cent per $1
-  - Silver: 2 cents per $1
-  - Gold: 3 cents per $1
-  - Platinum: 5 cents per $1
+Coins (loyalty balance):
+- Float "coins" (UI: points). Not a cash wallet: redemption stays 100 coins = 1 currency unit
+  off the package total at checkout (see bundle/checkout — same as before).
+- Earn: LOYALTY_COINS_PER_CURRENCY_UNIT points per 1 unit of booking totalPrice currency
+  (default 0.001). Tier labels still update from completed booking count; earn rate does not
+  vary by tier.
+Example: total 1,700 in booking currency at 0.001 → 1.7 points earned; 100 points still → 1.00
+off next trip. Demo seeds are illustrative floats.
 """
 
+# Points earned per 1.0 unit of booking amount (same currency as totalPrice).
+COINS_PER_CURRENCY_UNIT = float(os.environ.get("LOYALTY_COINS_PER_CURRENCY_UNIT", "0.001") or "0.001")
+
 LOYALTY = {
-    1: {"coins": 11200, "bookingCount": 3, "tier": "Silver"},
-    2: {"coins": 8600, "bookingCount": 2, "tier": "Silver"},
-    3: {"coins": 18400, "bookingCount": 6, "tier": "Gold"},
-    4: {"coins": 5200, "bookingCount": 2, "tier": "Silver"},
-    5: {"coins": 800, "bookingCount": 0, "tier": "Bronze"},
-    6: {"coins": 98200, "bookingCount": 13, "tier": "Platinum"},
-    # Extra demo personas (tiers from bookingCount rules in docstring)
-    7: {"coins": 4200, "bookingCount": 1, "tier": "Bronze"},
-    8: {"coins": 600, "bookingCount": 0, "tier": "Bronze"},
-    9: {"coins": 94500, "bookingCount": 12, "tier": "Platinum"},
-    10: {"coins": 26800, "bookingCount": 8, "tier": "Gold"},
-    11: {"coins": 13100, "bookingCount": 3, "tier": "Silver"},
-    12: {"coins": 5900, "bookingCount": 2, "tier": "Silver"},
+    1: {"coins": 11.2, "bookingCount": 3, "tier": "Silver"},
+    2: {"coins": 8.6, "bookingCount": 2, "tier": "Silver"},
+    3: {"coins": 18.4, "bookingCount": 6, "tier": "Gold"},
+    4: {"coins": 5.2, "bookingCount": 2, "tier": "Silver"},
+    5: {"coins": 0.0, "bookingCount": 0, "tier": "Bronze"},
+    6: {"coins": 98.2, "bookingCount": 13, "tier": "Platinum"},
+    7: {"coins": 4.2, "bookingCount": 1, "tier": "Bronze"},
+    8: {"coins": 0.0, "bookingCount": 0, "tier": "Bronze"},
+    9: {"coins": 94.5, "bookingCount": 12, "tier": "Platinum"},
+    10: {"coins": 26.8, "bookingCount": 8, "tier": "Gold"},
+    11: {"coins": 13.1, "bookingCount": 3, "tier": "Silver"},
+    12: {"coins": 5.9, "bookingCount": 2, "tier": "Silver"},
 }
 
 LOYALTY_TRANSACTIONS: list[dict] = []
@@ -53,14 +58,6 @@ TIERS_BY_BOOKING_COUNT = [
     (0, "Bronze"),
 ]
 
-COINS_RATE_BY_TIER_CENTS_PER_DOLLAR = {
-    "Bronze": 1,
-    "Silver": 2,
-    "Gold": 3,
-    "Platinum": 5,
-}
-
-
 def compute_tier_from_booking_count(booking_count: int) -> str:
     booking_count = int(booking_count or 0)
     for threshold, tier in TIERS_BY_BOOKING_COUNT:
@@ -69,16 +66,11 @@ def compute_tier_from_booking_count(booking_count: int) -> str:
     return "Bronze"
 
 
-def coins_rate_for_tier(tier: str | None) -> int:
-    tier_norm = (tier or "").strip().title()
-    return COINS_RATE_BY_TIER_CENTS_PER_DOLLAR.get(tier_norm, COINS_RATE_BY_TIER_CENTS_PER_DOLLAR["Bronze"])
-
-
 def get_record(customer_id: int) -> dict:
     return LOYALTY.get(
         customer_id,
         {
-            "coins": 0,
+            "coins": 0.0,
             "bookingCount": 0,
             "tier": "Bronze",
         },
@@ -92,7 +84,7 @@ def _now_iso() -> str:
 def _append_transaction(
     customer_id: int,
     booking_id: int | None,
-    points_changed: int,
+    points_changed: float,
     reason: str,
 ) -> dict:
     global _TXN_SEQ
@@ -100,7 +92,7 @@ def _append_transaction(
         "ID": _TXN_SEQ,
         "CustomerID": int(customer_id),
         "BookingID": int(booking_id) if booking_id is not None else None,
-        "PointsChanged": int(points_changed),
+        "PointsChanged": float(points_changed),
         "TransactionDate": _now_iso(),
         "Reason": str(reason or "")[:255],
     }
@@ -109,9 +101,16 @@ def _append_transaction(
     return row
 
 
-def to_int_cents(amount: float) -> int:
-    # Coins are stored in cents (int).
-    return int(max(0, round(float(amount or 0))))
+def normalize_coins(value: object) -> float:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = 0.0
+    return round(max(0.0, v), 6)
+
+
+def coins_earned_for_booking_amount(amount: float) -> float:
+    return round(max(0.0, float(amount or 0.0)) * COINS_PER_CURRENCY_UNIT, 6)
 
 
 @app.route("/loyalty/<int:customer_id>/points", methods=["GET"])
@@ -120,7 +119,7 @@ def get_points(customer_id: int):
     Backward-compatible route name.
 
     Returns:
-    - coins (cents) as the main loyalty currency
+    - coins: float balance; checkout discount is still 100 coins = 1 unit off package total
     - bookingCount (completed bookings)
     - tier
 
@@ -133,11 +132,12 @@ def get_points(customer_id: int):
                 "code": 200,
                 "data": {
                     "customerID": customer_id,
-                    "coins": record.get("coins", 0),
+                    "coins": normalize_coins(record.get("coins")),
                     "bookingCount": record.get("bookingCount", 0),
                     "tier": record["tier"],
+                    "coinsPerCurrencyUnit": COINS_PER_CURRENCY_UNIT,
                     # legacy alias
-                    "points": record.get("coins", 0),
+                    "points": normalize_coins(record.get("coins")),
                 },
             }
         ),
@@ -155,7 +155,7 @@ def init_new_account_wallet(customer_id: int):
     if customer_id < 1:
         return jsonify({"code": 400, "message": "customer_id must be >= 1"}), 400
     LOYALTY[customer_id] = {
-        "coins": 0,
+        "coins": 0.0,
         "bookingCount": 0,
         "tier": "Bronze",
     }
@@ -165,7 +165,7 @@ def init_new_account_wallet(customer_id: int):
                 "code": 200,
                 "data": {
                     "customerID": customer_id,
-                    "coins": 0,
+                    "coins": 0.0,
                     "bookingCount": 0,
                     "tier": "Bronze",
                 },
@@ -197,12 +197,11 @@ def earn_points(customer_id: int):
     reason = data.get("reason") or "Earn from completed booking"
     record = get_record(customer_id)
     current_count = int(record.get("bookingCount", 0) or 0)
-    current_coins = int(record.get("coins", 0) or 0)
+    current_coins = normalize_coins(record.get("coins"))
     next_count = current_count + 1
     tier_after_booking = compute_tier_from_booking_count(next_count)
-    coins_rate = coins_rate_for_tier(tier_after_booking)
-    coins_earned = to_int_cents(float(amount) * coins_rate)
-    record["coins"] = current_coins + coins_earned
+    coins_earned = coins_earned_for_booking_amount(float(amount or 0))
+    record["coins"] = normalize_coins(current_coins + coins_earned)
     record["bookingCount"] = next_count
     record["tier"] = tier_after_booking
 
@@ -280,19 +279,23 @@ def refund_points(customer_id: int):
     booking_id = data.get("bookingID")
     booking_amount = data.get("bookingAmount", 0)
     booking_tier = data.get("bookingTier")
-    points_to_restore = int(max(0, int(data.get("pointsToRestore", 0) or 0)))
+    try:
+        points_to_restore = max(0.0, float(data.get("pointsToRestore", 0) or 0))
+    except (TypeError, ValueError):
+        points_to_restore = 0.0
+    points_to_restore = round(points_to_restore, 6)
     reason = data.get("reason") or "Refund reversal after booking cancellation"
     record = get_record(customer_id)
-    coins_rate = coins_rate_for_tier(booking_tier)
-    coins_to_remove = to_int_cents(float(booking_amount) * coins_rate)
+    _ = booking_tier  # reserved if tiered earn returns later
+    coins_to_remove = coins_earned_for_booking_amount(float(booking_amount or 0))
 
     current_count = int(record.get("bookingCount", 0) or 0)
     next_count = max(0, current_count - 1)
 
     # Full cancellation reverses points spent and removes points earned.
-    current_coins = int(record.get("coins", 0) or 0)
-    net_change = points_to_restore - coins_to_remove
-    record["coins"] = max(0, current_coins + net_change)
+    current_coins = normalize_coins(record.get("coins"))
+    net_change = round(points_to_restore - coins_to_remove, 6)
+    record["coins"] = normalize_coins(current_coins + net_change)
     record["bookingCount"] = next_count
     record["tier"] = compute_tier_from_booking_count(next_count)
 
@@ -347,17 +350,21 @@ def adjust_points_legacy():
     booking_id = data.get("bookingID")
     booking_amount = data.get("bookingAmount", 0)
     booking_tier = data.get("bookingTier")
-    points_to_restore = int(max(0, int(data.get("coinsSpentCents", 0) or 0)))
+    try:
+        points_to_restore = max(0.0, float(data.get("coinsSpentCents", 0) or 0))
+    except (TypeError, ValueError):
+        points_to_restore = 0.0
+    points_to_restore = round(points_to_restore, 6)
     reason = data.get("reason") or "Refund reversal after booking cancellation"
 
     record = get_record(int(customer_id))
-    coins_rate = coins_rate_for_tier(booking_tier)
-    coins_to_remove = to_int_cents(float(booking_amount) * coins_rate)
+    _ = booking_tier
+    coins_to_remove = coins_earned_for_booking_amount(float(booking_amount or 0))
     current_count = int(record.get("bookingCount", 0) or 0)
     next_count = max(0, current_count - 1)
-    current_coins = int(record.get("coins", 0) or 0)
-    net_change = points_to_restore - coins_to_remove
-    record["coins"] = max(0, current_coins + net_change)
+    current_coins = normalize_coins(record.get("coins"))
+    net_change = round(points_to_restore - coins_to_remove, 6)
+    record["coins"] = normalize_coins(current_coins + net_change)
     record["bookingCount"] = next_count
     record["tier"] = compute_tier_from_booking_count(next_count)
     LOYALTY[int(customer_id)] = record

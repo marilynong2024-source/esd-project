@@ -70,7 +70,8 @@ In THIS repo you have THREE kinds of storage
 
       FLIGHT / HOTEL   In-memory catalog + seat/hold logic
                        (does not read FlightDB/HotelDB unless you wire it).
-                       Flight: optional Aviationstack enrichment (see flight service).
+                       Flight: catalog merged from FlightDB seed + programmatic rows;
+                       no external flight-status API.
                        Hotel: hotel/app.py HOTELS dict plus merge from
                        hotel/extra_hotels_data.py so search/pricing match the
                        large HotelDB seed (~130+ hotelIDs); runtime still does not

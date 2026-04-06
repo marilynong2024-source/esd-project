@@ -66,10 +66,6 @@ services:
     #   - "5102:5102"
     env_file:
       - .env
-    environment:
-      AVIATIONSTACK_ENABLED: ${AVIATIONSTACK_ENABLED:-false}
-      AVIATIONSTACK_API_KEY: ${AVIATIONSTACK_API_KEY:-}
-      AVIATIONSTACK_BASE_URL: ${AVIATIONSTACK_BASE_URL:-https://api.aviationstack.com/v1}
 
   hotel:
     build: ./hotel
@@ -87,6 +83,10 @@ services:
     build: ./loyalty
     # ports:
     #   - "5105:5105"
+    env_file:
+      - .env
+    environment:
+      LOYALTY_COINS_PER_CURRENCY_UNIT: ${LOYALTY_COINS_PER_CURRENCY_UNIT:-0.001}
 
   graphql:
     build: ./graphql_gateway
@@ -117,6 +117,9 @@ services:
     #   - "5111:5111"
     environment:
       ACCOUNT_SERVICE_URL: http://account:5100
+      # HTTP roots (no /flight or /hotel suffix); bundle_pricing app appends /flight/search, etc.
+      FLIGHT_SERVICE_URL: http://flight:5102
+      HOTEL_SERVICE_URL: http://hotel:5103
     depends_on:
       - account
       - flight

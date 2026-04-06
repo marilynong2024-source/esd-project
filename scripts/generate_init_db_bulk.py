@@ -33,6 +33,31 @@ extra_routes = [
     ("DPS", "PER", "Bali", "Perth", 240, 285, 720),
     ("SIN", "TPE", "Singapore", "Taipei", 280, 310, 820),
     ("TPE", "NRT", "Taipei", "Tokyo", 195, 340, 980),
+    ("SIN", "NRT", "Singapore", "Tokyo", 420, 420, 1850),
+    ("NRT", "SIN", "Tokyo", "Singapore", 415, 400, 1820),
+    ("SIN", "BKK", "Singapore", "Bangkok", 140, 180, 620),
+    ("BKK", "SIN", "Bangkok", "Singapore", 135, 175, 600),
+    ("SIN", "DPS", "Singapore", "Bali", 150, 220, 720),
+    ("DPS", "SIN", "Bali", "Singapore", 148, 210, 700),
+    ("SIN", "SYD", "Singapore", "Sydney", 480, 410, 1180),
+    ("SIN", "MEL", "Singapore", "Melbourne", 450, 400, 1120),
+    ("SIN", "LHR", "Singapore", "London", 820, 760, 4200),
+    ("LHR", "SIN", "London", "Singapore", 805, 740, 4100),
+    ("SIN", "CDG", "Singapore", "Paris", 800, 720, 4000),
+    ("SIN", "JFK", "Singapore", "New York", 920, 880, 6500),
+    ("JFK", "SIN", "New York", "Singapore", 915, 860, 6400),
+    ("SIN", "HKT", "Singapore", "Phuket", 100, 140, 480),
+    ("HKT", "SIN", "Phuket", "Singapore", 98, 135, 460),
+    ("SIN", "AKL", "Singapore", "Auckland", 600, 520, 2100),
+    ("AKL", "SIN", "Auckland", "Singapore", 595, 510, 2050),
+    ("PER", "DPS", "Perth", "Bali", 240, 285, 720),
+    ("SIN", "PER", "Singapore", "Perth", 300, 340, 980),
+    ("ICN", "NRT", "Seoul", "Tokyo", 125, 280, 920),
+    ("NRT", "ICN", "Tokyo", "Seoul", 120, 270, 900),
+    ("HKG", "BKK", "Hong Kong", "Bangkok", 155, 220, 780),
+    ("MEL", "SYD", "Melbourne", "Sydney", 95, 150, 520),
+    ("FCO", "CDG", "Rome", "Paris", 125, 180, 920),
+    ("MAD", "BCN", "Madrid", "Barcelona", 80, 95, 420),
 ]
 
 carriers = [
@@ -82,7 +107,7 @@ def main():
     print("-- ========== BULK SEED (generated) ==========")
     print("USE FlightDB;")
     print("INSERT INTO Flight (flightNumber, airline, origin, destination, originCity, destinationCity, departureTime, arrivalTime, durationMins, economyPrice, businessPrice, totalSeats, availableSeats) VALUES")
-    fr = flight_rows(78)
+    fr = flight_rows(220)
     print(",\n".join(fr) + ";")
 
     print()
@@ -206,7 +231,7 @@ def main():
     roomt = ["STD", "DLX", "STD", "DLX", "SUITE"]
     fares = ["Package"]
     bk2 = []
-    for i in range(4, 68):
+    for i in range(4, 120):
         cid = 1 + (i % 48)
         fid = flights[i % len(flights)]
         hid = 1 + (i % 133)
@@ -257,6 +282,20 @@ def main():
         ("PKG_BKK_SIN2", "Bangkok to Singapore", "Bangkok", "Singapore", 3, "Weekend reverse leg", 35),
         ("PKG_DPS_SIN", "Bali to Singapore", "Bali", "Singapore", 4, "Island to city", 36),
         ("PKG_KUL_SIN", "Kuala Lumpur to Singapore", "Kuala Lumpur", "Singapore", 2, "Short neighbour hop", 37),
+        ("PKG_SIN_ICN", "Singapore to Seoul week", "Singapore", "Seoul", 6, "K-pop and palace days", 38),
+        ("PKG_SIN_HKG", "Singapore to Hong Kong", "Singapore", "Hong Kong", 4, "Harbour and dim sum", 39),
+        ("PKG_SIN_TPE", "Singapore to Taipei", "Singapore", "Taipei", 5, "Night markets and hot springs", 40),
+        ("PKG_SIN_MEL", "Singapore to Melbourne", "Singapore", "Melbourne", 7, "Lanes and coffee arcades", 41),
+        ("PKG_SIN_KUL", "Singapore to KL towers", "Singapore", "Kuala Lumpur", 3, "Petronas and street food", 42),
+        ("PKG_SIN_HKT", "Singapore to Phuket", "Singapore", "Phuket", 5, "Beach and long-tail boats", 43),
+        ("PKG_SIN_AKL", "Singapore to Auckland", "Singapore", "Auckland", 8, "Harbour city and islands", 44),
+        ("PKG_SIN_JFK", "Singapore to New York", "Singapore", "New York", 10, "Cross-Pacific city break", 45),
+        ("PKG_SIN_PER", "Singapore to Perth", "Singapore", "Perth", 5, "West coast sunshine", 46),
+        ("PKG_ICN_TYO", "Seoul to Tokyo hop", "Seoul", "Tokyo", 5, "Two capitals one trip", 47),
+        ("PKG_HKG_BKK", "Hong Kong to Bangkok", "Hong Kong", "Bangkok", 5, "Harbour to river nights", 48),
+        ("PKG_MEL_SYD", "Melbourne to Sydney", "Melbourne", "Sydney", 4, "Coastal cities combo", 49),
+        ("PKG_ROM_PAR", "Rome to Paris", "Rome", "Paris", 6, "Ancient to Haussmann", 50),
+        ("PKG_MAD_BCN", "Madrid to Barcelona", "Madrid", "Barcelona", 5, "Tapas to Gaudí", 51),
     ]
     print()
     print(
@@ -304,7 +343,7 @@ def main():
     print()
     print("USE FlightDB;")
     frs = []
-    for i in range(1, 46):
+    for i in range(1, 85):
         bid = 1 + (i % 64)
         fn = flights[i % len(flights)]
         seat = f"{12 + (i % 18)}{chr(65 + (i % 5))}"
@@ -319,7 +358,7 @@ def main():
     print()
     print("USE HotelDB;")
     hbs = []
-    for i in range(1, 38):
+    for i in range(1, 58):
         bid = 2 + (i % 63)
         hid = 1 + (i % 133)
         rt = random.choice(["Standard", "Deluxe", "Suite"])

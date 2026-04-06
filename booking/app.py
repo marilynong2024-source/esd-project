@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -92,9 +92,28 @@ app = Flask(__name__)
 CORS(app)
 
 # In-memory tracking for the demo:
-# How many loyalty coins (in cents) were spent for each created booking.
+# How many loyalty coins were spent per booking (100 coins = 1 currency unit off total).
 # Needed so cancellation can refund coins that were spent at payment time.
-COINS_SPENT_BY_BOOKING = {}
+COINS_SPENT_BY_BOOKING: Dict[int, float] = {}
+
+
+def _parse_loyalty_points_spend(raw: object) -> float:
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, round(v, 6))
+
+# Refund model when only package totalPrice is known (no stored flight/hotel split):
+ESTIMATED_FLIGHT_SHARE_OF_PACKAGE = float(
+    os.environ.get("BOOKING_FLIGHT_SHARE", "0.55") or "0.55"
+)
+CUSTOMER_FLIGHT_CANCEL_FEE_SGD = float(
+    os.environ.get("BOOKING_FLAT_FLIGHT_CANCEL_FEE_SGD", "300") or "300"
+)
+HOTEL_FREE_CANCEL_MIN_DAYS = int(
+    os.environ.get("BOOKING_HOTEL_FREE_CANCEL_DAYS", "7") or "7"
+)
 
 # Database configuration
 db_url = os.environ.get("DB_URL", "sqlite:///bookings.db")
@@ -473,26 +492,31 @@ def traveller_profile_ids_for_event(booking: Booking) -> list[int]:
     return booking.to_dict()["travellerProfileIds"]
 
 
-def compute_customer_refund_percentage(
-    days_before_departure: int,
-    loyalty_tier: str | None = None,
-) -> int:
-    """Single schedule by days before departure (no fare-type bands)."""
-    days = int(days_before_departure)
-    brackets = [
-        (30, 100),
-        (14, 75),
-        (7, 50),
-        (1, 25),
-    ]
-    percentage = 0
-    for min_days, pct in brackets:
-        if days >= min_days:
-            percentage = pct
-            break
-    if loyalty_tier and loyalty_tier.lower() == "gold" and percentage > 0:
-        percentage = min(100, percentage + 10)
-    return percentage
+def _flight_budget_carrier(flight_id: str | None) -> bool:
+    """True for budget / LCC-style flights (non-refundable on customer cancel)."""
+    fid = str(flight_id or "").strip().upper()
+    if not fid:
+        return False
+    base = os.environ.get("FLIGHT_URL", "http://flight:5102/flight").strip().rstrip("/")
+    url = f"{base}/{fid}" if base.endswith("/flight") else f"{base}/flight/{fid}"
+    try:
+        r = requests.get(url, timeout=3)
+        if r.ok:
+            body = r.json()
+            row = body.get("data") if isinstance(body, dict) else None
+            if isinstance(row, dict):
+                if "budgetCarrier" in row:
+                    return bool(row["budgetCarrier"])
+                airline = str(row.get("airline") or "").lower()
+                for token in ("airasia", "scoot", "jetstar"):
+                    if token in airline:
+                        return True
+    except (requests.RequestException, ValueError, TypeError, AttributeError):
+        pass
+    for prefix in ("AK", "TR", "3K", "5J"):
+        if fid.startswith(prefix):
+            return True
+    return False
 
 
 def compute_refund_policy_id_and_amount(
@@ -501,31 +525,60 @@ def compute_refund_policy_id_and_amount(
     loyalty_tier: str | None,
     days_before_departure: int,
     cancel_source: str,
+    flight_id: str | None = None,
+    airline_imposed_fee_sgd: float = 0.0,
 ) -> tuple[str, int, float]:
     """
-    Refund calculator:
-    - Airline cancel => full package refund.
-    - Hotel cancel   => 40% of package total.
-    - Customer       => days-before-departure brackets + Gold bonus.
+    Cancellation refunds (demo model aligned to product policy copy):
+
+    - Airline-initiated: 100% package refund (incl. integrated flight+hotel).
+    - Hotel-initiated: 100% package refund; loyalty coins spent are restored separately.
+    - Customer-initiated:
+        - After departure / no-show: 0% (no refund; separate no-show fees are out of scope here).
+        - Hotel portion: 100% if cancelled at least HOTEL_FREE_CANCEL_MIN_DAYS before
+          departure (check-in proxy); otherwise 0% for that portion.
+        - Budget / small-carrier flight portion: non-refundable (0% of flight estimate).
+        - Major-airline flight portion: max(0, flight_estimate - S$300 flat fee -
+          optional airline_imposed_fee_sgd). Carrier charges are passed in for estimates when known.
+
+    Package total is split with ESTIMATED_FLIGHT_SHARE_OF_PACKAGE when line items are unknown.
     """
-    total = float(total_price or 0.0)
+    _ = loyalty_tier  # reserved for future tier-specific rules
+    total = max(0.0, float(total_price or 0.0))
     src = (cancel_source or "customer").strip().lower()
     if src == "airline":
-        return "AIRLINE_FULL", 100, round(total, 2)
+        return "AIRLINE_FULL_REFUND", 100, round(total, 2)
     if src == "hotel":
-        amt = round(total * 0.40, 2)
-        pct = int(round((amt / total) * 100)) if total > 0 else 0
-        return "HOTEL_PARTIAL", pct, amt
+        return "HOTEL_PROVIDER_FULL_REFUND", 100, round(total, 2)
 
-    pct = compute_customer_refund_percentage(
-        days_before_departure,
-        loyalty_tier=loyalty_tier,
-    )
-    if days_before_departure < 0:
-        pct = 0
-    d = max(-1, int(days_before_departure))
-    policy = f"PKG_{(loyalty_tier or 'STD').strip().upper()}_D{d}"
-    amt = round(max(0.0, total * (pct / 100.0)), 2)
+    d = int(days_before_departure)
+    if d < 0:
+        return "NOSHOW_NO_REFUND", 0, 0.0
+
+    share = min(0.95, max(0.05, ESTIMATED_FLIGHT_SHARE_OF_PACKAGE))
+    flight_part = round(total * share, 2)
+    hotel_part = round(max(0.0, total - flight_part), 2)
+
+    hotel_refund = hotel_part if d >= HOTEL_FREE_CANCEL_MIN_DAYS else 0.0
+
+    budget = _flight_budget_carrier(flight_id)
+    fee_extra = max(0.0, float(airline_imposed_fee_sgd or 0.0))
+
+    if budget:
+        flight_refund = 0.0
+        if hotel_refund > 0:
+            policy = "CUST_BUDGET_FLIGHT_NONREFUND_HOTEL_WINDOW"
+        else:
+            policy = "CUST_BUDGET_FLIGHT_NONREFUND_HOTEL_INSIDE_WINDOW"
+    else:
+        flight_refund = max(
+            0.0,
+            flight_part - CUSTOMER_FLIGHT_CANCEL_FEE_SGD - fee_extra,
+        )
+        policy = "CUST_MAJOR_FLIGHT_FEE_AND_HOTEL_WINDOW"
+
+    amt = round(flight_refund + hotel_refund, 2)
+    pct = int(round((amt / total) * 100)) if total > 0 else 0
     return policy, pct, amt
 
 
@@ -675,7 +728,7 @@ def create_booking():
     warnings: list[str] = []
 
     try:
-        coins_to_spend_cents = int(max(0, int(data.get("coinsToSpendCents", 0) or 0)))
+        loyalty_points_to_spend = _parse_loyalty_points_spend(data.get("coinsToSpendCents", 0))
         hold_token = str(data.get("seatHoldToken") or "").strip()
         seat_numbers = _parse_seat_numbers_payload(data)
         seat_number = seat_numbers[0] if seat_numbers else None
@@ -684,7 +737,7 @@ def create_booking():
         if customer_id < 0:
             return _bad_request("customerID must be non-negative")
         if customer_id == 0:
-            coins_to_spend_cents = 0
+            loyalty_points_to_spend = 0.0
 
         hotel_id = int(data["hotelID"])
         if hotel_id < 1:
@@ -1064,29 +1117,35 @@ def create_booking():
                 f"{loyalty_url}/{booking.customerID}/points",
                 timeout=5,
             )
-            points_available = 0
+            points_available = 0.0
             if points_resp.ok:
                 try:
                     points_data = points_resp.json()
                 except ValueError:
                     points_data = {}
                 if points_data.get("code") == 200 and points_data.get("data"):
-                    points_available = int(
-                        points_data["data"].get("coins")
-                        or points_data["data"].get("points")
-                        or 0
-                    )
+                    try:
+                        points_available = float(
+                            points_data["data"].get("coins")
+                            or points_data["data"].get("points")
+                            or 0
+                        )
+                    except (TypeError, ValueError):
+                        points_available = 0.0
+                    points_available = max(0.0, round(points_available, 6))
             else:
                 warnings.append(
                     f"Loyalty points-check failed HTTP {points_resp.status_code}"
                 )
-            points_to_redeem = min(int(points_available), int(coins_to_spend_cents))
+            points_to_redeem = round(
+                min(points_available, loyalty_points_to_spend), 6
+            )
             if points_to_redeem > 0:
                 redeem_resp = requests.post(
                     f"{loyalty_url}/{booking.customerID}/redeem",
                     json={
                         "bookingID": booking.id,
-                        "points": points_to_redeem,
+                        "points": float(points_to_redeem),
                         "reason": "Pre-payment discount",
                     },
                     timeout=5,
@@ -1097,9 +1156,13 @@ def create_booking():
                     except ValueError:
                         redeem_data = {}
                     if redeem_data.get("code") == 200 and redeem_data.get("data"):
-                        COINS_SPENT_BY_BOOKING[booking.id] = int(
-                            redeem_data["data"].get("pointsRedeemed") or points_to_redeem
-                        )
+                        try:
+                            pr = float(
+                                redeem_data["data"].get("pointsRedeemed") or points_to_redeem
+                            )
+                        except (TypeError, ValueError):
+                            pr = float(points_to_redeem)
+                        COINS_SPENT_BY_BOOKING[booking.id] = max(0.0, round(pr, 6))
                 else:
                     warnings.append(
                         f"Loyalty redeem failed HTTP {redeem_resp.status_code}"
@@ -1372,14 +1435,40 @@ def get_bookings_by_customer(customer_id: int):
 def get_booking_policies():
     data = {
         "sources": ["customer", "airline", "hotel"],
-        "customerRefundBrackets": [
-            {"minDaysBeforeDeparture": 30, "refundPercent": 100},
-            {"minDaysBeforeDeparture": 14, "refundPercent": 75},
-            {"minDaysBeforeDeparture": 7, "refundPercent": 50},
-            {"minDaysBeforeDeparture": 1, "refundPercent": 25},
-        ],
-        "goldBonusPercent": 10,
-        "notes": "Customer refunds use days-before-departure only (see customerRefundBrackets). Gold members get +10% when refund > 0. Airline-initiated: full refund. Hotel-initiated: 40% of package. After departure: 0%.",
+        "processing": {
+            "customerRefunds": "Approved customer-requested refunds are processed within a 30-day window.",
+        },
+        "customerInitiated": {
+            "flatFlightCancellationFeeSgd": CUSTOMER_FLIGHT_CANCEL_FEE_SGD,
+            "noShow": "No refund for no-shows; traveller may remain liable for a separate no-show fee.",
+        },
+        "flightPolicies": {
+            "budgetCarriers": "Bookings on budget / small-carrier flights are non-refundable and cannot be cancelled for a flight fare refund; hotel portion may still follow hotel window rules.",
+            "majorAirlines": "Refunds are ticket price less airline cancellation charges (e.g. S$1,000 fare with S$500 airline fee yields S$500 back). Use refund-estimate query airlineImposedFee when modelling that fee.",
+            "airlineInitiated": "If the airline cancels, the customer receives a 100% full package refund.",
+        },
+        "hotelPolicies": {
+            "customerCancellation": (
+                f"100% refund of the estimated hotel portion if cancelled at least "
+                f"{HOTEL_FREE_CANCEL_MIN_DAYS} days before check-in (departure date used as proxy). "
+                "Inside that window the hotel portion is non-refundable."
+            ),
+            "hotelInitiated": "If the hotel cancels, 100% full refund; loyalty points (coins) used at payment are restored via the loyalty service.",
+        },
+        "integratedPackages": {
+            "flightPlusHotel": (
+                "If the flight is cancelled but the hotel stay remains active, the provider first seeks "
+                "a comparable alternative. If none is suitable or the customer declines, a full refund "
+                "for the entire package applies (modelled as airline-initiated cancellation)."
+            ),
+        },
+        "demoModel": {
+            "estimatedFlightShareOfPackage": ESTIMATED_FLIGHT_SHARE_OF_PACKAGE,
+            "notes": (
+                "Estimates split package totalPrice into flight/hotel portions for refund math when "
+                "line items are not stored on the booking row."
+            ),
+        },
     }
     return jsonify({"code": 200, "data": data}), 200
 
@@ -1419,11 +1508,20 @@ def booking_refund_estimate():
         return jsonify({"code": 500, "message": "Invalid departureTime format on booking"}), 500
     now = datetime.utcnow()
     days_before_departure = (departure_time - now).days
+    fee_raw = (request.args.get("airlineImposedFee") or "").strip()
+    try:
+        airline_fee = float(fee_raw) if fee_raw else 0.0
+    except ValueError:
+        airline_fee = 0.0
+    airline_fee = max(0.0, airline_fee)
+
     policy_id, pct, amount = compute_refund_policy_id_and_amount(
         total_price=float(booking.totalPrice or 0),
         loyalty_tier=booking.loyaltyTier,
         days_before_departure=days_before_departure,
         cancel_source=cancel_source,
+        flight_id=booking.flightID,
+        airline_imposed_fee_sgd=airline_fee,
     )
     return jsonify(
         {
@@ -1436,6 +1534,7 @@ def booking_refund_estimate():
                 "refundPercentage": pct,
                 "refundAmount": amount,
                 "currency": booking.currency or "SGD",
+                "airlineImposedFeeSgd": airline_fee,
             },
         }
     ), 200
@@ -1698,11 +1797,21 @@ def cancel_booking(booking_id: int):
             f"cancelSource must be one of: {', '.join(sorted(allowed_sources))}"
         )
 
+    fee_raw = req.get("airlineImposedFee") or req.get("airline_imposed_fee")
+    fee_raw = "" if fee_raw is None else str(fee_raw).strip()
+    try:
+        airline_fee = float(fee_raw) if fee_raw else 0.0
+    except (TypeError, ValueError):
+        airline_fee = 0.0
+    airline_fee = max(0.0, airline_fee)
+
     policy_id, percentage, amount = compute_refund_policy_id_and_amount(
         total_price=total_price,
         loyalty_tier=booking.loyaltyTier,
         days_before_departure=days_before_departure,
         cancel_source=cancel_source,
+        flight_id=booking.flightID,
+        airline_imposed_fee_sgd=airline_fee,
     )
 
     payment_base = os.environ.get("PAYMENT_URL", "http://payment:5104/payment").rstrip("/")
@@ -1872,7 +1981,7 @@ def cancel_booking(booking_id: int):
                 "bookingID": booking_id,
                 "bookingAmount": float(booking.totalPrice),
                 "bookingTier": booking.loyaltyTier,
-                "pointsToRestore": int(COINS_SPENT_BY_BOOKING.get(booking_id, 0) or 0),
+                "pointsToRestore": float(COINS_SPENT_BY_BOOKING.get(booking_id, 0) or 0),
                 "reason": "Booking cancellation reversal",
             }
             adj_resp = requests.post(
